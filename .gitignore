@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Secrets -- Gateway and service-to-service signing keys.
+# Inventory's copy of this file was once saved as UTF-16, which made git read every rule
+# as binary garbage and match none of them. This file is UTF-8 on purpose.
+dev-keys/
+*.pem
+*.key
+
+# Logs
+npm-debug.log*
+*.log
+
+# OS
+.DS_Store

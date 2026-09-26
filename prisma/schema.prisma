@@ -1,0 +1,782 @@
+// ScaleEzy POS -- the till's own database.
+//
+// The POS owns the SALE: the moment money changes hands. Inventory owns the GOODS. This database
+// holds sales, lines, payments, returns, credit notes, held bills, shifts and day closes -- and,
+// for a standalone client with no Inventory module, a minimal item and customer list too. It never
+// holds stock levels, purchase orders or costs, and this service never writes to Inventory's
+// database: everything it needs from there comes through the Gateway.
+//
+// FOUR THINGS IN HERE ARE DELIBERATE AND EXPENSIVE TO RETROFIT. They are done now, in the first
+// migration, while the tables are empty:
+//
+//   1. MONEY IS ALWAYS Int PAISE. Never Float, never Decimal-as-float. A till adds, splits and
+//      rounds money thousands of times a day; a half-paise error becomes a drawer that does not
+//      balance, and a cashier who stops trusting the software.
+//   2. INVOICE NUMBERS come from InvoiceSeries, allocated inside the same transaction that saves
+//      the sale. Unbroken, per financial year, per shop, never reused, never skipped. A gap in the
+//      series is a question the shop has to answer to a tax officer.
+//   3. EVERY SALE AND RETURN CARRIES onceKey, holdId AND holdConfirmedAt. The first makes a retry
+//      harmless; the other two make an unconfirmed sale findable. Without them a sale that
+//      committed here but was never confirmed by Inventory is invisible -- finished from the till's
+//      point of view and never heard of by Inventory. Inventory has paid for that lesson once
+//      already: its previous outbox stranded 747 events because a claim had no lease.
+//   4. irn, ackNo AND signedQr EXIST AND ARE NULL. e-invoicing starts above Rs 5 crore turnover and
+//      no client is there yet, so none of it is built -- but the columns cost nothing empty and
+//      adding them to a live sales table later is the expensive version.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------------------------
+// Who is at the till
+// ---------------------------------------------------------------------------------------------
+
+/// Local RBAC. Present even when the Gateway authenticates, because the Gateway proves WHO someone
+/// is and this database decides WHAT they may do here -- overriding a price, refunding, closing the
+/// day. A till that asked the Gateway for permissions on every keystroke would not meet its latency
+/// budget, and a shop whose line is down must still be able to sell.
+model User {
+  id       String     @id @default(uuid())
+  clientId String     @map("client_id")
+  name     String?
+  email    String?
+  phone    String?
+  status   UserStatus @default(ACTIVE)
+
+  /// Only set when AUTH_MODE=local. Under gateway auth the Gateway holds the credential.
+  passwordHash String? @map("password_hash")
+
+  roles     UserRole[]
+  shifts    Shift[]
+  sales     Sale[]
+  returns   Return[]
+  dayCloses DayClose[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([clientId, email])
+  @@index([clientId])
+  @@map("users")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+model Role {
+  id       String  @id @default(uuid())
+  clientId String? @map("client_id")
+  name     String
+  /// Seeded roles (OWNER, MANAGER, CASHIER) cannot be edited or deleted by a client.
+  isSystem Boolean @default(false) @map("is_system")
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([clientId, name])
+  @@map("roles")
+}
+
+/// Permission keys are rows, not an enum. Adding a permission must never need a migration against
+/// a table another deployment is already reading -- that mistake took Inventory's alerts endpoint
+/// down on 23 Sep 2026.
+model Permission {
+  id          String  @id @default(uuid())
+  key         String  @unique
+  description String?
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String @map("role_id")
+  permissionId String @map("permission_id")
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// ---------------------------------------------------------------------------------------------
+// The shop, its counters and its numbering
+// ---------------------------------------------------------------------------------------------
+
+/// Per-client till settings. One row per shop.
+model ShopSettings {
+  clientId String @id @map("client_id")
+
+  shopName       String  @map("shop_name")
+  gstin          String?
+  address        String?
+  logoUrl        String? @map("logo_url")
+  receiptFooter  String? @map("receipt_footer")
+  invoicePrefix  String  @default("INV") @map("invoice_prefix")
+  creditNotePrefix String @default("CN") @map("credit_note_prefix")
+
+  /// Cash / UPI / Card / Points / Credit each on or off for this shop.
+  enabledPaymentMethods PaymentMethod[] @map("enabled_payment_methods")
+
+  /// The most a cashier may take off a bill by hand without a manager. Percent.
+  manualDiscountMaxPercent Int @default(0) @map("manual_discount_max_percent")
+  /// Days after a sale within which a return needs no approval.
+  returnWindowDays         Int @default(7) @map("return_window_days")
+
+  /// At or below this many on hand, the till takes a live hold from Inventory before it commits;
+  /// above it, it sells optimistically and lets Inventory reconcile. One number, deliberately,
+  /// because it also decides when the sell screen may honestly say "last one" -- two numbers would
+  /// drift apart. A shop that has been burned turns it up.
+  holdThresholdQty Int @default(3) @map("hold_threshold_qty")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("shop_settings")
+}
+
+/// A physical till. Two on a Saturday share one invoice series and close together.
+model Counter {
+  id       String  @id @default(uuid())
+  clientId String  @map("client_id")
+  name     String
+  active   Boolean @default(true)
+
+  sales     Sale[]
+  heldBills HeldBill[]
+  shifts    Shift[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([clientId, name])
+  @@index([clientId])
+  @@map("counters")
+}
+
+/// The invoice series, one row per shop per financial year.
+///
+/// A number is taken with a single conditional UPDATE inside the transaction that writes the sale
+/// (`UPDATE ... SET last_number = last_number + 1 ... RETURNING last_number`), so two tills
+/// pressing Complete in the same millisecond get 41 and 42 rather than both getting 41. Read it,
+/// then write it, and they both get 41.
+///
+/// Indian financial years run April to March, so the year is stored as the label a shop and its
+/// accountant use ("2026-27") rather than a calendar year.
+model InvoiceSeries {
+  id            String @id @default(uuid())
+  clientId      String @map("client_id")
+  financialYear String @map("financial_year")
+  kind          SeriesKind
+
+  prefix     String
+  lastNumber Int    @default(0) @map("last_number")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([clientId, financialYear, kind])
+  @@map("invoice_series")
+}
+
+enum SeriesKind {
+  /// Sales invoices.
+  INVOICE
+  /// Credit notes for returns. A separate series is a GST requirement, not a nicety.
+  CREDIT_NOTE
+}
+
+// ---------------------------------------------------------------------------------------------
+// The customer
+// ---------------------------------------------------------------------------------------------
+
+/// The phone number is the identity, and it is unique per shop.
+///
+/// A sale is still possible with NO customer at all -- someone paying cash who will not give a
+/// number. This rule governs customer records, not whether a sale can happen.
+///
+/// When the client also has Inventory, Inventory is master of this list and these rows are a cache
+/// keyed by the same phone number. In standalone mode this IS the list.
+model Customer {
+  id       String  @id @default(uuid())
+  clientId String  @map("client_id")
+  phone    String
+  name     String?
+  gstin    String?
+
+  /// Both are Inventory's figures when that module is on, mirrored here only so the sell screen can
+  /// show them instantly. Neither may be SPENT from this cache: a balance moves from outside the
+  /// till (a colleague processing an exchange), so paying with POINTS or CREDIT always takes a live
+  /// hold. See Sale.holdId.
+  loyaltyPoints    Int @default(0) @map("loyalty_points")
+  storeCreditPaise Int @default(0) @map("store_credit_paise")
+
+  sales Sale[]
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  @@unique([clientId, phone])
+  @@index([clientId])
+  @@map("customers")
+}
+
+// ---------------------------------------------------------------------------------------------
+// What there is to sell
+// ---------------------------------------------------------------------------------------------
+
+/// STANDALONE MODE ONLY, plus the offline cache.
+///
+/// A client who has bought Inventory leaves this table effectively unused: the till reads products
+/// through the Gateway and keeps the answers here as a cache, because the item list changes rarely
+/// and a scan cannot afford a round trip. A client with only the POS fills it by CSV import, by the
+/// public API, or by hand.
+///
+/// No cost price, ever. It is not needed to sell and it must not be on a screen a cashier can show
+/// a customer.
+model Item {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+
+  code    String
+  barcode String?
+  name    String
+  colour  String?
+  size    String?
+  hsn     String?
+
+  /// GST-inclusive, in paise. The price on the tag is the price paid -- that decision is settled
+  /// and carried over from the counter sale that ran inside Inventory.
+  pricePaise Int @map("price_paise")
+  /// Percent, e.g. 5 or 12. The bill still shows the CGST/SGST split; this is the rate it splits.
+  taxRate    Int @default(0) @map("tax_rate")
+
+  /// Inventory's variant id, when this row is a cache of an Inventory product. Null in standalone
+  /// mode. Third parties and the public API address items by `code`, never by either uuid, so a
+  /// client's own software is not coupled to our primary keys.
+  inventoryVariantId String? @map("inventory_variant_id")
+
+  /// Last known quantity at this store, and when it was read. Advisory only: the sell screen shows
+  /// it so an assistant can say "last one" honestly, and it decides whether a hold is needed. It is
+  /// never the authority, and a sale is never blocked because it is stale.
+  cachedQty     Int?      @map("cached_qty")
+  cachedQtyAt   DateTime? @map("cached_qty_at")
+
+  active Boolean @default(true)
+
+  saleLines SaleLine[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([clientId, code])
+  @@unique([clientId, barcode])
+  @@index([clientId])
+  @@index([clientId, inventoryVariantId])
+  @@map("items")
+}
+
+// ---------------------------------------------------------------------------------------------
+// The sale
+// ---------------------------------------------------------------------------------------------
+
+model Sale {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+
+  /// Allocated from InvoiceSeries inside this sale's own transaction. Unbroken, per financial year.
+  invoiceNo     String @map("invoice_no")
+  financialYear String @map("financial_year")
+
+  counterId String  @map("counter_id")
+  cashierId String? @map("cashier_id")
+
+  kind   SaleKind
+  status SaleStatus @default(COMPLETED)
+
+  customerId String? @map("customer_id")
+
+  /// Every figure in paise. subtotal is before discount and after nothing else; total is what was
+  /// actually asked for, after discount, tax and rounding.
+  subtotalPaise Int @map("subtotal_paise")
+  discountPaise Int @default(0) @map("discount_paise")
+  taxPaise      Int @default(0) @map("tax_paise")
+  roundOffPaise Int @default(0) @map("round_off_paise")
+  totalPaise    Int @map("total_paise")
+  /// What the customer was shown as saved. Shown on the receipt, because it is the cheapest
+  /// loyalty tool there is.
+  savedPaise    Int @default(0) @map("saved_paise")
+
+  /// IDEMPOTENCY. The till makes one key per basket. Pressing Complete twice, a retry after a
+  /// timeout, and the offline outbox flushing the same bill are three names for one problem, and
+  /// this is the answer to all three: unique, and the second attempt returns the first sale rather
+  /// than making a second one. Inventory solves it the same way, with once_key on every money row.
+  onceKey String @unique @map("once_key")
+
+  /// THE HOLD THIS SALE COMMITTED AGAINST, and when Inventory confirmed it.
+  ///
+  /// A capped offer, the last few of a variant, a customer's loyalty points and their store credit
+  /// are all limited, and all four are guarded inside a single transaction when the sale happens in
+  /// Inventory. Across two databases that is impossible, so the till takes a short-lived hold from
+  /// Inventory first and commits against it.
+  ///
+  /// holdId set and holdConfirmedAt null IS THE RECONCILE QUEUE. Without these two columns such a
+  /// sale is invisible. A hold that expires unconfirmed is Inventory's to release.
+  ///
+  /// Both null means nothing limited was involved -- an ordinary basket of plentiful stock paid for
+  /// in cash, sold optimistically, which is the common case and must stay fast.
+  holdId          String?   @map("hold_id")
+  holdConfirmedAt DateTime? @map("hold_confirmed_at")
+
+  /// e-invoicing, above Rs 5 crore turnover. Not built. Not null-checked anywhere yet.
+  irn      String? @map("irn")
+  ackNo    String? @map("ack_no")
+  signedQr String? @map("signed_qr")
+
+  /// Set when the bill was made offline, so a day close can say so plainly.
+  madeOfflineAt DateTime? @map("made_offline_at")
+
+  lines    SaleLine[]
+  payments Payment[]
+  returns  Return[]
+
+  counter  Counter   @relation(fields: [counterId], references: [id])
+  cashier  User?     @relation(fields: [cashierId], references: [id], onDelete: SetNull)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([clientId, invoiceNo])
+  @@index([clientId, createdAt])
+  @@index([clientId, status])
+  @@index([counterId])
+  @@index([customerId])
+  @@index([holdId])
+  @@map("sales")
+}
+
+enum SaleKind {
+  /// Paid for and taken away.
+  COMPLETE
+  /// Kept for the customer -- part payment now, balance later, goods held or handed over.
+  KEPT
+}
+
+enum SaleStatus {
+  COMPLETED
+  /// A KEPT sale with money still owed.
+  BALANCE_DUE
+  /// Fully returned. A partly returned sale stays COMPLETED; its lines carry the detail.
+  RETURNED
+  /// Made offline, not yet accepted by the server. Only ever set by the outbox flush.
+  PENDING_SYNC
+}
+
+model SaleLine {
+  id     String @id @default(uuid())
+  saleId String @map("sale_id")
+
+  /// Null when the line was typed rather than scanned, or when a standalone shop sells something
+  /// not in its item list. The description, price and tax are copied onto the line either way: a
+  /// bill must read the same in five years even if the item is renamed or deleted.
+  itemId String? @map("item_id")
+  /// Inventory's variant id, so `sale.completed` can tell Inventory what left the shelf.
+  inventoryVariantId String? @map("inventory_variant_id")
+
+  description String
+  hsn         String?
+  qty         Int
+  unitPricePaise Int @map("unit_price_paise")
+  discountPaise  Int @default(0) @map("discount_paise")
+  taxRate        Int @default(0) @map("tax_rate")
+  taxPaise       Int @default(0) @map("tax_paise")
+  lineTotalPaise Int @map("line_total_paise")
+
+  /// Which offers touched this line, and what each took off. Frozen at the moment of sale: the
+  /// rules may change tomorrow, but this bill was priced under today's.
+  appliedOffers Json? @map("applied_offers")
+
+  /// Set with a reason when someone overrode the shelf price. Permission-gated, and audited --
+  /// the single most abused feature in any POS.
+  priceOverrideReason String? @map("price_override_reason")
+
+  sale        Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  item        Item?        @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  returnLines ReturnLine[]
+
+  @@index([saleId])
+  @@index([itemId])
+  @@map("sale_lines")
+}
+
+model Payment {
+  id       String  @id @default(uuid())
+  clientId String  @map("client_id")
+  saleId   String  @map("sale_id")
+
+  method      PaymentMethod
+  amountPaise Int           @map("amount_paise")
+  /// UPI transaction reference, card approval code, or the cheque number.
+  reference   String?
+
+  /// Cash tendered and change given, for the CASH part of a split. Recorded because getting change
+  /// wrong loses real money, and a drawer that is short needs the evidence.
+  tenderedPaise Int? @map("tendered_paise")
+  changePaise   Int? @map("change_paise")
+
+  /// Same idempotency rule as the sale: one key per payment attempt.
+  onceKey String @unique @map("once_key")
+
+  /// Collected later against a KEPT sale, rather than at the moment of sale.
+  collectedAt DateTime? @map("collected_at")
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId, createdAt])
+  @@index([saleId])
+  @@map("payments")
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  /// Store credit the shop owed this customer.
+  CREDIT
+  /// Loyalty points spent as money.
+  POINTS
+  /// A KEPT sale's outstanding balance. Not money received -- the line that makes the bill add up.
+  BALANCE
+}
+
+// ---------------------------------------------------------------------------------------------
+// Returns and exchanges
+// ---------------------------------------------------------------------------------------------
+
+/// Clothing lives on exchanges, so this has to be as fast as a sale.
+model Return {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+
+  /// Its own series, per financial year. A GST requirement.
+  creditNoteNo  String @map("credit_note_no")
+  financialYear String @map("financial_year")
+
+  originalSaleId String @map("original_sale_id")
+  cashierId      String? @map("cashier_id")
+
+  reason       String
+  refundMethod RefundMethod @map("refund_method")
+  totalPaise   Int          @map("total_paise")
+
+  /// An exchange is a return and a sale settling only the difference. This points at the new sale.
+  exchangeSaleId String? @map("exchange_sale_id")
+
+  /// Same three columns, same reasons as on Sale -- an exchange both releases a hold and takes one.
+  onceKey         String    @unique @map("once_key")
+  holdId          String?   @map("hold_id")
+  holdConfirmedAt DateTime? @map("hold_confirmed_at")
+
+  /// Set when a return outside the window was allowed, and by whom.
+  approvedById String? @map("approved_by_id")
+
+  lines ReturnLine[]
+
+  originalSale Sale  @relation(fields: [originalSaleId], references: [id])
+  cashier      User? @relation(fields: [cashierId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([clientId, creditNoteNo])
+  @@index([clientId, createdAt])
+  @@index([originalSaleId])
+  @@index([holdId])
+  @@map("returns")
+}
+
+enum RefundMethod {
+  CASH
+  UPI
+  CARD
+  /// Held against the phone number, to be spent in the shop.
+  STORE_CREDIT
+  /// Settled against the goods taken instead -- an exchange.
+  EXCHANGE
+}
+
+model ReturnLine {
+  id       String @id @default(uuid())
+  returnId String @map("return_id")
+
+  saleLineId String @map("sale_line_id")
+  qty        Int
+  amountPaise Int   @map("amount_paise")
+
+  returnRow Return   @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  saleLine  SaleLine @relation(fields: [saleLineId], references: [id])
+
+  @@index([returnId])
+  @@index([saleLineId])
+  @@map("return_lines")
+}
+
+// ---------------------------------------------------------------------------------------------
+// Parking a bill
+// ---------------------------------------------------------------------------------------------
+
+/// A customer goes back for another saree and someone is waiting. Park the bill, serve the next
+/// person, bring it back.
+///
+/// Held on the server, not only in the browser, for two reasons: it must survive a refresh and a
+/// browser crash, and it belongs to the shift rather than to one cashier -- whoever is free
+/// finishes it.
+model HeldBill {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+
+  counterId String @map("counter_id")
+  /// What the cashier will recognise it by: a name, "blue saree lady", a token number.
+  label     String
+
+  /// The basket as the screen had it. Json because a parked bill is a draft, not a record: it has
+  /// no invoice number, has taken no hold, and has moved no stock.
+  payload Json
+
+  createdById String?  @map("created_by_id")
+  counter     Counter  @relation(fields: [counterId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId, counterId])
+  @@map("held_bills")
+}
+
+// ---------------------------------------------------------------------------------------------
+// The shift and the day
+// ---------------------------------------------------------------------------------------------
+
+/// The feature that makes an owner trust the software.
+model Shift {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+
+  counterId String  @map("counter_id")
+  cashierId String? @map("cashier_id")
+
+  openedAt        DateTime  @default(now()) @map("opened_at")
+  openingCashPaise Int      @map("opening_cash_paise")
+
+  closedAt         DateTime? @map("closed_at")
+  /// What the software says should be in the drawer.
+  expectedCashPaise Int?     @map("expected_cash_paise")
+  /// What the cashier counted. Typed in, not calculated -- the point of the exercise.
+  countedCashPaise  Int?     @map("counted_cash_paise")
+  /// counted - expected. Negative is short. Recorded either way, never silently corrected.
+  differencePaise   Int?     @map("difference_paise")
+  closingNote       String?  @map("closing_note")
+
+  counter Counter @relation(fields: [counterId], references: [id])
+  cashier User?   @relation(fields: [cashierId], references: [id], onDelete: SetNull)
+
+  @@index([clientId, openedAt])
+  @@index([counterId, closedAt])
+  @@map("shifts")
+}
+
+/// A closed day cannot be edited. A correction is a new entry -- the same rule the day book in
+/// Inventory follows, so the two keep balancing across the cut-over date.
+model DayClose {
+  id       String   @id @default(uuid())
+  clientId String   @map("client_id")
+  /// The trading date, not a timestamp. One row per shop per day, covering every counter.
+  date     DateTime @db.Date
+
+  salesCount     Int @default(0) @map("sales_count")
+  grossPaise     Int @default(0) @map("gross_paise")
+  discountPaise  Int @default(0) @map("discount_paise")
+  taxPaise       Int @default(0) @map("tax_paise")
+  netPaise       Int @default(0) @map("net_paise")
+  returnsPaise   Int @default(0) @map("returns_paise")
+  /// What should be in the drawer across the day, after opening cash and payouts.
+  cashPositionPaise Int @default(0) @map("cash_position_paise")
+
+  /// Amount per payment method. Json because the enabled methods differ per shop and a column per
+  /// method would mean a migration every time one is added.
+  byMethod Json @map("by_method")
+
+  closedById String?  @map("closed_by_id")
+  closedBy   User?    @relation(fields: [closedById], references: [id], onDelete: SetNull)
+  closedAt   DateTime @default(now()) @map("closed_at")
+
+  @@unique([clientId, date])
+  @@map("day_closes")
+}
+
+// ---------------------------------------------------------------------------------------------
+// Telling other software what happened
+// ---------------------------------------------------------------------------------------------
+
+// These three models are PORTED from Inventory's StorefrontConnection / StorefrontEvent /
+// StorefrontDelivery rather than designed fresh, because Inventory already paid for the lessons in
+// them. Its FIRST outbox read one global webhook URL for every tenant, carried no client id, and
+// claimed rows before checking it had somewhere to send them -- which is why all 747 of its events
+// are stranded to this day. Four fields below are what a fresh sketch leaves out: `sequence`,
+// `eventVersion`, `lockedAt`, and identity by public code rather than by our uuid.
+
+/// A URL a client's own software owns, and which events it wants.
+///
+/// A standalone client running their own boutique software registers here. So does an Inventory
+/// deployment, when the POS has to tell it a sale happened. One client may have several.
+model WebhookEndpoint {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+
+  name String
+  url  String
+
+  /// The secret is shown once, at creation, and never stored. Only its hash is kept, so a leak of
+  /// this table does not hand anyone the ability to impersonate us to a client's software.
+  secretHash   String @map("secret_hash")
+  /// A short, non-secret prefix, so a credential can be named in the UI and in a log without
+  /// printing anything usable.
+  secretPrefix String @map("secret_prefix")
+
+  /// Event names this endpoint wants, e.g. ["sale.completed", "day.closed"]. Empty means all.
+  events String[]
+
+  active         Boolean   @default(true)
+  lastDeliveryAt DateTime? @map("last_delivery_at")
+
+  deliveries WebhookDelivery[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@map("webhook_endpoints")
+}
+
+model WebhookEvent {
+  id String @id @default(uuid())
+
+  /// Monotonic per client. A receiver applies last-writer-wins on this and discards anything older
+  /// than it has already applied for the same entity, so events arriving out of order are
+  /// self-correcting. Timestamps cannot do this job: two events written in the same millisecond are
+  /// unordered, and clocks move.
+  sequence BigInt @default(autoincrement())
+
+  clientId String @map("client_id")
+
+  /// A string, not an enum: these names are a public contract that third parties match on, and a
+  /// new event must not need a migration on a table other people's integrations read.
+  eventType String @map("event_type")
+  /// Part of the public contract. An old integration must not break when `payload` grows.
+  eventVersion Int @default(1) @map("event_version")
+
+  /// What the event is about, by PUBLIC identity -- invoice number, item code, phone number. Never
+  /// an internal uuid: that would couple every client's database to our primary keys.
+  invoiceNo String? @map("invoice_no")
+  itemCode  String? @map("item_code")
+
+  /// The event body as it will be sent, minus the envelope.
+  payload Json
+
+  deliveries WebhookDelivery[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId, sequence])
+  @@index([eventType])
+  @@map("webhook_events")
+}
+
+model WebhookDelivery {
+  id         String @id @default(uuid())
+  eventId    String @map("event_id")
+  endpointId String @map("endpoint_id")
+  /// Denormalised so the queue can be made fair per client without a join -- one shop's 400 events
+  /// must not starve everyone else's.
+  clientId   String @map("client_id")
+
+  status   DeliveryStatus @default(PENDING)
+  attempts Int            @default(0)
+
+  nextAttemptAt DateTime? @map("next_attempt_at")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  responseCode  Int?      @map("response_code")
+  responseBody  String?   @map("response_body")
+
+  /// When a worker claimed this row. A claim older than the lease means the process died mid-send,
+  /// so the row is reclaimed rather than stranded. This single column is the difference between
+  /// this outbox and the one that stranded 747 events.
+  lockedAt DateTime? @map("locked_at")
+
+  deliveredAt DateTime? @map("delivered_at")
+
+  event    WebhookEvent    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([eventId, endpointId])
+  @@index([status, nextAttemptAt])
+  @@index([clientId, status])
+  @@map("webhook_deliveries")
+}
+
+enum DeliveryStatus {
+  PENDING
+  DELIVERING
+  DELIVERED
+  /// Retries exhausted. Kept, and re-sendable by hand from the delivery log.
+  FAILED
+}
+
+// ---------------------------------------------------------------------------------------------
+// Who did what
+// ---------------------------------------------------------------------------------------------
+
+/// Everything sensitive at a till is logged with who and when: a price override, a discount over
+/// the limit, a refund, a day close, a cancelled sale.
+model AuditLog {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+
+  actorId   String? @map("actor_id")
+  actorName String? @map("actor_name")
+  action    String
+  /// What it was done to, by public identity where there is one.
+  subject   String?
+  detail    Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId, createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
