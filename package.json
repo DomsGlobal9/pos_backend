@@ -7,7 +7,8 @@
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "prisma generate && prisma migrate deploy && tsc",
-    "migrate:deploy": "prisma migrate deploy"
+    "migrate:deploy": "prisma migrate deploy",
+    "verify:money": "ts-node src/scripts/verify-money.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
