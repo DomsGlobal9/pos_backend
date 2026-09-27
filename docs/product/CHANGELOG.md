@@ -1,0 +1,85 @@
+# CHANGELOG
+
+Approved additions, changes and removals. **Highest authority when sources conflict.**
+
+Newest first.
+
+---
+
+## 2026-09-27 — v2.0 baseline adopted
+
+**Approved by:** product owner, in chat.
+
+`ScaleEzy_BUILD_READY_MASTER.md` v2.0 is copied in verbatim as `MASTER.md` and is now the
+authoritative execution baseline. `PLAYBOOK.md` is the build-process companion. Neither file is
+edited here — changes to the baseline are recorded as entries in this file.
+
+### CHG-001 — The 768px rule is retired
+
+**Was:** the till hid itself below 768 px and said selling is a counter job. Decided 17 Sep 2026,
+shipped in Inventory's counter sale, and carried into the POS skeleton on 26 Sep.
+
+**Now:** phone, tablet and desktop are all first-class. `MASTER.md` §16.1.
+
+**Impact:** `frontend/src/index.css` carries the media query that hides `.till`, and
+`frontend/src/App.jsx` renders the narrow notice. Both are removed in Phase 0. Every screen from
+here owes phone, tablet and desktop behaviour.
+
+**Cost recorded:** camera scanning is a different input path from a keyboard-wedge scanner and
+**cannot** meet the 150 ms target. Two speed contracts now apply — see CHG-002.
+
+### CHG-002 — Two speed contracts, not one
+
+**Added because** `MASTER.md` states a single `<150ms` target (POS-SELL-003) while also requiring
+phone camera scan (POS-SELL-004). These cannot both hold on one number.
+
+- **Counter / keyboard-wedge scanner:** 150 ms from scan to visible basket line. Unchanged.
+- **Phone camera:** judged on "reads the barcode first try, in shop lighting". No 150 ms claim.
+
+Nothing is dropped; the target is made honest per device.
+
+### CHG-003 — CRM enters the architecture
+
+**Was:** the POS owned its `Customer` table outright.
+
+**Now:** CRM owns relationship depth; POS holds a compact selling cache keyed by phone, the same
+shape as `Item` caching Inventory. `MASTER.md` §3, §6.13, §16.4.
+
+**Impact:** `Customer` in `prisma/schema.prisma` keeps its columns but its role changes from master
+to cache when CRM is enabled. Standalone mode keeps it as master. No migration needed yet; the
+distinction is enforced at the service layer in Phase 3.
+
+### CHG-004 — Product spec PDF superseded
+
+`D:\villy\pos\ScaleEzy-POS-Product-Spec.pdf` and its sources in `D:\villy\pos\spec\` are
+**SUPERSEDED**, not deleted. It conflicts with the baseline in exactly two places: it mandates the
+768 px rule (see CHG-001) and it has no CRM (see CHG-003). Everything else in it — the money rules,
+invoice numbering, the four limited resources, reserve-then-confirm, the ported webhook models —
+survives and is reflected in `CONTRACTS.md`.
+
+Kept because it carries the *reasons* behind decisions that `MASTER.md` states as rules.
+
+`D:\villy\inventory\PLAN-billing-pos.md` is likewise superseded as an authority and retained as
+history. It is held by a parallel session; this repo does not write to it.
+
+### CHG-005 — Registry lives in the backend repo
+
+`docs/product/` sits in `D:\villy\pos\backend` rather than at the module root, because the root is
+not a git repository and a ledger with a changelog needs version history. The frontend repo reads
+it across the disk.
+
+### CHG-006 — Feature IDs retrofitted
+
+The 28 partial features built on 26–27 Sep were built before IDs existed. They are mapped to
+baseline IDs in `FEATURES.md` rather than renumbered or rebuilt.
+
+---
+
+## Pending decisions
+
+| # | Question | Blocking |
+|---|---|---|
+| 1 | Supabase Singapore connection strings | Nothing local; blocks any deployment |
+| 2 | Does CRM exist yet as a module, or is POS standalone-only for now? | Phase 3 scope |
+| 3 | Is Inventory's Part 2 (keep-for-customer) still being built there, or does it wait for POS Phase 5? | Duplicate work risk |
+| 4 | Offers: extract the shared package now or after the POS works? | Phase 4; cheap now, expensive after two copies exist |

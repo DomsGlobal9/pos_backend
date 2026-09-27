@@ -2,6 +2,7 @@ import { Router } from 'express';
 import healthRoutes from './health.routes';
 import salesRoutes from './sales.routes';
 import shopRoutes from './shop.routes';
+import homeRoutes from './home.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -16,5 +17,6 @@ const router = Router();
 router.use('/health', healthRoutes);
 router.use('/sales', salesRoutes);
 router.use('/shop', shopRoutes);
+router.use('/home', homeRoutes);
 
 export default router;
