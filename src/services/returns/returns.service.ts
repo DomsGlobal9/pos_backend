@@ -11,6 +11,8 @@ import { record, AuditEntry } from '../audit';
 import { addCredit } from '../store-credit';
 import { writeSale, getSale } from '../sale/sale.service';
 import { shiftFor } from '../shifts';
+import { adjust, cameBack, StockChange } from '../stock';
+import { saleReturned, saleExchanged } from '../events';
 import { CreateExchangeInput, CreateReturnInput, RefundInput } from './returns.schema';
 
 /**
@@ -504,6 +506,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
       const refunds: { method: RefundMethod; amountPaise: number; reference: string | null }[] = [];
       let leftover = computed.totalPaise;
       let exchangeInvoiceNo: string | null = null;
+      let goingOut: StockChange[] = [];
 
       if (mode.kind === 'EXCHANGE') {
         const written = await writeSale(tx, actor, {
@@ -515,6 +518,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
         }, saleAudit, { exchangeCreditPaise: computed.totalPaise });
 
         exchangeInvoiceNo = written.invoiceNo;
+        goingOut = written.stockChanges;
         await tx.return.update({ where: { id: created.id }, data: { exchangeSaleId: written.saleId } });
         if (written.appliedCreditPaise > 0) {
           refunds.push({ method: 'EXCHANGE', amountPaise: written.appliedCreditPaise, reference: null });
@@ -555,6 +559,19 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
           data: refunds.map(r => ({ clientId: actor.clientId, returnId: created.id, shiftId, ...r }))
         });
       }
+
+      /*
+       * The pieces come back into the shop's count (and, for an exchange, the new ones go out) in
+       * ONE ordered pass. Then one event: sale.exchanged for an exchange, sale.returned otherwise
+       * -- never both, or a stock consumer would move the same pieces twice. POS-RET-008 / EXC-006
+       * are the delivery of these to Inventory.
+       */
+      await adjust(tx, actor.clientId, [
+        ...cameBack(computed.lines.map(l => ({ itemId: l.itemId, qty: l.qty }))),
+        ...goingOut
+      ]);
+      if (mode.kind === 'EXCHANGE') await saleExchanged(tx, actor.clientId, created.id);
+      else await saleReturned(tx, actor.clientId, created.id);
 
       // Everything is back: the bill says so. A partly returned bill stays as it was -- its
       // credit notes carry the detail.

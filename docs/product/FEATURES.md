@@ -13,14 +13,14 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 |---|---:|
 | Approved feature IDs | 211 |
 | DONE | 135 |
-| BUILDING (works, gate not met) | 10 |
+| BUILDING (works, gate not met) | 13 |
 | BLOCKED (dependency named) | 12 |
 | DEFERRED (approved) | 2 |
-| PLANNED | 52 |
+| PLANNED | 49 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, at Phase 7 close -- **counted from the rows by script**, not by adding
+Last reconciled: 2026-09-27, Phase 8 in progress (POS side) -- **counted from the rows by script**, not by adding
 to the previous figure.
 
 > **The Phase 5 figures above this line were wrong** (they said DONE 92, BUILDING 2, BLOCKED 12,
@@ -253,12 +253,12 @@ in real Chrome as a cashier AND a manager (a second backend with `DEV_ACTOR=dev-
 |---|---|---|---|---|---|
 | POS-INV-001 | P0 | Catalogue read/cache | 8 | PLANNED | `Item.inventoryVariantId`, `cachedQty` ready |
 | POS-INV-002 | P0 | Variant/barcode/price/tax mapping | 8 | PLANNED | |
-| POS-INV-003 | P0 | Stock availability display | 8 | BUILDING | Reads own cache today |
+| POS-INV-003 | P0 | Stock availability display | 8 | BUILDING | The count now MOVES: a sale takes pieces off, a return puts them back, same transaction (`services/stock`, `verify-events`, `verify-stock-ui`). Freshness from Inventory waits on the Inventory link |
 | POS-INV-004 | P0 | Limited-stock hold/reserve | 8 | PLANNED | `Sale.holdId` column ready |
 | POS-INV-005 | P0 | Hold confirm/release | 8 | PLANNED | `Sale.holdConfirmedAt` ready |
-| POS-INV-006 | P0 | Completed sale stock event | 8 | PLANNED | |
-| POS-INV-007 | P0 | Return stock event | 8 | PLANNED | |
-| POS-INV-008 | P0 | Exchange stock effects | 8 | PLANNED | |
+| POS-INV-006 | P0 | Completed sale stock event | 8 | BUILDING | `sale.completed` written in the bill's own transaction (`services/events`). Delivery to Inventory waits on its intake -- see CHANGELOG #10 |
+| POS-INV-007 | P0 | Return stock event | 8 | BUILDING | `sale.returned`, same |
+| POS-INV-008 | P0 | Exchange stock effects | 8 | BUILDING | ONE `sale.exchanged` (returned + taken), never a return plus a sale |
 | POS-INV-009 | P0 | Safe degradation when Inventory down | 8 | PLANNED | Never freeze the sell screen |
 | POS-STAND-001 | P0 | Standalone own item list | 1 | **DONE** | `Item` is master in standalone |
 | POS-STAND-002 | P0 | Import catalogue from Inventory/CSV | 12 | PLANNED | |

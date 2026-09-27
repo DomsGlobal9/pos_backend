@@ -11,6 +11,8 @@ import { grant, attachToSale } from '../approvals';
 import { record, AuditEntry } from '../audit';
 import { spendCredit } from '../store-credit';
 import { shiftFor } from '../shifts';
+import { adjust, sold, StockChange } from '../stock';
+import { saleCompleted } from '../events';
 import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
 
@@ -121,6 +123,12 @@ export interface WrittenSale {
   totalPaise: number;
   /** How much of the exchange credit this bill used. Zero outside an exchange. */
   appliedCreditPaise: number;
+  /**
+   * In an exchange, the stock this bill takes out -- NOT yet applied. The exchange applies it
+   * together with the pieces coming back, in one ordered pass (see services/stock), and writes one
+   * `sale.exchanged` event instead of a `sale.completed`.
+   */
+  stockChanges: StockChange[];
 }
 
 /**
@@ -464,11 +472,23 @@ export async function writeSale(
         pendingAudit.push({ action: 'store_credit.spent', detail: { amountPaise: creditPaise } });
       }
 
+      /*
+       * The pieces leave the shop's count, and the event is written -- both inside this
+       * transaction, so a sale that rolls back neither moves stock nor tells anyone. An exchange
+       * hands both jobs to its caller (see WrittenSale.stockChanges).
+       */
+      const stockChanges = sold(priced.lines.map(l => ({ itemId: l.ref, qty: l.qty })));
+      if (!exchange) {
+        await adjust(tx, actor.clientId, stockChanges);
+        await saleCompleted(tx, actor.clientId, sale.id);
+      }
+
       return {
         saleId: sale.id,
         invoiceNo: allocated.number,
         totalPaise: priced.totalPaise,
-        appliedCreditPaise: applied
+        appliedCreditPaise: applied,
+        stockChanges: exchange ? stockChanges : []
       };
   }
 }

@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json",
     "verify:held-bills": "ts-node src/scripts/verify-held-bills.ts",
     "verify:returns": "ts-node src/scripts/verify-returns.ts",
-    "verify:shifts": "ts-node src/scripts/verify-shifts.ts"
+    "verify:shifts": "ts-node src/scripts/verify-shifts.ts",
+    "verify:events": "ts-node src/scripts/verify-events.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
