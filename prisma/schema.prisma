@@ -1185,6 +1185,11 @@ model InventoryLink {
   blockedCode     String? @map("blocked_code")
   blockedMessage  String? @map("blocked_message")
 
+  /// Notes Inventory sent back on bills it ACCEPTED -- a GST rate that differs from the product, a
+  /// sale of stock it thought it did not have. Newest first, the last 30. Shown to the owner, never
+  /// to a cashier: nothing stopped, but somebody should look.
+  recentWarnings Json? @map("recent_warnings")
+
   catalogueCursor   String?   @map("catalogue_cursor")
   catalogueSyncedAt DateTime? @map("catalogue_synced_at")
   /// What the last sync could not take, in words: fractional GST rates, exclusive prices.

@@ -142,6 +142,8 @@ export async function status(actor: Actor) {
       ? { code: link.blockedCode, message: link.blockedMessage, document: blockedEvent?.invoiceNo ?? null, at: blockedEvent?.createdAt ?? null }
       : null,
     catalogueSyncedAt: link.catalogueSyncedAt,
-    catalogueProblems: (link.catalogueProblems as string[] | null) ?? []
+    catalogueProblems: (link.catalogueProblems as string[] | null) ?? [],
+    /** Notes on bills Inventory accepted. Newest first. */
+    warnings: (link.recentWarnings as { at: string; document: string | null; text: string }[] | null) ?? []
   };
 }

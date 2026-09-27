@@ -151,7 +151,7 @@ plus a sale is the whole of it.
 
 | Status | Body `details.code` | POS does |
 |---|---|---|
-| 200 | `APPLIED` or `ALREADY_APPLIED` | marks delivered |
+| 200 | `APPLIED` or `ALREADY_APPLIED`, optionally `warnings: string[]` | marks delivered; keeps the warnings (last 30) for the owner's Inventory link screen |
 | 400/422 | `UNKNOWN_ITEM` (with `itemCode`), `UNKNOWN_ORDER` (with `invoiceNo`), `BAD_PAYLOAD` | stops that tenant's queue and shows the owner (not a cashier) one plain sentence; a person fixes it and retries |
 | 401/403 | — | stops, tells the owner the connection needs a new key |
 | 409 | `QTY_EXCEEDS_SOLD` (return of more than was dispatched) | as 400 |
@@ -162,6 +162,22 @@ plus a sale is the whole of it.
 so a permanent failure holds everything behind it until a person looks.
 
 ---
+
+### 4.5 Three rules settled after the first real sales (27 Sep, Inventory commits 848811e, e0ca93a)
+
+1. **A sale needs no customer.** A customer-less sale goes to one per-shop walk-in customer
+   (externalId `POS:WALK-IN`, named "Walk-in customer (no details taken)", never a phone), found
+   or created on first use. A phone that is sent goes through `phoneForOutsideCustomer`.
+2. **The till's GST is stored as sent** (`taxRate` / `taxPaise` per line) -- the POS bill is the
+   legal document. Inventory computes its own only as a check and answers with a **warning**, never a
+   refusal, when they differ.
+3. **An event describing something that already happened never fails on stock.** A sale (or an
+   exchange's `taken` lines) of more than Inventory thinks it has is recorded, stock goes
+   **negative**, and a warning says by how much. Negative stock is the honest record of a count that
+   was wrong; a stopped queue behind a sale that already happened could never clear. Same rule as the
+   POS's own count.
+
+Warnings are plain sentences, each starting with the item code.
 
 ## 5. Holds — the genuinely new part
 

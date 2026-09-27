@@ -81,7 +81,7 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   const event = await prisma.webhookEvent.findFirst({
     where: { clientId, eventType: { in: STOCK_EVENTS }, sequence: { gt: link.delivered_sequence } },
     orderBy: { sequence: 'asc' },
-    select: { sequence: true, eventType: true, eventVersion: true, payload: true }
+    select: { sequence: true, eventType: true, eventVersion: true, payload: true, invoiceNo: true }
   });
   if (!event) {
     await release({});
@@ -99,7 +99,25 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   );
 
   if (reply.kind === 'ANSWERED' && reply.status >= 200 && reply.status < 300) {
-    await release({ deliveredSequence: event.sequence, lastDeliveredAt: new Date(), attempts: 0, nextAttemptAt: null, lastError: null });
+    /*
+     * Accepted -- but Inventory may have noted something a person should settle: the till charged a
+     * different GST rate than the product carries, or sold stock Inventory thought it did not have
+     * (contract §4.4). Nothing stops for these; they are kept for the owner's Inventory link screen.
+     */
+    const said: unknown[] = Array.isArray(reply.body?.data?.warnings) ? reply.body.data.warnings : [];
+    const fresh = said
+      .filter((w): w is string => typeof w === 'string' && w.trim().length > 0)
+      .map(text => ({ at: new Date().toISOString(), document: event.invoiceNo, text: text.trim() }));
+    let recentWarnings: any = undefined;
+    if (fresh.length > 0) {
+      const row = await prisma.inventoryLink.findUnique({ where: { clientId }, select: { recentWarnings: true } });
+      const before = Array.isArray(row?.recentWarnings) ? (row!.recentWarnings as any[]) : [];
+      recentWarnings = [...fresh.reverse(), ...before].slice(0, 30);
+    }
+    await release({
+      deliveredSequence: event.sequence, lastDeliveredAt: new Date(), attempts: 0, nextAttemptAt: null, lastError: null,
+      ...(recentWarnings ? { recentWarnings } : {})
+    });
     return { outcome: 'DELIVERED', sequence: event.sequence };
   }
 

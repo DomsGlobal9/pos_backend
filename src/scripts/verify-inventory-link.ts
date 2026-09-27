@@ -204,6 +204,34 @@ async function main() {
     eq('connecting again with a good key clears it and sends', invoicesSeen(), [`INV/${run}/key`]);
 
     // ==========================================================================================
+    console.log('\nnotes on bills Inventory accepted');
+    // ==========================================================================================
+    stand.seen = [];
+    await emit(`INV/${run}/tax`);
+    await emit(`INV/${run}/short`);
+    await emit(`INV/${run}/plain`);
+    const notes: Record<string, string[]> = {
+      [`INV/${run}/tax`]: ['SILK-1: the till charged 12% GST, the product here says 5%. The bill was recorded as the till sent it.'],
+      [`INV/${run}/short`]: ['SILK-2: sold 1 more than Inventory had at Counter; stock is now -1. Count it at the next stock check.']
+    };
+    stand.answer = (b) => notes[b.payload.invoiceNo]
+      ? { status: 200, body: { success: true, data: { status: 'APPLIED', warnings: notes[b.payload.invoiceNo] } } }
+      : null;
+    await drain(clientId);
+    stand.answer = null;
+    const w = (await status(owner) as any).warnings;
+    eq('a bill Inventory accepted with a note is still delivered -- nothing stops', (await status(owner) as any).waiting, 0);
+    eq('the notes are kept for the owner, newest first, with the bill they are about',
+      w.slice(0, 2).map((x: any) => [x.document, x.text.split(':')[0]]), [[`INV/${run}/short`, 'SILK-2'], [`INV/${run}/tax`, 'SILK-1']]);
+    for (let i = 0; i < 35; i++) {
+      await emit(`INV/${run}/n${i}`);
+    }
+    stand.answer = (b) => ({ status: 200, body: { success: true, data: { status: 'APPLIED', warnings: [`X-${b.payload.invoiceNo}: note`] } } });
+    await drain(clientId);
+    stand.answer = null;
+    eq('only the last 30 are kept', (await status(owner) as any).warnings.length, 30);
+
+    // ==========================================================================================
     console.log('\ndisconnecting and reconnecting');
     // ==========================================================================================
     stand.seen = [];
