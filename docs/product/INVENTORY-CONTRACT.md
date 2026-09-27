@@ -36,7 +36,10 @@ events). Nothing here overrides those; it makes them concrete.
   middleware, unchanged.
 - The POS stores the credential encrypted; it is entered once by the owner, never by a cashier.
 
-Base path suggestion: `/api/v1/pos/…` on Inventory. Any path is fine; the POS keeps it in one place.
+Base path (built, Inventory commit fc4929c): **`/api/v1/pos/v1`** — so `GET /api/v1/pos/v1/catalogue`,
+`GET /api/v1/pos/v1/stock`, `POST /api/v1/pos/v1/events`. Below, paths are written short (`/pos/catalogue`
+means `/api/v1/pos/v1/catalogue`). Credentials are `sk_<prefix>_<secret>`. The POS derives the address
+from `INVENTORY_BASE_URL` (Inventory's root) + `/api/v1/pos/v1`.
 
 ---
 

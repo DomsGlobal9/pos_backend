@@ -55,14 +55,14 @@ function serve(port = 0): Promise<http.Server> {
       if (req.headers['x-storefront-key'] !== KEY) return send(401, { success: false, message: 'Bad key' });
       const url = new URL(req.url ?? '/', 'http://x');
       if (stand.noPosLink) return send(404, { success: false, message: 'Not found' });
-      if (req.method === 'GET' && url.pathname === '/pos/catalogue') {
+      if (req.method === 'GET' && url.pathname === '/catalogue') {
         const cursor = url.searchParams.get('cursor');
         const i = cursor ? Number(cursor.replace('c', '')) : 0;
         const pages = stand.catalogue;
         const page = pages[i] ?? [];
         return send(200, { success: true, data: { products: page, hasMore: i + 1 < pages.length, nextCursor: `c${Math.min(i + 1, pages.length)}` } });
       }
-      if (req.method === 'POST' && url.pathname === '/pos/events') {
+      if (req.method === 'POST' && url.pathname === '/events') {
         const body = JSON.parse(raw || '{}');
         const forced = stand.answer?.(body);
         if (forced) return send(forced.status, forced.body);

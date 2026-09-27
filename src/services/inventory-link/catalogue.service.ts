@@ -46,7 +46,7 @@ export async function syncCatalogue(actor: Actor, opts: { full?: boolean } = {})
   for (let page = 0; page < MAX_PAGES; page++) {
     // The cursor means "everything changed after this point" -- the same mechanism for the next page
     // of a first sync and for the next refresh days later (contract §2, the storefront's semantics).
-    const q = `/pos/catalogue?limit=${PAGE}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    const q = `/catalogue?limit=${PAGE}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
     const reply = await call(link, 'GET', q, undefined, 20_000);
     if (reply.kind === 'UNREACHABLE') {
       throw conflict(`Inventory could not be reached (${reply.reason}). The item list is unchanged; try again shortly.`, { code: 'UNREACHABLE' });

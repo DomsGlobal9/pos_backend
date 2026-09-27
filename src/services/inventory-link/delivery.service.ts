@@ -90,7 +90,7 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
 
   const reply = await call(
     { baseUrl: link.base_url, keyCipher: link.key_cipher },
-    'POST', '/pos/events',
+    'POST', '/events',
     { eventType: event.eventType, eventVersion: event.eventVersion, sequence: Number(event.sequence), payload: event.payload }
   );
 

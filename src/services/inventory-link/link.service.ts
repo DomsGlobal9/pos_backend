@@ -30,7 +30,7 @@ function mustManage(actor: Actor) {
 
 /** Ask Inventory whether this key works, in words the owner can act on. */
 async function tryKey(baseUrl: string, keyCipher: string) {
-  const reply = await call({ baseUrl, keyCipher }, 'GET', '/pos/catalogue?limit=1', undefined, 8_000);
+  const reply = await call({ baseUrl, keyCipher }, 'GET', '/catalogue?limit=1', undefined, 8_000);
   if (reply.kind === 'UNREACHABLE') {
     throw conflict(`Inventory could not be reached at ${baseUrl} (${reply.reason}). Check the address, then try again.`, { code: 'UNREACHABLE' });
   }
@@ -49,7 +49,9 @@ export async function connect(actor: Actor, input: { key: string; baseUrl?: stri
   mustManage(actor);
   const key = (input.key ?? '').trim();
   if (key.length < 16) throw badRequest('Paste the whole connection key from Inventory.');
-  const baseUrl = (input.baseUrl ?? env.INVENTORY_BASE_URL ?? '').trim();
+  // Inventory serves the POS link under /api/v1/pos/v1 (contract §1). The deployment setting is
+  // Inventory's root; a test may give the full address directly.
+  const baseUrl = (input.baseUrl ?? (env.INVENTORY_BASE_URL ? `${env.INVENTORY_BASE_URL.replace(/\/+$/, '')}/api/v1/pos/v1` : '')).trim();
   if (!/^https?:\/\/\S+$/.test(baseUrl)) {
     throw badRequest('This till has no Inventory address. Ask ScaleEzy support to set one.', { code: 'NO_ADDRESS' });
   }
