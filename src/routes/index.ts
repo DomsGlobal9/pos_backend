@@ -14,6 +14,8 @@ import shiftsRoutes from './shifts.routes';
 import dayCloseRoutes from './day-close.routes';
 import inventoryLinkRoutes from './inventory-link.routes';
 import reportsRoutes from './reports.routes';
+import publicRoutes from './public.routes';
+import devicesRoutes from './devices.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -40,5 +42,8 @@ router.use('/shifts', shiftsRoutes);
 router.use('/day-close', dayCloseRoutes);
 router.use('/inventory-link', inventoryLinkRoutes);
 router.use('/reports', reportsRoutes);
+router.use('/devices', devicesRoutes);
+// No sign-in: the digital receipt, reached by its token. POS-RCPT-009.
+router.use('/public', publicRoutes);
 
 export default router;
