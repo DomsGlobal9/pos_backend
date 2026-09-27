@@ -969,9 +969,10 @@ model WebhookEndpoint {
   name String
   url  String
 
-  /// The secret is shown once, at creation, and never stored. Only its hash is kept, so a leak of
-  /// this table does not hand anyone the ability to impersonate us to a client's software.
-  secretHash   String @map("secret_hash")
+  /// The signing secret, encrypted (AES-256-GCM, CREDENTIAL_ENCRYPTION_KEY). Shown to the owner
+  /// ONCE, at creation. Encrypted rather than hashed because signing needs the secret itself: the
+  /// first version kept only a hash, from which no message could ever have been signed.
+  secretCipher String @map("secret_cipher")
   /// A short, non-secret prefix, so a credential can be named in the UI and in a log without
   /// printing anything usable.
   secretPrefix String @map("secret_prefix")
@@ -981,6 +982,8 @@ model WebhookEndpoint {
 
   active         Boolean   @default(true)
   lastDeliveryAt DateTime? @map("last_delivery_at")
+  /// Set when a delivery to it runs out of retries; cleared by the next success. Shown to the owner.
+  failingSince   DateTime? @map("failing_since")
 
   deliveries WebhookDelivery[]
 
@@ -1305,4 +1308,42 @@ model Device {
 
   @@index([clientId, lastSeenAt])
   @@map("devices")
+}
+
+/// A key a shop's own software uses to call the POS. POS-API-001.
+///
+/// Issued by the POS itself (standalone and local mode). Only a SHA-256 of the key is kept: a key is
+/// long and random, so a hash is enough to check it and useless to anyone who reads this table.
+/// Scopes are plain strings on the row -- never a database enum (the shared-enum hazard).
+model ApiKey {
+  id         String    @id @default(uuid())
+  clientId   String    @map("client_id")
+  name       String
+  keyHash    String    @unique @map("key_hash")
+  keyPrefix  String    @map("key_prefix")
+  /// e.g. ["sales:read", "items:write", "customers:read", "day:read"]
+  scopes     String[]
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdBy  String?   @map("created_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@map("api_keys")
+}
+
+/// The first answer to an Idempotency-Key, so a retried request gets it back instead of doing the
+/// work twice. POS-API-004, -005, POS-CORE-009. status 0 = still being worked on.
+model ApiRequestOnce {
+  id             String   @id @default(uuid())
+  clientId       String   @map("client_id")
+  idempotencyKey String   @map("idempotency_key")
+  /// SHA-256 of method + path + body. The same key with a different request is refused.
+  requestHash    String   @map("request_hash")
+  status         Int      @default(0)
+  response       Json?
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([clientId, idempotencyKey])
+  @@map("api_request_once")
 }

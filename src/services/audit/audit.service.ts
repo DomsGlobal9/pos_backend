@@ -44,7 +44,14 @@ export type AuditAction =
   | 'inventory.catalogue_synced'
   | 'receipt.sent'
   | 'shop.upi_set'
-  | 'device.updated';
+  | 'device.updated'
+  | 'api_key.created'
+  | 'api_key.revoked'
+  | 'webhook.created'
+  | 'webhook.updated'
+  | 'webhook.deleted'
+  | 'webhook.resent'
+  | 'items.imported';
 
 export interface AuditEntry {
   action: AuditAction;

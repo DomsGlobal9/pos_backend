@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { badRequest, conflict, forbidden } from '../../utils/httpError';
 import { record } from '../audit';
+import { dayClosed } from '../events';
 import { openShifts } from '../shifts';
 
 /**
@@ -237,7 +238,10 @@ export async function closeDay(actor: Actor, date: string, input: { acceptOpenSh
   const live = await figures(actor, date);
 
   try {
-    await prisma.dayClose.create({
+    // The close and its event together: an accountant's software is told about exactly the closes
+    // that happened. POS-API-007, POS-WEB-001.
+    await prisma.$transaction(async (tx) => {
+    await tx.dayClose.create({
       data: {
         clientId: actor.clientId,
         date: key,
@@ -263,6 +267,11 @@ export async function closeDay(actor: Actor, date: string, input: { acceptOpenSh
         note: input.note?.trim() || null,
         closedById: actor.kind === 'USER' ? actor.id : null
       }
+    });
+    await dayClosed(tx, actor.clientId, date, {
+      bills: live.bills, returns: live.returns, paidIn: live.paidIn, paidOut: live.paidOut,
+      cash: live.cash, openShiftsAtClose: stillOpen.length, note: input.note?.trim() || null
+    });
     });
   } catch (error: any) {
     if (error?.code === 'P2002') {

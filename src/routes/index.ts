@@ -16,6 +16,8 @@ import inventoryLinkRoutes from './inventory-link.routes';
 import reportsRoutes from './reports.routes';
 import publicRoutes from './public.routes';
 import devicesRoutes from './devices.routes';
+import integrationRoutes from './integration.routes';
+import connectionsRoutes from './connections.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -43,6 +45,10 @@ router.use('/day-close', dayCloseRoutes);
 router.use('/inventory-link', inventoryLinkRoutes);
 router.use('/reports', reportsRoutes);
 router.use('/devices', devicesRoutes);
+// The owner's Connections screen: API keys, webhooks, import, export. WF-INTEGRATIONS-01.
+router.use('/connections', connectionsRoutes);
+// A shop's own software, with an API key. POS-API-001..007.
+router.use('/integration', integrationRoutes);
 // No sign-in: the digital receipt, reached by its token. POS-RCPT-009.
 router.use('/public', publicRoutes);
 

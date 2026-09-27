@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { fanOut } from '../webhooks/endpoints.service';
 
 /**
  * What happened, told to everyone who needs to know. MASTER §7, §5.7.
@@ -28,18 +29,32 @@ type Tx = Prisma.TransactionClient;
 
 export const EVENT_VERSION = 1;
 
-export type EventType = 'sale.completed' | 'sale.returned' | 'sale.exchanged';
+export type EventType = 'sale.completed' | 'sale.returned' | 'sale.exchanged' | 'day.closed';
 
-async function write(tx: Tx, clientId: string, eventType: EventType, payload: Record<string, unknown>, invoiceNo: string) {
-  await tx.webhookEvent.create({
+/**
+ * One event, and a notice queued for each of the shop's own webhooks that wants it (POS-WEB-001) --
+ * all in the caller's transaction, so a bill that rolls back tells nobody anything.
+ */
+async function write(tx: Tx, clientId: string, eventType: EventType, payload: Record<string, unknown>, invoiceNo: string | null) {
+  const event = await tx.webhookEvent.create({
     data: {
       clientId,
       eventType,
       eventVersion: EVENT_VERSION,
       invoiceNo,
       payload: payload as Prisma.InputJsonValue
-    }
+    },
+    select: { id: true }
   });
+  await fanOut(tx, clientId, event.id, eventType);
+}
+
+/**
+ * The day is closed: its figures, for an accountant's software. POS-API-007, POS-WEB-001.
+ * `date` is the trading day (YYYY-MM-DD, shop time); amounts in paise.
+ */
+export async function dayClosed(tx: Tx, clientId: string, date: string, figures: Record<string, unknown>) {
+  await write(tx, clientId, 'day.closed', { date, ...figures }, null);
 }
 
 const LINE_SELECT = {

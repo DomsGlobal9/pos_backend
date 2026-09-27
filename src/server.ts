@@ -6,6 +6,7 @@ import { env, hasInventory } from './config/env';
 import apiRoutes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { startDeliveryLoop } from './services/inventory-link';
+import { startWebhookLoop } from './services/webhooks';
 
 /**
  * ScaleEzy POS -- the till's server.
@@ -27,7 +28,10 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json({ limit: '1mb' }));
+// 1 MB for everything but the item import, which carries a spreadsheet (up to 5 MB, base64).
+const smallJson = express.json({ limit: '1mb' });
+const importJson = express.json({ limit: '8mb' });
+app.use((req, res, next) => (req.path === '/api/v1/connections/items/import' ? importJson : smallJson)(req, res, next));
 
 /**
  * The rate limit is generous on purpose.
@@ -61,10 +65,10 @@ const server = app.listen(env.PORT, () => {
     // Sends each connected shop's sales, returns and exchanges to Inventory, in order. Off the
     // path of every sale; a sale only ever writes its event and is done.
     startDeliveryLoop();
+    // A shop's own software, told about each sale, return, exchange and day close. Leased rows, so
+    // even two instances with jobs on never send one notice twice at once.
+    startWebhookLoop();
   }
-  // The webhook dispatcher starts here once it exists, inside that same switch: two instances
-  // against one database must serve requests without both running the clock, or two dispatchers
-  // claim the same deliveries. Inventory learned this one the hard way.
 });
 
 /**
