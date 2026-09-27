@@ -78,7 +78,9 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
       returned: (payload.returned ?? []).map(line),
       taken: (payload.taken ?? []).map(line),
       differencePaise: payload.differencePaise,
-      payments: collected(payload.payments)
+      payments: collected(payload.payments),
+      // New goods cheaper than what came back: the rest was given back, and how.
+      ...refundOf(payload.refunds)
     };
   }
   return { kind: eventType, ...payload };

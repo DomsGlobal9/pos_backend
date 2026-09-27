@@ -186,6 +186,6 @@ export async function saleExchanged(tx: Tx, clientId: string, returnId: string) 
     newTotalPaise: s.totalPaise,
     differencePaise: s.totalPaise - r.totalPaise,
     payments: s.payments.filter(p => p.method !== 'EXCHANGE').map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status })),
-    refunds: r.refunds.filter(x => x.method !== 'EXCHANGE').map(x => ({ method: x.method, amountPaise: x.amountPaise }))
+    refunds: r.refunds.filter(x => x.method !== 'EXCHANGE').map(x => ({ method: x.method, amountPaise: x.amountPaise, reference: x.reference ?? null }))
   }, r.creditNoteNo);
 }
