@@ -3,6 +3,7 @@ import healthRoutes from './health.routes';
 import salesRoutes from './sales.routes';
 import shopRoutes from './shop.routes';
 import homeRoutes from './home.routes';
+import billsRoutes from './bills.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -18,5 +19,6 @@ router.use('/health', healthRoutes);
 router.use('/sales', salesRoutes);
 router.use('/shop', shopRoutes);
 router.use('/home', homeRoutes);
+router.use('/bills', billsRoutes);
 
 export default router;

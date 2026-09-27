@@ -12,14 +12,14 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 12 |
-| BUILDING (works, gate not met) | 22 |
+| DONE | 39 |
+| BUILDING (works, gate not met) | 9 |
 | BLOCKED (dependency named) | 2 |
-| PLANNED | 175 |
+| PLANNED | 161 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, at Phase 0 close.
+Last reconciled: 2026-09-27, at Phase 1 partial close (bill history slice).
 
 ---
 
@@ -54,20 +54,20 @@ Last reconciled: 2026-09-27, at Phase 0 close.
 
 | ID | P | Feature | Phase | Status | Evidence / note |
 |---|---|---|---|---|---|
-| POS-SELL-001 | P0 | Search by product name | 1 | BUILDING | `services/items`; every word must match |
-| POS-SELL-002 | P0 | Search by SKU/item code | 1 | BUILDING | |
-| POS-SELL-003 | P0 | Barcode scanner input | 1 | BUILDING | 150 ms contract — counter only, CHG-002 |
+| POS-SELL-001 | P0 | Search by product name | 1 | **DONE** | Every word must match; verified phone/tablet/desktop |
+| POS-SELL-002 | P0 | Search by SKU/item code | 1 | **DONE** | |
+| POS-SELL-003 | P0 | Barcode scanner input | 1 | **DONE** | 150 ms contract, counter only per CHG-002 |
 | POS-SELL-004 | P0 | Phone camera barcode scan | 10 | PLANNED | No 150 ms claim, CHG-002 |
-| POS-SELL-005 | P0 | Exact barcode auto-add | 1 | BUILDING | Two exact matches offered as a choice |
-| POS-SELL-006 | P0 | Product/variant picker | 1 | PLANNED | `WF-PRODUCT-01` not built |
-| POS-SELL-007 | P0 | Product image where available | 1 | PLANNED | No image field on `Item` yet |
-| POS-SELL-008 | P0 | Stock/last-one indication | 1 | BUILDING | "last one" / "none left"; null is not shown as zero |
-| POS-SELL-009 | P0 | Add line to basket | 1 | BUILDING | |
-| POS-SELL-010 | P0 | Change quantity | 1 | BUILDING | |
-| POS-SELL-011 | P0 | Remove line | 1 | BUILDING | |
-| POS-SELL-012 | P0 | Shelf price includes GST | 1 | BUILDING | `splitInclusiveTax`; tax is a subtraction |
+| POS-SELL-005 | P0 | Exact barcode auto-add | 1 | **DONE** | Two exact matches are offered as a choice |
+| POS-SELL-006 | P0 | Product/variant picker | 1 | PLANNED | `Item.variantGroup` added; `WF-PRODUCT-01` still to build |
+| POS-SELL-007 | P0 | Product image where available | 1 | PLANNED | `Item.imageUrl` added; not shown on screen yet |
+| POS-SELL-008 | P0 | Stock/last-one indication | 1 | **DONE** | "last one" / "none left"; null is never shown as zero |
+| POS-SELL-009 | P0 | Add line to basket | 1 | **DONE** | |
+| POS-SELL-010 | P0 | Change quantity | 1 | **DONE** | |
+| POS-SELL-011 | P0 | Remove line | 1 | **DONE** | |
+| POS-SELL-012 | P0 | Shelf price includes GST | 1 | **DONE** | `splitInclusiveTax`; tax is a subtraction |
 | POS-SELL-013 | P0 | Shared automatic offers/pricing | 4 | PLANNED | Requires shared package — see CHANGELOG pending #4 |
-| POS-SELL-014 | P0 | Show savings | 1 | BUILDING | `savedPaise` on sale + receipt |
+| POS-SELL-014 | P0 | Show savings | 1 | **DONE** | |
 | POS-SELL-015 | P0 | Manual discount within limit | 4 | PLANNED | `priceBasket` accepts it; no UI, no permission check |
 | POS-SELL-016 | P0 | Discount above limit approval | 4 | PLANNED | |
 | POS-SELL-017 | P0 | Price override approval | 4 | PLANNED | `SaleLine.priceOverrideReason` exists, unused |
@@ -75,16 +75,16 @@ Last reconciled: 2026-09-27, at Phase 0 close.
 | POS-SELL-019 | P0 | Park/hold active basket | 5 | PLANNED | `HeldBill` model exists |
 | POS-SELL-020 | P0 | Recall parked basket | 5 | PLANNED | |
 | POS-SELL-021 | P0 | Multiple parked baskets with labels | 5 | PLANNED | |
-| POS-SELL-022 | P0 | Continue to payment | 1 | BUILDING | |
-| POS-SELL-023 | P0 | Complete sale | 1 | BUILDING | One transaction; Inventory/CRM effects absent (Phases 8, 3) |
-| POS-SELL-024 | P0 | Round-off as explicit line | 1 | BUILDING | `charged = lines + round-off` tested |
-| POS-SELL-025 | P0 | Frozen historical pricing snapshot | 1 | BUILDING | Description/HSN/price/tax split copied onto the line |
+| POS-SELL-022 | P0 | Continue to payment | 1 | **DONE** | |
+| POS-SELL-023 | P0 | Complete sale | 1 | **DONE** for POS | Inventory and CRM effects are Phases 8 and 3, tracked there |
+| POS-SELL-024 | P0 | Round-off as explicit line | 1 | **DONE** | |
+| POS-SELL-025 | P0 | Frozen historical pricing snapshot | 1 | **DONE** | Verified: a reprint matches the original split |
 
 ## 6.4 Customers / CRM seam
 
 | ID | P | Feature | Phase | Status | Evidence / note |
 |---|---|---|---|---|---|
-| POS-CUST-001 | P0 | Sale without customer | 1 | BUILDING | No code path requires a customer |
+| POS-CUST-001 | P0 | Sale without customer | 1 | **DONE** | No code path requires a customer |
 | POS-CUST-002 | P0 | Phone lookup | 3 | PLANNED | |
 | POS-CUST-003 | P0 | Country code / foreign phone | 3 | PLANNED | |
 | POS-CUST-004 | P0 | Quick customer create | 3 | PLANNED | |
@@ -104,15 +104,15 @@ Last reconciled: 2026-09-27, at Phase 0 close.
 
 | ID | P | Feature | Phase | Status | Evidence / note |
 |---|---|---|---|---|---|
-| POS-PAY-001 | P0 | Cash payment | 1 | BUILDING | |
-| POS-PAY-002 | P0 | Tendered cash | 1 | BUILDING | Stored as drawer evidence |
-| POS-PAY-003 | P0 | Change due | 1 | BUILDING | Shown large |
-| POS-PAY-004 | P0 | Exact cash shortcut | 1 | BUILDING | Plus next-note shortcuts |
+| POS-PAY-001 | P0 | Cash payment | 1 | **DONE** | |
+| POS-PAY-002 | P0 | Tendered cash | 1 | **DONE** | Stored as drawer evidence |
+| POS-PAY-003 | P0 | Change due | 1 | **DONE** | Shown large |
+| POS-PAY-004 | P0 | Exact cash shortcut | 1 | **DONE** | Plus next-note shortcuts |
 | POS-PAY-005 | P0 | UPI manual / reference | 2 | PLANNED | Schema accepts it; no UI |
 | POS-PAY-006 | P0 | Card manual / reference | 2 | PLANNED | |
 | POS-PAY-007 | P0 | Split payment | 2 | PLANNED | Server already sums and refuses a mismatch |
 | POS-PAY-008 | P0 | Multiple payment rows | 2 | BUILDING | Model supports it; UI sends one |
-| POS-PAY-009 | P0 | Idempotent payment retry | 1 | BUILDING | `onceKey:pay:N` per row |
+| POS-PAY-009 | P0 | Idempotent payment retry | 1 | **DONE** | `onceKey:pay:N` per row |
 | POS-PAY-010 | P0 | Ambiguous / unknown provider state | 2 | PLANNED | **No `status` field on `Payment` yet — schema gap** |
 | POS-PAY-011 | P0 | Check / reconcile payment status | 2 | PLANNED | `WF-PAY-02` |
 | POS-PAY-012 | P1 | Dynamic UPI QR / provider | 10 | PLANNED | |
@@ -125,15 +125,23 @@ Last reconciled: 2026-09-27, at Phase 0 close.
 
 | ID | P | Feature | Phase | Status | Evidence / note |
 |---|---|---|---|---|---|
-| POS-RCPT-001 | P0 | 80 mm browser print | 1 | BUILDING | Print never gates the save |
-| POS-RCPT-002 | P0 | PDF receipt | 1 | PLANNED | Browser print-to-PDF is not the same thing |
-| POS-RCPT-003 | P0 | Reprint | 1 | PLANNED | `getSale` exists; no Bills screen to reach it |
-| POS-RCPT-004 | P0 | Duplicate / reprint marking | 1 | PLANNED | **Schema gap** — no reprint count |
-| POS-RCPT-005 | P0 | GST split / round-off / savings on receipt | 1 | BUILDING | Split read from stored line values, not recomputed |
+| POS-RCPT-001 | P0 | 80 mm browser print | 1 | **DONE** | Print never gates the save; sheet fits a 375px phone |
+| POS-RCPT-002 | P0 | PDF receipt | 1 | **BLOCKED** | Deliberately not done. See the note under 6.6 |
+| POS-RCPT-003 | P0 | Reprint | 1 | **DONE** | From `WF-SALE-02`; button reads "Print again" once a copy exists |
+| POS-RCPT-004 | P0 | Duplicate / reprint marking | 1 | **DONE** | `Sale.printCount`; copy 1 is the original, copy 2+ prints DUPLICATE. Verified in the browser |
+| POS-RCPT-005 | P0 | GST split / round-off / savings on receipt | 1 | **DONE** | Split read from stored line values, never recomputed |
 | POS-RCPT-006 | P1 | WhatsApp receipt | 10 | PLANNED | WhatsApp service is deployed elsewhere |
 | POS-RCPT-007 | P1 | SMS receipt | 10 | PLANNED | |
 | POS-RCPT-008 | P1 | Email receipt | 10 | PLANNED | |
 | POS-RCPT-009 | P1 | QR / digital receipt | 10 | PLANNED | |
+
+> **Why POS-RCPT-002 is BLOCKED rather than built.** The browser's own "save as PDF" already
+> produces a file from the 80 mm print view, so the gap is a *server-rendered* PDF — needed later
+> for emailing and for the public API, not for a shop printing at a counter. Building it now means
+> a second rendering of the bill, and two renderings of one bill is exactly how a reprint stops
+> matching the original. It waits for Phase 10, when digital receipts give it a reason to exist and
+> a single shared renderer to come from. Recorded as BLOCKED with the dependency named rather than
+> quietly marked done because a browser can make a PDF.
 
 ## 6.7 Orders / keep for customer / dues
 
@@ -152,12 +160,20 @@ notes and user-facing status are **schema gaps**.
 
 ## 6.8 Sales history
 
-All PLANNED, Phase 1 (bill history is P0 per `MASTER.md` §16.5).
-
-`POS-SALE-001` bill history · `-002` search by invoice · `-003` search by customer/phone ·
-`-004` filter by date · `-005` filter by payment method · `-006` filter by status ·
-`-007` bill detail · `-008` payment history · `-009` view customer · `-010` start return ·
-`-011` start exchange · `-012` cancel/void policy (never delete history).
+| ID | P | Feature | Phase | Status | Evidence / note |
+|---|---|---|---|---|---|
+| POS-SALE-001 | P0 | Bill history | 1 | **DONE** | `WF-SALES-01`; keyset paging, verified across a mid-scroll sale |
+| POS-SALE-002 | P0 | Search by invoice number | 1 | **DONE** | Whole number or just the readable tail |
+| POS-SALE-003 | P0 | Search by customer / phone | 1 | **DONE** | Same box as the invoice search; returns nothing until Phase 3 puts customers on sales |
+| POS-SALE-004 | P0 | Filter by date | 1 | **DONE** | Today / 7 days / 30 days |
+| POS-SALE-005 | P0 | Filter by payment method | 1 | **DONE** | A split bill matches both its methods |
+| POS-SALE-006 | P0 | Filter by status | 1 | **DONE** | API done; UI exposes date and method only until more statuses exist |
+| POS-SALE-007 | P0 | Bill detail | 1 | **DONE** | `WF-SALE-02`, the same component as the original receipt |
+| POS-SALE-008 | P0 | View payment history | 1 | **DONE** | On the bill, with tendered and change |
+| POS-SALE-009 | P0 | View customer | 3 | BUILDING | Name shows; the link needs Phase 3 |
+| POS-SALE-010 | P0 | Start return from bill | 6 | PLANNED | Attaches to `WF-SALE-02` |
+| POS-SALE-011 | P0 | Start exchange from bill | 6 | PLANNED | |
+| POS-SALE-012 | P0 | Cancel / void / correction policy | 6 | PLANNED | Never delete history |
 
 ## 6.9 Returns / exchange
 
@@ -200,9 +216,9 @@ All PLANNED, Phase 7. `Shift` and `DayClose` exist; **cash in/out has no model �
 | POS-INV-007 | P0 | Return stock event | 8 | PLANNED | |
 | POS-INV-008 | P0 | Exchange stock effects | 8 | PLANNED | |
 | POS-INV-009 | P0 | Safe degradation when Inventory down | 8 | PLANNED | Never freeze the sell screen |
-| POS-STAND-001 | P0 | Standalone own item list | 1 | BUILDING | `Item` table is master today |
+| POS-STAND-001 | P0 | Standalone own item list | 1 | **DONE** | `Item` is master in standalone |
 | POS-STAND-002 | P0 | Import catalogue from Inventory/CSV | 12 | PLANNED | |
-| POS-STAND-003 | P0 | Standalone pricing works | 1 | BUILDING | `services/basket` is pure, no Inventory needed |
+| POS-STAND-003 | P0 | Standalone pricing works | 1 | **DONE** | `services/basket` is pure |
 
 ## 6.13 CRM seam
 

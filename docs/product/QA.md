@@ -32,7 +32,7 @@ pass today and where the evidence is.
 | QA-RETRY-23 | Retry | Pending sale/event retried | No duplicate financial/stock/customer effect | PARTIAL | Financial side proven; stock and customer effects not built |
 | QA-INV-24 | Inventory | Inventory slow or unavailable | UI does not freeze; configured safe behaviour | PLANNED | Phase 8 |
 | QA-CRM-25 | CRM | CRM unavailable | Sale usable; limitation explained | PLANNED | Phase 3 |
-| QA-RCPT-26 | Receipt | Printer unavailable | Sale complete; reprint available | PARTIAL | Print never gates the save; reprint UI is Phase 1 |
+| QA-RCPT-26 | Receipt | Printer unavailable | Sale complete; reprint available | **PASS** | Print never gates the save; reprint from `WF-SALE-02`, marked duplicate |
 | QA-HIST-27 | History | Product renamed after the sale | Old bill shows the original description, price and tax | **PASS** | Frozen onto the line; reprint split test in `verify-sale` |
 | QA-PERM-28 | Permissions | Cashier tries a restricted action | Human denial or approval path, no data leak | PLANNED | Phase 4 |
 | QA-MOB-29 | Mobile | Portrait phone | No critical horizontal scroll; primary CTA reachable | **PASS** | 375px: scrollWidth == innerWidth on Home and Sell; CTA 56px; full sale completed |
@@ -44,10 +44,19 @@ pass today and where the evidence is.
 | | |
 |---|---:|
 | Scenarios required | 31 |
-| PASS | 11 |
-| PARTIAL | 6 |
+| PASS | 12 |
+| PARTIAL | 5 |
 | FAIL (named, not hidden) | 1 |
 | PLANNED | 13 |
+
+Added during Phase 1:
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-BILL-33 | History | Find a bill by the readable tail of a creased receipt | The bill is found | **PASS** | `verify-bills`; "0082" narrows 25 rows to 1 in the browser |
+| QA-BILL-34 | History | Page through history while the shop is still selling | No bill repeats or is skipped | **PASS** | `verify-bills` makes a sale between page 1 and 2 |
+| QA-BILL-35 | Receipt | Print the same bill three times | Copy 1 is the original, 2 and 3 are marked DUPLICATE | **PASS** | `verify-bills` + browser: banner reads "DUPLICATE · COPY 2" |
+| QA-BILL-36 | History | Another shop opens a bill by id | Refused | **PASS** | `verify-bills` |
 
 Plus one added during Phase 0:
 

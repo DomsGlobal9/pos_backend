@@ -5,21 +5,21 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 
 ## Screen build status
 
-24 screens are registered in `MASTER.md` §4. Built: 3 of 24.
+24 screens are registered in `MASTER.md` §4. Built: 7 of 24.
 
 | Screen ID | Name | Status | Phone | Tablet | Desktop | Note |
 |---|---|---|---|---|---|---|
-| `WF-HOME-01` | Home | BUILDING | — | — | — | Phase 0 |
-| `WF-SELL-01` | Sell | BUILDING | no | no | yes | Exists as `pages/Till.jsx`; renamed to Sell in Phase 0 |
+| `WF-HOME-01` | Home | **DONE** | yes | yes | yes | Activity rows open the bill |
+| `WF-SELL-01` | Sell | **DONE** | yes | yes | yes | `pages/Till.jsx`; full sale completed at 375px |
 | `WF-PRODUCT-01` | Product/variant sheet | PLANNED | | | | Phase 1 |
 | `WF-CUST-01` | Customer quick sheet | PLANNED | | | | Phase 3 |
-| `WF-PAY-01` | Payment | BUILDING | no | no | yes | `components/PaymentPanel.jsx`, cash only |
+| `WF-PAY-01` | Payment | **DONE** (cash) | yes | yes | yes | Sheet fits 375px exactly. UPI/card/split are Phase 2 |
 | `WF-PAY-02` | Payment needs checking | PLANNED | | | | Phase 2 — P0 even before provider integration |
-| `WF-SUCCESS-01` | Sale success | BUILDING | no | no | yes | `components/Receipt.jsx` |
+| `WF-SUCCESS-01` | Sale success | **DONE** | yes | yes | yes | Same component as `WF-SALE-02`, by design |
 | `WF-ORDERS-01` | Orders | PLANNED | | | | Phase 5 |
 | `WF-ORDER-02` | Order detail | PLANNED | | | | Phase 5 |
-| `WF-SALES-01` | Sales / Bills | PLANNED | | | | Phase 1 — P0 |
-| `WF-SALE-02` | Bill detail | PLANNED | | | | Phase 1 |
+| `WF-SALES-01` | Sales / Bills | **DONE** | yes | yes | yes | One search box for invoice, phone or name |
+| `WF-SALE-02` | Bill detail | **DONE** | yes | yes | yes | Reprint with duplicate marking |
 | `WF-RETURN-01` | Return | PLANNED | | | | Phase 6 |
 | `WF-EXCHANGE-01` | Exchange | PLANNED | | | | Phase 6 |
 | `WF-HELD-01` | Held bills | PLANNED | | | | Phase 5 |
@@ -29,7 +29,7 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 | `WF-CASH-01` | Cash movement | PLANNED | | | | Phase 7 |
 | `WF-DAY-01` | Day close | PLANNED | | | | Phase 7 |
 | `WF-REPORTS-01` | Reports | PLANNED | | | | Phase 9 |
-| `WF-MORE-01` | More | BUILDING | — | — | — | Phase 0 |
+| `WF-MORE-01` | More | **DONE** | yes | yes | yes | Bills live; the rest disabled with a visible phase |
 | `WF-SYNC-01` | Sync status | PLANNED | | | | Phase 11 |
 | `WF-SETTINGS-01` | Settings | PLANNED | | | | Phase 0 stub, Phase 4 real |
 | `WF-DEVICES-01` | Counters/devices | PLANNED | | | | Phase 10 |
@@ -77,8 +77,15 @@ disabled with a visible reason. **No dead buttons.**
 | `WF-MORE-01` | Settings / Sales / Shift / Reports / Sync | their screens | per phase, each showing an honest state |
 | `WF-SELL-01` | Continue | `WF-PAY-01` | built |
 | `WF-PAY-01` | Complete sale | `WF-SUCCESS-01` | built |
-| `WF-SUCCESS-01` | Print | system print | built |
+| `WF-SUCCESS-01` | Print | system print, after counting the copy | built |
 | `WF-SUCCESS-01` | New sale | `WF-SELL-01` | built |
+| `WF-HOME-01` | Activity row | `WF-SALE-02` | built |
+| `WF-MORE-01` | Bills | `WF-SALES-01` | built |
+| `WF-SALES-01` | A bill row | `WF-SALE-02` | built |
+| `WF-SALES-01` | Show older | next page, same screen | built |
+| `WF-SALE-02` | All bills | `WF-SALES-01` | built |
+| `WF-SALE-02` | Print again | system print, marked DUPLICATE | built |
+| `WF-SALE-02` | Return / Exchange | `WF-RETURN-01` / `WF-EXCHANGE-01` | Phase 6 |
 
 ### Empty states for unbuilt tabs
 

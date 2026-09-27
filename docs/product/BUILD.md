@@ -5,7 +5,7 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | Phase | Outcome | Status |
 |---|---|---|
 | 0 | Foundation + responsive shell | **COMPLETE** 2026-09-27 |
-| 1 | Sell + cash + receipt + bill history | Partly built ahead of order (see note) |
+| 1 | Sell + cash + receipt + bill history | **GATE PASSED**, 2 items open (see below) |
 | 2 | UPI/card/split + payment safety | PLANNED |
 | 3 | Customer + CRM seam | PLANNED |
 | 4 | Discounts/overrides + approvals | PLANNED |
@@ -130,6 +130,52 @@ STATUS: COMPLETE
 | `WF-SALES-01` bill history | P0 and the next thing to build |
 | `POS-RCPT-002` PDF, `-003` reprint, `-004` duplicate marking | Need the Bills screen to reach them |
 | `POS-SELL-006` variant picker, `-007` images | Need `Item.imageUrl` |
+
+---
+
+# Phase 1 — Sell + cash + receipt + bill history
+
+**Gate:** a real cash sale can be made, found and reprinted on all devices. **Passed 2026-09-27.**
+
+```text
+REQUIRED FEATURE IDS:    41 accounted
+DONE:                    27
+BUILDING:                 1  (POS-SALE-009 view customer — needs Phase 3)
+PLANNED IN-PHASE:         2  (POS-SELL-006 variant picker, -007 images)
+BLOCKED:                  1  (POS-RCPT-002 server-rendered PDF — reason recorded)
+DEFERRED TO PHASE 6:     10  (return, exchange, void from a bill)
+SCREENS:                  7/24 built, all three devices each
+SCREEN ACTION LINKS:     21/21   no dead buttons
+TESTS:                  127/127 passing
+                                 verify-money      47
+                                 verify-sale       48
+                                 verify-bills      27
+                                 verify-responsive  5
+UNAPPROVED REMOVALS:      0
+UNACCOUNTED FEATURES:     0
+
+STATUS: GATE PASSED, PHASE NOT CLOSED
+```
+
+**The phase is not marked COMPLETE**, because three of its own features are still open. The gate
+is a different thing from the phase, and conflating them is how a checklist starts lying.
+
+| Still open in Phase 1 | Why |
+|---|---|
+| `POS-SELL-006` variant picker | `Item.variantGroup` is in the schema; the sheet is not built |
+| `POS-SELL-007` product images | `Item.imageUrl` is in the schema; nothing renders it |
+| `POS-RCPT-002` server-rendered PDF | BLOCKED on purpose — a second renderer of one bill is how a reprint stops matching the original. Waits for Phase 10 |
+
+## What Phase 1 proved
+
+- A bill can be found by the **last four digits** of a creased receipt, which is how a customer
+  actually arrives.
+- **Reprints are marked.** Copy 1 is the original; copy 2 prints `DUPLICATE · COPY 2`. Verified in
+  the browser, not just in a test.
+- The bill opened from history is **the same component** as the receipt printed at the counter, so
+  a reprint cannot drift from the paper a customer is holding.
+- Paging survives a sale landing mid-scroll. Keyset, not offset — verified by making a sale
+  between page one and page two and asserting nothing repeated.
 
 ---
 

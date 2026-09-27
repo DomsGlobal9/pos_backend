@@ -274,6 +274,21 @@ model Item {
   /// Percent, e.g. 5 or 12. The bill still shows the CGST/SGST split; this is the rate it splits.
   taxRate    Int @default(0) @map("tax_rate")
 
+  /// A picture, when there is one. POS-SELL-007.
+  ///
+  /// Worth more on a phone than at a counter: a salesperson showing a customer what is in stock
+  /// is looking at the screen with them. A URL rather than a blob -- the POS is not an image host,
+  /// and with Inventory on, this mirrors whatever Inventory already serves.
+  imageUrl String? @map("image_url")
+
+  /// Groups items that are the same thing in different colours or sizes, so the sell screen can
+  /// offer a picker instead of five near-identical search results. POS-SELL-006.
+  ///
+  /// In standalone mode the shop sets it (or it is derived from the name on import). With
+  /// Inventory on, it carries Inventory's product identity. Null means this item stands alone,
+  /// which is the common case for a one-off piece.
+  variantGroup String? @map("variant_group")
+
   /// Inventory's variant id, when this row is a cache of an Inventory product. Null in standalone
   /// mode. Third parties and the public API address items by `code`, never by either uuid, so a
   /// client's own software is not coupled to our primary keys.
@@ -296,6 +311,7 @@ model Item {
   @@unique([clientId, barcode])
   @@index([clientId])
   @@index([clientId, inventoryVariantId])
+  @@index([clientId, variantGroup])
   @@map("items")
 }
 
@@ -358,6 +374,15 @@ model Sale {
 
   /// Set when the bill was made offline, so a day close can say so plainly.
   madeOfflineAt DateTime? @map("made_offline_at")
+
+  /// How many times this bill has been printed, and when it last was. POS-RCPT-004.
+  ///
+  /// A reprint must be MARKED as a duplicate on the paper. Two identical-looking copies of the
+  /// same invoice is how a customer returns the same saree twice, and how a shop's own staff
+  /// lose track of which copy the accountant has. The first print is the original; every one
+  /// after it says so.
+  printCount    Int       @default(0) @map("print_count")
+  lastPrintedAt DateTime? @map("last_printed_at")
 
   lines    SaleLine[]
   payments Payment[]
