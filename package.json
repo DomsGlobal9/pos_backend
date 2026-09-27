@@ -23,7 +23,8 @@
     "verify:returns": "ts-node src/scripts/verify-returns.ts",
     "verify:shifts": "ts-node src/scripts/verify-shifts.ts",
     "verify:events": "ts-node src/scripts/verify-events.ts",
-    "verify:inventory-link": "ts-node src/scripts/verify-inventory-link.ts"
+    "verify:inventory-link": "ts-node src/scripts/verify-inventory-link.ts",
+    "verify:reports": "ts-node src/scripts/verify-reports.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

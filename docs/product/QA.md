@@ -53,6 +53,17 @@ pass today and where the evidence is.
 Counted from the rows by script at Phase 7 close. (The Phase 6 figures above said PARTIAL 4 and
 PLANNED 4; the rows said 3 and 5. Corrected, nothing lost.)
 
+Added during Phase 9:
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-RPT-95 | Reports | A known day, every section | Each figure = the rows, to the paisa | **PASS** | `verify-reports` |
+| QA-RPT-96 | Reports | Cashiers / counters / GST lines | Each adds up to the whole day | **PASS** | `verify-reports` |
+| QA-RPT-97 | Reports | Report vs day close, same day | Same net, returns, cash, UPI | **PASS** | `verify-reports` |
+| QA-RPT-98 | Reports | Cashier opens Reports | Own bills today only; no cash, dues or closes | **PASS** | API + browser |
+| QA-RPT-99 | Reports | Screen vs server | The number on screen is the server's | **PASS** | `verify-reports-ui` |
+| QA-RPT-100 | Reports | Empty custom range | "No bills.", not an error | **PASS** | Browser |
+
 Added during Phase 7:
 
 | ID | Area | Scenario | Pass condition | Status | Evidence |

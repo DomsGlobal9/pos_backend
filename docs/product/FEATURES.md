@@ -12,15 +12,15 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 135 |
+| DONE | 146 |
 | BUILDING (works, gate not met) | 13 |
 | BLOCKED (dependency named) | 12 |
 | DEFERRED (approved) | 2 |
-| PLANNED | 49 |
+| PLANNED | 38 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, Phase 8 in progress (POS side) -- **counted from the rows by script**, not by adding
+Last reconciled: 2026-09-27, Phase 9 close (Phase 8 Inventory side still in progress) -- **counted from the rows by script**, not by adding
 to the previous figure.
 
 > **The Phase 5 figures above this line were wrong** (they said DONE 92, BUILDING 2, BLOCKED 12,
@@ -300,10 +300,25 @@ All PLANNED, Phase 11, except:
 
 ## 6.15 Reports
 
-All PLANNED, Phase 9.
-`POS-RPT-001` today sales · `-002` by payment method · `-003` by cashier · `-004` by counter ·
-`-005` returns/exchanges · `-006` discounts/overrides · `-007` tax summary · `-008` cash variance ·
-`-009` outstanding dues · `-010` day close · `-011` top sellers (P1).
+Phase 9. `services/reports`, one endpoint (`GET /reports?from&to`), screen `WF-REPORTS-01`.
+`verify-reports` 41 checks build a known day and reconcile every section to the bills, to each
+other and to the day close; `verify-reports-ui` 17 in real Chrome as cashier and manager.
+Cashiers: their own bills, today (MASTER §8 "limited"); `report:view` (manager, owner): any period
+up to 92 days.
+
+| ID | P | Feature | Phase | Status | Evidence / note |
+|---|---|---|---|---|---|
+| POS-RPT-001 | P0 | Today sales | 9 | **DONE** | Bills, gross, discount, tax, round-off, net, average, after returns -- each the sum of the bills |
+| POS-RPT-002 | P0 | Sales by payment method | 9 | **DONE** | Money in by method as taken (a balance collected today counts today); given back by method; exchange credit named, not counted as money |
+| POS-RPT-003 | P0 | Sales by cashier | 9 | **DONE** | Adds up to the whole day -- tested |
+| POS-RPT-004 | P0 | Sales by counter | 9 | **DONE** | Adds up to the whole day -- tested |
+| POS-RPT-005 | P0 | Returns/exchanges | 9 | **DONE** | Count, value, exchanges, top reasons |
+| POS-RPT-006 | P0 | Discounts/overrides | 9 | **DONE** | Discount total; price changes with what was given below the tag; approvals by kind |
+| POS-RPT-007 | P0 | Tax summary | 9 | **DONE** | Per rate: taxable, CGST, SGST, IGST -- charged, reversed by credit notes, net. Taxable + tax + round-off = net sales, tested |
+| POS-RPT-008 | P0 | Cash variance | 9 | **DONE** | Every drawer closed in the period, with its note; total short/over |
+| POS-RPT-009 | P0 | Outstanding orders/dues | 9 | **DONE** | As of now, whatever the period; oldest ten linked to the order |
+| POS-RPT-010 | P0 | Day close | 9 | **DONE** | Days closed in the period; the report and the day close agree for the same day, tested |
+| POS-RPT-011 | P1 | Top-selling products | 9 | **DONE** | Ten by pieces sold |
 
 ## 6.16 Settings / devices
 

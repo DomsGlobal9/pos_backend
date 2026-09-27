@@ -12,8 +12,8 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | 5 | Orders/keep/dues | **COMPLETE** 2026-09-27 |
 | 6 | Returns + exchange | **COMPLETE** 2026-09-27; stock and CRM effects BLOCKED on Phase 8 / CRM |
 | 7 | Shift + cash movements + day close | **COMPLETE** 2026-09-27 |
-| 8 | Inventory seam + standalone | PLANNED |
-| 9 | Operational reports | PLANNED |
+| 8 | Inventory seam + standalone | **IN PROGRESS** -- POS side built; Inventory side being built by the Inventory session to `INVENTORY-CONTRACT.md` (catalogue, stock, sale intake done; exchanges, holds to come); real end-to-end run pending |
+| 9 | Operational reports | **COMPLETE** 2026-09-27 |
 | 10 | Digital receipts + devices | PLANNED |
 | 11 | Offline Stage 1 / sync UX | PLANNED |
 | 12 | Public API + webhooks + CSV/Excel | PLANNED |
@@ -523,6 +523,42 @@ count (cashier) and the day close (manager) are both driven through the real scr
 
 ---
 
+# Phase 9 — Operational reports
+
+**Gate:** all P0 reports reconcile to source transactions. **Passed 2026-09-27.**
+
+```text
+REQUIRED FEATURE IDS:   11 accounted (RPT-001..011)
+DONE:                   11
+SCREENS:                21/24 built, all three devices each
+TESTS:                 727 backend + 86 UI in real Chrome + 5 responsive, all passing
+UNAPPROVED REMOVALS:     0
+UNACCOUNTED FEATURES:    0
+
+STATUS: COMPLETE
+```
+
+## How "reconcile" is proven
+
+`verify-reports` builds one past day of known activity -- two cashiers, two counters, a discount
+approved by a manager, a price change, a split payment, a return, an exchange, a kept order still
+owing, a drawer counted Rs 100 short -- and checks each section to the paisa against the rows. Then
+it checks the sections against each other (cashiers add up to the day, counters add up to the day,
+taxable + tax + round-off = net sales) and against the day close, which adds the same rows up a
+different way. Nothing in the reports is a stored total.
+
+## Decisions
+
+| Decision | Why |
+|---|---|
+| A cashier sees their own bills, today, and nothing else | MASTER §8 says "limited"; "how is my day going" is useful, anyone else's figures are not theirs |
+| Money in is dated when it was taken, not when the bill was made | A kept order's balance collected today is today's money -- the drawer and the day close agree |
+| Dues are "as of now" whatever the period | A debt does not belong to a date range |
+| New permission `report:view` (manager, owner) | Rows, not an enum; seeded |
+| Export is not here | CSV/Excel is Phase 12 (POS-API) |
+
+---
+
 # Standing evidence
 
 Tests that exist today and must keep passing. **Run one at a time** -- they share the local
@@ -541,8 +577,13 @@ database and the dev server restarts when `src/` changes.
 | `verify-held-bills` | 30 | SELL-020..022 |
 | `verify-returns` | 130 | RET-001..007, EXC-001..005, APR-004/005, SALE-010..012, PAY-015/016, CUST-012/015 |
 | `verify-shifts` | 69 | SHIFT-001..009, DAY-001..005, HOME-005 |
+| `verify-events` | 42 | INV-003, -006..-008 (POS side): stock count, outbox |
+| `verify-inventory-link` | 57 | INV-001, -009, SYNC-006 (POS side, against a stand-in) |
+| `verify-reports` | 41 | RPT-001..011 |
 | frontend `scripts/verify-returns-ui.mjs` | 33 | WF-RETURN-01, WF-EXCHANGE-01 in real Chrome, three sizes |
 | frontend `scripts/verify-shifts-ui.mjs` | 33 | WF-SHIFT-01, WF-CASH-01, WF-DAY-01 as cashier and manager, three sizes |
+| frontend `scripts/verify-reports-ui.mjs` | 17 | WF-REPORTS-01 as cashier and manager, three sizes |
+| frontend `scripts/verify-stock-ui.mjs` | 3 | pieces-left moves with a sale and a return |
 | frontend `scripts/verify-responsive.mjs` | 5 | CORE-001 live reflow |
 
 ```

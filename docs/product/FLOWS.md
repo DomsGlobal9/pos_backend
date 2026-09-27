@@ -28,7 +28,7 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 | `WF-SHIFT-01` | Shift | **DONE** | yes | yes | yes | Open with the float; the close is a blind count |
 | `WF-CASH-01` | Cash movement | **DONE** | yes | yes | yes | A sheet on WF-SHIFT-01; cashier's cash out opens the manager sheet in place |
 | `WF-DAY-01` | Day close | **DONE** | yes | yes | yes | Open shifts and payments to check first; closed day frozen, "since closing" apart |
-| `WF-REPORTS-01` | Reports | PLANNED | | | | Phase 9 |
+| `WF-REPORTS-01` | Reports | **DONE** | yes | yes | yes | Period chips; a cashier sees their own day only. Export is Phase 12 (CSV) |
 | `WF-MORE-01` | More | **DONE** | yes | yes | yes | Bills live; the rest disabled with a visible phase |
 | `WF-SYNC-01` | Sync status | PLANNED | | | | Phase 11 |
 | `WF-SETTINGS-01` | Settings | PLANNED | | | | Phase 0 stub, Phase 4 real |
