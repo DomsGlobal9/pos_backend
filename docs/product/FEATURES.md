@@ -12,15 +12,15 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 146 |
-| BUILDING (works, gate not met) | 13 |
-| BLOCKED (dependency named) | 12 |
+| DONE | 153 |
+| BUILDING (works, gate not met) | 15 |
+| BLOCKED (dependency named) | 14 |
 | DEFERRED (approved) | 2 |
-| PLANNED | 38 |
+| PLANNED | 27 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, Phase 9 close (Phase 8 Inventory side still in progress) -- **counted from the rows by script**, not by adding
+Last reconciled: 2026-09-27, Phase 10 close (Phase 8 Inventory side still in progress) -- **counted from the rows by script**, not by adding
 to the previous figure.
 
 > **The Phase 5 figures above this line were wrong** (they said DONE 92, BUILDING 2, BLOCKED 12,
@@ -65,7 +65,7 @@ to the previous figure.
 | POS-SELL-001 | P0 | Search by product name | 1 | **DONE** | Every word must match; verified phone/tablet/desktop |
 | POS-SELL-002 | P0 | Search by SKU/item code | 1 | **DONE** | |
 | POS-SELL-003 | P0 | Barcode scanner input | 1 | **DONE** | 150 ms contract, counter only per CHG-002 |
-| POS-SELL-004 | P0 | Phone camera barcode scan | 10 | PLANNED | No 150 ms claim, CHG-002 |
+| POS-SELL-004 | P0 | Phone camera barcode scan | 10 | **DONE** | ZXing (works on Windows, unlike the browser's own detector), loaded only when opened. Tested with a fake camera showing a real EAN-13: the item reaches the basket. No 150 ms claim, CHG-002 |
 | POS-SELL-005 | P0 | Exact barcode auto-add | 1 | **DONE** | Two exact matches are offered as a choice |
 | POS-SELL-006 | P0 | Product/variant picker | 1 | **DONE** | Colours collapse to one row; picker shows all sizes in wearing order |
 | POS-SELL-007 | P0 | Product image where available | 1 | **DONE** | Thumbnail in search results and in the picker; absent image renders a blank, not a broken icon |
@@ -123,8 +123,8 @@ to the previous figure.
 | POS-PAY-009 | P0 | Idempotent payment retry | 1 | **DONE** | `onceKey:pay:N` per row |
 | POS-PAY-010 | P0 | Ambiguous / unknown provider state | 2 | **DONE** | `PaymentStatus.NEEDS_CHECKING`; cash can never be uncertain |
 | POS-PAY-011 | P0 | Check / reconcile payment status | 2 | **DONE** | `WF-PAY-02` worklist; resolves to COLLECTED or VOID, never deleted |
-| POS-PAY-012 | P1 | Dynamic UPI QR / provider | 10 | PLANNED | |
-| POS-PAY-013 | P1 | Card terminal integration | 10 | PLANNED | |
+| POS-PAY-012 | P1 | Dynamic UPI QR / provider | 10 | BUILDING | **QR with the amount: DONE** (owner sets the UPI ID; the QR follows the row's amount). **Auto-confirming the payment needs a payment provider** -- the cashier still types the reference. Decision #12 |
+| POS-PAY-013 | P1 | Card terminal integration | 10 | **BLOCKED** | Needs a terminal provider (Pine Labs, Razorpay POS, ...) chosen -- decision #12. Card by reference works today |
 | POS-PAY-014 | P0 | Collect later against kept order | 5 | **DONE** | Row-locked; five concurrent collections of one balance charge it once |
 | POS-PAY-015 | P0 | Refund payment path | 6 | **DONE** | Cash / UPI / card / store credit, as `ReturnRefund` rows. UPI and card need the refund reference. Money back is capped at what was paid in money (CONTRACTS §1.8) |
 | POS-PAY-016 | P1 | Store credit refund / spend | 6 | **DONE** | Spend is one guarded UPDATE; two tills spending the same credit at once: one succeeds. DB CHECK keeps it >= 0. Ledger per change |
@@ -134,14 +134,14 @@ to the previous figure.
 | ID | P | Feature | Phase | Status | Evidence / note |
 |---|---|---|---|---|---|
 | POS-RCPT-001 | P0 | 80 mm browser print | 1 | **DONE** | Print never gates the save; sheet fits a 375px phone |
-| POS-RCPT-002 | P0 | PDF receipt | 1 | **BLOCKED** | Deliberately not done. See the note under 6.6 |
+| POS-RCPT-002 | P0 | PDF receipt | 10 | **DONE** | Unblocked in Phase 10: one receipt document built from the saved bill, drawn as an 80 mm PDF (built-in fonts, QR as vector squares). Read back with pypdf in `verify-receipts` |
 | POS-RCPT-003 | P0 | Reprint | 1 | **DONE** | From `WF-SALE-02`; button reads "Print again" once a copy exists |
 | POS-RCPT-004 | P0 | Duplicate / reprint marking | 1 | **DONE** | `Sale.printCount`; copy 1 is the original, copy 2+ prints DUPLICATE. Verified in the browser |
 | POS-RCPT-005 | P0 | GST split / round-off / savings on receipt | 1 | **DONE** | Split read from stored line values, never recomputed |
-| POS-RCPT-006 | P1 | WhatsApp receipt | 10 | PLANNED | WhatsApp service is deployed elsewhere |
-| POS-RCPT-007 | P1 | SMS receipt | 10 | PLANNED | |
-| POS-RCPT-008 | P1 | Email receipt | 10 | PLANNED | |
-| POS-RCPT-009 | P1 | QR / digital receipt | 10 | PLANNED | |
+| POS-RCPT-006 | P1 | WhatsApp receipt | 10 | BUILDING | Built to ScaleEzy's WhatsApp service module guide (kind C2, the shop's own number, one per press, the bill's own customer); every failure leaves the bill untouched. Tested against a stand-in. **Live sending needs the POS's module key** (held by the owner) and the shop's number linked -- decision #13 |
+| POS-RCPT-007 | P1 | SMS receipt | 10 | **BLOCKED** | No SMS provider chosen, and Indian SMS needs DLT registration of the sender and template -- decision #12. The button says so |
+| POS-RCPT-008 | P1 | Email receipt | 10 | **BLOCKED** | No email provider for the POS yet -- decision #12. The PDF is ready to attach |
+| POS-RCPT-009 | P1 | QR / digital receipt | 10 | **DONE** | Every bill gets a random 24-character link; the paper carries it as a QR. Public page and PDF, no sign-in, no internal ids, number masked, rate-limited |
 
 > **Why POS-RCPT-002 is BLOCKED rather than built.** The browser's own "save as PDF" already
 > produces a file from the 80 mm print view, so the gap is a *server-rendered* PDF — needed later
@@ -332,7 +332,10 @@ up to 92 days.
 | POS-SET-006 | P0 | Return window / rules | 6 | BUILDING | **Enforced** from Phase 6 (`ShopSettings.returnWindowDays`, default 7). No settings screen to change it yet |
 | POS-SET-007 | P0 | Hold threshold | 8 | BUILDING | Column exists, default 3, not enforced |
 | POS-SET-008 | P0 | Role-gated settings | 4 | BUILDING | Setting a PIN is owner-only; a settings SCREEN does not exist yet |
-| POS-DEV-001..004 | P1 | Counter/printer/scanner/health | 10 | PLANNED | |
+| POS-DEV-001 | P1 | Counter/device registration | 10 | **DONE** | A device registers itself (random id in the browser); a manager names it and puts it at a counter |
+| POS-DEV-002 | P1 | Printer assignment/status | 10 | **DONE** | Paper width per device (58/80 mm) drives the print layout; last printed time. A browser cannot see paper or ink, and the screen does not pretend to |
+| POS-DEV-003 | P1 | Scanner/camera capability status | 10 | **DONE** | Camera shown per device; a USB scanner is a keyboard and cannot be detected -- it simply works |
+| POS-DEV-004 | P1 | Last sync/connectivity/app version health | 10 | **DONE** | Heartbeat every minute: online / last seen, version, last user |
 
 ## 6.17 External integrations
 

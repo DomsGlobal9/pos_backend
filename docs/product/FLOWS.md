@@ -32,7 +32,7 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 | `WF-MORE-01` | More | **DONE** | yes | yes | yes | Bills live; the rest disabled with a visible phase |
 | `WF-SYNC-01` | Sync status | PLANNED | | | | Phase 11 |
 | `WF-SETTINGS-01` | Settings | PLANNED | | | | Phase 0 stub, Phase 4 real |
-| `WF-DEVICES-01` | Counters/devices | PLANNED | | | | Phase 10 |
+| `WF-DEVICES-01` | Counters/devices | **DONE** | yes | yes | yes | Self-registered; manager names, places, sets paper. Also: `/r/:token` digital receipt (public, outside the shell) and Settings (UPI ID) |
 | `WF-INTEGRATIONS-01` | Integrations | PLANNED | | | | Phase 12 |
 
 ## Navigation

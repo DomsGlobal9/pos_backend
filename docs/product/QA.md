@@ -53,6 +53,18 @@ pass today and where the evidence is.
 Counted from the rows by script at Phase 7 close. (The Phase 6 figures above said PARTIAL 4 and
 PLANNED 4; the rows said 3 and 5. Corrected, nothing lost.)
 
+Added during Phase 10:
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-RCPT-101 | Receipt | WhatsApp not set up / no customer / STOP / service down | Said plainly; bill byte-for-byte unchanged | **PASS** | `verify-receipts` + browser |
+| QA-RCPT-102 | Receipt | Send pressed twice | One message | **PASS** | `verify-receipts` |
+| QA-RCPT-103 | Receipt | Public link | No sign-in, no internal ids, number masked; wrong link says so | **PASS** | API + browser |
+| QA-RCPT-104 | Receipt | The PDF | Opens in a real PDF reader; 80 mm; bill figures; QR drawn | **PASS** | `verify-receipts` (pypdf) |
+| QA-PAY-105 | Payment | UPI with the shop's UPI ID set | QR for exactly the row's amount; follows the amount typed | **PASS** | Browser |
+| QA-DEV-106 | Devices | Open the till on a new browser | Registers itself with its version; manager names it, sets 58 mm | **PASS** | Browser + `verify-receipts` |
+| QA-SELL-107 | Sell | Phone camera pointed at a real EAN-13 | Item in the basket; camera released | **PASS** | Browser, fake camera with a drawn barcode |
+
 Added during Phase 9:
 
 | ID | Area | Scenario | Pass condition | Status | Evidence |

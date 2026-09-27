@@ -74,7 +74,7 @@ async function main() {
   // ------------------------------------------------------------------------------------------
   console.log('finding something to sell');
   // ------------------------------------------------------------------------------------------
-  const scanned = await search(actor, '8901234500011');
+  const scanned = await search(actor, '8901234500019');
   ok('a scanned barcode is answered on its own', scanned.exact && scanned.items.length === 1);
   eq('and it is the right item', scanned.items[0]?.code, 'KAN-001');
 

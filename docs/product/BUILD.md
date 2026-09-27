@@ -5,7 +5,7 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | Phase | Outcome | Status |
 |---|---|---|
 | 0 | Foundation + responsive shell | **COMPLETE** 2026-09-27 |
-| 1 | Sell + cash + receipt + bill history | **COMPLETE**, except POS-RCPT-002 (BLOCKED, reason recorded) |
+| 1 | Sell + cash + receipt + bill history | **COMPLETE** (POS-RCPT-002 closed in Phase 10) |
 | 2 | UPI/card/split + payment safety | **COMPLETE** 2026-09-27 |
 | 3 | Customer + CRM seam | **COMPLETE** for the customer; CRM half BLOCKED (CHG-007) |
 | 4 | Discounts/overrides + approvals | **COMPLETE** 2026-09-27 (the 2 return approvals closed in Phase 6) |
@@ -14,7 +14,7 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | 7 | Shift + cash movements + day close | **COMPLETE** 2026-09-27 |
 | 8 | Inventory seam + standalone | **IN PROGRESS** -- POS side built; Inventory side being built by the Inventory session to `INVENTORY-CONTRACT.md` (catalogue, stock, sale intake done; exchanges, holds to come); real end-to-end run pending |
 | 9 | Operational reports | **COMPLETE** 2026-09-27 |
-| 10 | Digital receipts + devices | PLANNED |
+| 10 | Digital receipts + devices | **COMPLETE** for what can be built 2026-09-27; SMS, email, card terminal and UPI auto-confirm wait on providers (decision #12), WhatsApp on a module key (#13) |
 | 11 | Offline Stage 1 / sync UX | PLANNED |
 | 12 | Public API + webhooks + CSV/Excel | PLANNED |
 | 13 | Real-shop pilot + cut-over | PLANNED |
@@ -559,6 +559,45 @@ different way. Nothing in the reports is a stored total.
 
 ---
 
+# Phase 10 — Digital receipts and devices
+
+**Gate:** async receipt failures cannot damage the sale. **Passed 2026-09-27.**
+
+```text
+REQUIRED FEATURE IDS:   12 accounted (RCPT-002, -006..-009, PAY-012, -013, DEV-001..004, SELL-004)
+DONE:                    7  (RCPT-002 -- unblocked, RCPT-009, DEV-001..004, SELL-004)
+BUILDING:                2  (RCPT-006 WhatsApp -- needs the module key; PAY-012 -- QR done, auto-confirm needs a provider)
+BLOCKED:                 3  (RCPT-007 SMS, RCPT-008 email, PAY-013 card terminal -- providers, decision #12)
+TESTS:                 787 backend + 119 UI in real Chrome (incl. a real barcode through a fake camera), all passing
+STATUS: COMPLETE for what can be built
+```
+
+## The gate, and how it is held
+
+Sending a receipt is its own request, long after the bill committed, and writes only to
+`receipt_sends`. `verify-receipts` sends through every failure -- not set up, no customer, the person
+replied STOP, the service down -- and after each compares the whole bill, byte for byte, to what it
+was. Selling carries on while WhatsApp is down (tested).
+
+## One receipt, many copies
+
+The PDF (download, WhatsApp, the public link) is drawn from one receipt DOCUMENT built from the
+saved bill's own figures -- the same ones the paper prints. That is why POS-RCPT-002 waited for this
+phase: two renderers that each did their own arithmetic is how a copy stops matching the paper. The
+PDF is written by hand (built-in Courier, the QR drawn as squares): a few kB, readable everywhere,
+checked by reading it back with pypdf.
+
+## Found while building
+
+| Found | Was |
+|---|---|
+| **All nine seed barcodes had wrong EAN-13 check digits** | No camera (or EAN-aware scanner) would read them off a label -- the seed was quietly unrealistic. Found when the barcode generator for the camera test refused to draw them. Corrected in the seed (the seed now updates barcodes on existing rows) |
+| **The camera showed a black box in development** | React sets an effect up, tears it down and sets it up again; the first run's stop cleared the video the second run had just attached. The camera now starts a tick later and the start is cancelled on teardown. Found by the fake-camera test |
+| **A test waited for "CREDIT NOTE" and matched "Opening the credit note..."** | Text matching ignores case; the check read the page too early. Now an exact match |
+| **Prisma would not create a migration non-interactively** (a new unique column asks to confirm) | Generated with `prisma migrate diff` from the live schema, checked for any DROP of the hand-written constraints (none), applied with `migrate deploy` |
+
+---
+
 # Standing evidence
 
 Tests that exist today and must keep passing. **Run one at a time** -- they share the local
@@ -580,10 +619,13 @@ database and the dev server restarts when `src/` changes.
 | `verify-events` | 42 | INV-003, -006..-008 (POS side): stock count, outbox |
 | `verify-inventory-link` | 57 | INV-001, -009, SYNC-006 (POS side, against a stand-in) |
 | `verify-reports` | 41 | RPT-001..011 |
+| `verify-receipts` | 61 | RCPT-002, -006, -009, PAY-012, DEV-001..004 |
+| `verify-inventory-e2e` (needs a throwaway Inventory tenant) | 17 | Phase 8 against the REAL Inventory |
 | frontend `scripts/verify-returns-ui.mjs` | 33 | WF-RETURN-01, WF-EXCHANGE-01 in real Chrome, three sizes |
 | frontend `scripts/verify-shifts-ui.mjs` | 33 | WF-SHIFT-01, WF-CASH-01, WF-DAY-01 as cashier and manager, three sizes |
 | frontend `scripts/verify-reports-ui.mjs` | 17 | WF-REPORTS-01 as cashier and manager, three sizes |
 | frontend `scripts/verify-stock-ui.mjs` | 3 | pieces-left moves with a sale and a return |
+| frontend `scripts/verify-phase10-ui.mjs` | 28 | receipt QR/PDF/WhatsApp, public receipt, UPI QR, devices, camera scan with a real barcode |
 | frontend `scripts/verify-responsive.mjs` | 5 | CORE-001 live reflow |
 
 ```

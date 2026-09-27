@@ -262,11 +262,11 @@ async function main() {
            variant(code('3'), { pricePaise: 320000, taxSlabbed: true, taxRateBps: 500, hsn: '6204' }),
            variant(code('4'), { taxRateBps: 250 }),
            variant(code('5'), { priceIsExclusive: true }),
-           variant(code('6'), { barcode: '8901234500035' })
+           variant(code('6'), { barcode: '8901234500033' })
          ] }]
     ];
     // A barcode already on one of this shop's items, to see the clash handled.
-    await prisma.item.create({ data: { clientId, code: `OWN-${run}`, name: 'Own item', pricePaise: 100, taxRate: 5, barcode: '8901234500035' } });
+    await prisma.item.create({ data: { clientId, code: `OWN-${run}`, name: 'Own item', pricePaise: 100, taxRate: 5, barcode: '8901234500033' } });
 
     await refused('a cashier cannot refresh the items', () => syncCatalogue(cashier), /manager or the owner/);
     const r1 = await syncCatalogue(owner);

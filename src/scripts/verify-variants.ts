@@ -126,7 +126,7 @@ async function main() {
    * saree in some colour". Opening a picker there would add a tap to every scan, on the path with
    * the 150 ms budget.
    */
-  const scanned = await search(actor, '8901234500011');
+  const scanned = await search(actor, '8901234500019');
   ok('a barcode is still exact', scanned.exact === true);
   eq('and it is the maroon one, not a choice', scanned.items[0]?.code, 'KAN-001');
 
