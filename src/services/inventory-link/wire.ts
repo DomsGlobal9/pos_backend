@@ -67,10 +67,17 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
   return { kind: eventType, ...payload };
 }
 
-/** Inventory answers `{ success, data: { answer, detail?, warnings?, orderNumber? } }`. */
-export function readAnswer(body: any): { answer: string | null; detail: string | null; warnings: string[]; orderNumber: string | null } {
+/**
+ * Inventory answers `{ success, data: { answer, detail?, warnings?, orderNumber?, reference? } }`.
+ * A sale is answered `202 { answer: ACCEPTED, reference }` and applied moments later; its ending
+ * is read from `GET /events/status`, whose `status` is QUEUED, RUNNING, APPLIED or REJECTED.
+ */
+export function readAnswer(body: any): {
+  answer: string | null; detail: string | null; warnings: string[]; orderNumber: string | null; reference: string | null
+} {
   const data = body?.data ?? {};
   return {
+    reference: typeof data.reference === 'string' ? data.reference : null,
     answer: data.answer ?? data.status ?? body?.details?.code ?? null,
     detail: data.detail ?? body?.message ?? null,
     warnings: Array.isArray(data.warnings) ? data.warnings.filter((w: unknown) => typeof w === 'string') : [],

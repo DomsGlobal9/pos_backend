@@ -5,6 +5,13 @@ import { toInventory, readAnswer } from './wire';
 /**
  * Sending the outbox to Inventory. POS-INV-006, -007, -008. Contract §4.
  *
+ * TAKEN IN, THEN APPLIED (Inventory, 27 Sep). A sale is answered 202 ACCEPTED in about a second and
+ * applied by Inventory's own worker a few seconds later. "Accepted" is durable -- Inventory has
+ * written it down -- so the queue moves on at once, and an InventorySettlement row remembers to ask
+ * `GET /events/status` how it ended. Applied: any notes go to the owner. Rejected: the queue goes
+ * back to that bill and stops there, exactly as an immediate refusal does -- nothing slips past a
+ * bill Inventory would not take.
+ *
  * ONE EVENT AT A TIME, IN ORDER, PER SHOP. A return must never reach Inventory before the sale it
  * is against, so there is no parallelism within a shop and no skipping.
  *
@@ -37,6 +44,19 @@ const LEASE_MS = 150_000;
 const BACKOFF_MS = [30_000, 2 * 60_000, 10 * 60_000, 60 * 60_000];
 export const backoffFor = (attempts: number) => BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length) - 1] ?? 60 * 60_000;
 
+/** A refusal, in words: Inventory's own sentence names the item and the figures. */
+function describe(code: string | null, detail: string | null) {
+  const said = detail ? ` Inventory said: "${detail}"` : '';
+  const known: Record<string, string> = {
+    UNKNOWN_ITEM: 'An item on this bill is not in Inventory.',
+    UNKNOWN_ORDER: 'Inventory has no record of the original bill.',
+    QTY_EXCEEDS_SOLD: 'Inventory thinks more is being returned than was sold.',
+    AMOUNT_MISMATCH: 'Inventory worked out a different refund.',
+    BAD_PAYLOAD: 'Inventory could not take this bill.'
+  };
+  return `${(code && known[code]) || 'Inventory refused this bill.'}${said}`;
+}
+
 /** Why the queue stopped, as the owner will read it. Never a status code on its own. */
 function refusal(status: number, body: any): { code: string; message: string } | null {
   const { answer: code, detail } = readAnswer(body);
@@ -47,16 +67,7 @@ function refusal(status: number, body: any): { code: string; message: string } |
   // Inventory is still applying the sale. A race, not a fault -- retried with the normal backoff.
   if (RETRYABLE.includes(code ?? '')) return null;
   if (status === 400 || status === 404 || status === 409 || status === 422) {
-    // Inventory's own sentence names the item and the figures -- that is what a person needs.
-    const said = detail ? ` Inventory said: "${detail}"` : '';
-    const known: Record<string, string> = {
-      UNKNOWN_ITEM: 'An item on this bill is not in Inventory.',
-      UNKNOWN_ORDER: 'Inventory has no record of the original bill.',
-      QTY_EXCEEDS_SOLD: 'Inventory thinks more is being returned than was sold.',
-      AMOUNT_MISMATCH: 'Inventory worked out a different refund.',
-      BAD_PAYLOAD: 'Inventory could not take this bill.'
-    };
-    return { code: code ?? `HTTP_${status}`, message: `${(code && known[code]) || 'Inventory refused this bill.'}${said}` };
+    return { code: code ?? `HTTP_${status}`, message: describe(code, detail) };
   }
   return null;
 }
@@ -109,25 +120,26 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   );
 
   const answer = reply.kind === 'ANSWERED' ? readAnswer(reply.body) : null;
-  if (reply.kind === 'ANSWERED' && reply.status >= 200 && reply.status < 300 && (!answer?.answer || ['APPLIED', 'ALREADY_APPLIED'].includes(answer.answer))) {
-    /*
-     * Accepted -- but Inventory may have noted something a person should settle: the till charged a
-     * different GST rate than the product carries, or sold stock Inventory thought it did not have
-     * (contract §4.4). Nothing stops for these; they are kept for the owner's Inventory link screen.
-     */
-    const fresh = (answer?.warnings ?? [])
-      .filter(w => w.trim().length > 0)
-      .map(text => ({ at: new Date().toISOString(), document: event.invoiceNo, text: text.trim() }));
-    let recentWarnings: any = undefined;
-    if (fresh.length > 0) {
-      const row = await prisma.inventoryLink.findUnique({ where: { clientId }, select: { recentWarnings: true } });
-      const before = Array.isArray(row?.recentWarnings) ? (row!.recentWarnings as any[]) : [];
-      recentWarnings = [...fresh.reverse(), ...before].slice(0, 30);
+  if (reply.kind === 'ANSWERED' && reply.status >= 200 && reply.status < 300 && (!answer?.answer || ['APPLIED', 'ALREADY_APPLIED', 'ACCEPTED'].includes(answer.answer))) {
+    if (answer?.answer === 'ACCEPTED') {
+      // Written down at Inventory, not applied yet. Ask how it ended in a few seconds.
+      await prisma.inventorySettlement.upsert({
+        where: { clientId_sequence: { clientId, sequence: event.sequence } },
+        create: {
+          clientId, sequence: event.sequence, invoiceNo: event.invoiceNo ?? '', reference: answer.reference,
+          acceptedAt: new Date(), nextCheckAt: new Date(Date.now() + CHECK_MS[0])
+        },
+        update: { reference: answer.reference ?? undefined, settledAt: null, status: 'QUEUED', detail: null, checks: 0, nextCheckAt: new Date(Date.now() + CHECK_MS[0]) }
+      });
+    } else {
+      // Applied there and then (a resend of a bill Inventory already finished). Nothing left to ask.
+      await prisma.inventorySettlement.updateMany({
+        where: { clientId, sequence: event.sequence, settledAt: null },
+        data: { status: 'APPLIED', settledAt: new Date() }
+      });
+      await noteWarnings(clientId, event.invoiceNo, answer?.warnings ?? []);
     }
-    await release({
-      deliveredSequence: event.sequence, lastDeliveredAt: new Date(), attempts: 0, nextAttemptAt: null, lastError: null,
-      ...(recentWarnings ? { recentWarnings } : {})
-    });
+    await release({ deliveredSequence: event.sequence, lastDeliveredAt: new Date(), attempts: 0, nextAttemptAt: null, lastError: null });
     return { outcome: 'DELIVERED', sequence: event.sequence };
   }
 
@@ -143,6 +155,117 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   return { outcome: 'RETRY_LATER', sequence: event.sequence };
 }
 
+/**
+ * Accepted -- but Inventory may have noted something a person should settle: the till charged a
+ * different GST rate than the product carries, or sold stock Inventory thought it did not have
+ * (contract §4.4). Nothing stops for these; they are kept for the owner's Inventory link screen.
+ */
+async function noteWarnings(clientId: string, invoiceNo: string | null, warnings: string[]) {
+  const fresh = warnings
+    .filter(w => w.trim().length > 0)
+    .map(text => ({ at: new Date().toISOString(), document: invoiceNo, text: text.trim() }));
+  if (fresh.length === 0) return;
+  const row = await prisma.inventoryLink.findUnique({ where: { clientId }, select: { recentWarnings: true } });
+  const before = Array.isArray(row?.recentWarnings) ? (row!.recentWarnings as any[]) : [];
+  await prisma.inventoryLink.update({ where: { clientId }, data: { recentWarnings: [...fresh.reverse(), ...before].slice(0, 30) } });
+}
+
+// Soon at first -- a sale usually applies in seconds -- then less often. An outage at Inventory
+// can last minutes; asking every five seconds through it helps nobody.
+const CHECK_MS = [5_000, 15_000, 30_000, 60_000, 2 * 60_000, 5 * 60_000, 10 * 60_000];
+// checks = how many times we have asked; the 5 s wait before the first ask is set at acceptance.
+const checkAfter = (checks: number) => CHECK_MS[Math.min(checks, CHECK_MS.length - 1)];
+
+/**
+ * Ask Inventory how accepted bills ended. Under the same lease as sending, so two server instances
+ * never both roll the queue back for the same rejection.
+ */
+export async function checkSettlements(clientId: string, max = 8): Promise<{ checked: number; applied: number; rejected: number }> {
+  const result = { checked: 0, applied: 0, rejected: 0 };
+  const due = await prisma.inventorySettlement.count({ where: { clientId, settledAt: null, nextCheckAt: { lte: new Date() } } });
+  if (due === 0) return result;
+
+  const leased = await prisma.$queryRaw<{ base_url: string; key_cipher: string }[]>`
+    UPDATE inventory_links
+       SET locked_until = (now() AT TIME ZONE 'UTC') + (${LEASE_MS} || ' milliseconds')::interval
+     WHERE client_id = ${clientId}
+       AND connected
+       AND (locked_until IS NULL OR locked_until < (now() AT TIME ZONE 'UTC'))
+ RETURNING base_url, key_cipher`;
+  const link = leased[0];
+  if (!link) return result;
+
+  try {
+    const rows = await prisma.inventorySettlement.findMany({
+      where: { clientId, settledAt: null, nextCheckAt: { lte: new Date() } },
+      orderBy: { sequence: 'asc' },
+      take: max
+    });
+    for (const row of rows) {
+      const reply = await call(
+        { baseUrl: link.base_url, keyCipher: link.key_cipher },
+        'GET', `/events/status?invoiceNo=${encodeURIComponent(row.invoiceNo)}`, undefined, 15_000
+      );
+      result.checked++;
+      const checks = row.checks + 1;
+      const later = (detail?: string) => prisma.inventorySettlement.update({
+        where: { id: row.id },
+        data: { checks, nextCheckAt: new Date(Date.now() + checkAfter(checks)), ...(detail !== undefined ? { detail } : {}) }
+      });
+
+      // Unreachable or busy: every other bill would get the same. Try them all again later.
+      if (reply.kind === 'UNREACHABLE' || reply.status >= 500 || reply.status === 401 || reply.status === 403) {
+        await later();
+        break;
+      }
+      if (reply.status === 404) {
+        // Accepted, yet unknown: Inventory's queue row should exist. Keep asking, and say so.
+        await later(`Inventory accepted ${row.invoiceNo} but has no record of it yet.`);
+        continue;
+      }
+      const data = reply.body?.data ?? {};
+      const status = String(data.status ?? '').toUpperCase();
+      if (!data.settledAt && status !== 'APPLIED' && status !== 'REJECTED') {
+        await prisma.inventorySettlement.update({
+          where: { id: row.id },
+          data: { checks, status: status || row.status, nextCheckAt: new Date(Date.now() + checkAfter(checks)) }
+        });
+        continue;
+      }
+
+      if (status === 'REJECTED') {
+        const { answer, detail } = readAnswer(reply.body);
+        const code = answer && answer !== 'REJECTED' ? answer : 'REJECTED';
+        const message = describe(code, detail);
+        await prisma.inventorySettlement.update({ where: { id: row.id }, data: { checks, status: 'REJECTED', detail: message, settledAt: new Date() } });
+        /*
+         * Back to this bill, and stop. The cursor goes to just before it, so Retry (after the owner
+         * fixes the item in Inventory) sends THIS bill again; anything after it that Inventory had
+         * already taken in is sent again too and answered ALREADY_APPLIED or the same reference.
+         * An earlier block, if there is one, stays: the queue stops at the first problem.
+         */
+        await prisma.$executeRaw`
+          UPDATE inventory_links
+             SET delivered_sequence = LEAST(delivered_sequence, ${row.sequence} - 1),
+                 blocked_code    = CASE WHEN blocked_sequence IS NULL OR blocked_sequence > ${row.sequence} THEN ${code} ELSE blocked_code END,
+                 blocked_message = CASE WHEN blocked_sequence IS NULL OR blocked_sequence > ${row.sequence} THEN ${message} ELSE blocked_message END,
+                 last_error      = CASE WHEN blocked_sequence IS NULL OR blocked_sequence > ${row.sequence} THEN ${message} ELSE last_error END,
+                 blocked_sequence = LEAST(COALESCE(blocked_sequence, ${row.sequence}), ${row.sequence})
+           WHERE client_id = ${clientId}`;
+        result.rejected++;
+        continue;
+      }
+
+      await prisma.inventorySettlement.update({ where: { id: row.id }, data: { checks, status: 'APPLIED', detail: null, settledAt: new Date() } });
+      await noteWarnings(clientId, row.invoiceNo, readAnswer(reply.body).warnings);
+      result.applied++;
+    }
+  } finally {
+    await prisma.inventoryLink.update({ where: { clientId }, data: { lockedUntil: null } });
+  }
+  return result;
+}
+
 /** Everything this shop has waiting, until the queue is empty or has to wait. */
 export async function drain(clientId: string, max = 100) {
   let sent = 0;
@@ -154,12 +277,17 @@ export async function drain(clientId: string, max = 100) {
   return { sent, stoppedBecause: 'LIMIT' as const };
 }
 
-/** One pass over every connected shop. */
+/** One pass over every connected shop: send what is waiting, then ask how accepted bills ended. */
 export async function runOnce() {
-  const links = await prisma.inventoryLink.findMany({ where: { connected: true, blockedSequence: null }, select: { clientId: true } });
+  const links = await prisma.inventoryLink.findMany({ where: { connected: true }, select: { clientId: true, blockedSequence: true } });
   for (const l of links) {
-    try { await drain(l.clientId); }
-    catch (error) { console.error(`[inventory-link] delivery for ${l.clientId} failed:`, (error as Error).message); }
+    try {
+      if (l.blockedSequence === null) await drain(l.clientId);
+      // Even a stopped queue has bills Inventory accepted before it stopped. Their endings still count.
+      await checkSettlements(l.clientId);
+    } catch (error) {
+      console.error(`[inventory-link] delivery for ${l.clientId} failed:`, (error as Error).message);
+    }
   }
 }
 

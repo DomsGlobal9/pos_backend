@@ -1208,6 +1208,32 @@ model InventoryLink {
   @@map("inventory_links")
 }
 
+/// A bill Inventory has taken in (202 ACCEPTED) but may not have applied yet. POS-INV-006.
+///
+/// Inventory answers a sale in about a second and applies it in the background. The queue moves on
+/// at "accepted"; this row is how the POS finds out how it ended -- applied (maybe with a note for
+/// the owner) or rejected (which stops the queue at that bill, as a refusal always has).
+model InventorySettlement {
+  id         String   @id @default(uuid())
+  clientId   String   @map("client_id")
+  /// The event's sequence in `webhook_events`.
+  sequence   BigInt
+  invoiceNo  String   @map("invoice_no")
+  /// Inventory's receipt for the event, from the 202.
+  reference  String?
+  acceptedAt DateTime @default(now()) @map("accepted_at")
+  checks     Int      @default(0)
+  nextCheckAt DateTime @default(now()) @map("next_check_at")
+  /// QUEUED, RUNNING, APPLIED or REJECTED, as Inventory last said.
+  status     String   @default("QUEUED")
+  detail     String?
+  settledAt  DateTime? @map("settled_at")
+
+  @@unique([clientId, sequence])
+  @@index([settledAt, nextCheckAt])
+  @@map("inventory_settlements")
+}
+
 // ---------------------------------------------------------------------------------------------
 // Receipts sent, and the devices the till runs on. Phase 10.
 // ---------------------------------------------------------------------------------------------

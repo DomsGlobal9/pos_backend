@@ -120,6 +120,8 @@ export async function status(actor: Actor) {
   const waiting = await prisma.webhookEvent.count({
     where: { clientId: actor.clientId, eventType: { in: STOCK_EVENTS }, sequence: { gt: link.deliveredSequence } }
   });
+  // Taken in by Inventory, not applied yet. Usually a few seconds; longer when Inventory is busy.
+  const settling = await prisma.inventorySettlement.count({ where: { clientId: actor.clientId, settledAt: null } });
   const blockedEvent = link.blockedSequence
     ? await prisma.webhookEvent.findFirst({
         where: { clientId: actor.clientId, sequence: link.blockedSequence },
@@ -135,6 +137,7 @@ export async function status(actor: Actor) {
     keyPrefix: link.keyPrefix,
     whenDown: link.whenDown,
     waiting,
+    settling,
     lastDeliveredAt: link.lastDeliveredAt,
     nextAttemptAt: link.nextAttemptAt,
     lastError: link.lastError,
