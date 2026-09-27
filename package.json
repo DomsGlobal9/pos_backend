@@ -19,7 +19,8 @@
     "verify:approvals": "ts-node src/scripts/verify-approvals.ts",
     "verify:orders": "ts-node src/scripts/verify-orders.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json",
-    "verify:held-bills": "ts-node src/scripts/verify-held-bills.ts"
+    "verify:held-bills": "ts-node src/scripts/verify-held-bills.ts",
+    "verify:returns": "ts-node src/scripts/verify-returns.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

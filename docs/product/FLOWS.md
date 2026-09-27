@@ -20,8 +20,8 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 | `WF-ORDER-02` | Order detail | **DONE** | yes | yes | yes | Take payment / Mark ready / Hand over |
 | `WF-SALES-01` | Sales / Bills | **DONE** | yes | yes | yes | One search box for invoice, phone or name |
 | `WF-SALE-02` | Bill detail | **DONE** | yes | yes | yes | Reprint with duplicate marking |
-| `WF-RETURN-01` | Return | PLANNED | | | | Phase 6 |
-| `WF-EXCHANGE-01` | Exchange | PLANNED | | | | Phase 6 |
+| `WF-RETURN-01` | Return | **DONE** | yes | yes | yes | Window and "a manager will need to approve" said before anything is chosen; refund figure from the server |
+| `WF-EXCHANGE-01` | Exchange | **DONE** | yes | yes | yes | Same screen, second half: what goes out instead; "Customer pays Rs X" / "Give back Rs X" / "Even" |
 | `WF-HELD-01` | Held bills | **DONE** | yes | yes | yes | A sheet on Sell, not under Orders -- a draft is not an order |
 | `WF-CUSTOMERS-01` | Customers | **DONE** | yes | yes | yes | One box for a name or a number |
 | `WF-CUSTOMER-02` | Customer detail | **DONE** | yes | yes | yes | No "View in CRM" until there is a CRM |

@@ -9,6 +9,7 @@ import customersRoutes from './customers.routes';
 import adminRoutes from './admin.routes';
 import ordersRoutes from './orders.routes';
 import heldBillsRoutes from './held-bills.routes';
+import returnsRoutes from './returns.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -30,5 +31,6 @@ router.use('/customers', customersRoutes);
 router.use('/admin', adminRoutes);
 router.use('/orders', ordersRoutes);
 router.use('/held-bills', heldBillsRoutes);
+router.use('/returns', returnsRoutes);
 
 export default router;

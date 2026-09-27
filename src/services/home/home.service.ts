@@ -23,10 +23,13 @@ export interface HomeSummary {
     date: string;
     salesPaise: number;
     billCount: number;
+    /** Phase 6. Money and credit that went back today, whichever day the bill was from. */
+    returnsPaise: number;
+    returnCount: number;
   };
   activity: {
     id: string;
-    kind: 'SALE';
+    kind: 'SALE' | 'RETURN';
     invoiceNo: string;
     totalPaise: number;
     customerName: string | null;
@@ -76,15 +79,21 @@ function greetingFor(hour: number): HomeSummary['greeting'] {
 
 export async function summary(actor: Actor, now = new Date()): Promise<HomeSummary> {
   const { start, end } = todayRange(now);
+  /*
+   * Every bill issued today, INCLUDING one returned later the same day. The return is counted on
+   * its own line below. Leaving a returned bill out of "sales" as well would take it off twice --
+   * once by vanishing, once as a return -- and a bill from last week returned today would take it
+   * off only once. Sales and returns separately is the only version where both are always right.
+   */
   const ofToday = {
     clientId: actor.clientId,
     createdAt: { gte: start, lt: end },
-    status: { in: ['COMPLETED', 'BALANCE_DUE'] as SaleStatus[] }
+    status: { in: ['COMPLETED', 'BALANCE_DUE', 'RETURNED'] as SaleStatus[] }
   };
 
   // Side by side rather than one after another. Each is a round trip, and Home is on the path
   // between opening the app and being able to sell.
-  const [totals, recent, orders] = await Promise.all([
+  const [totals, recent, orders, returnsToday, recentReturns] = await Promise.all([
     prisma.sale.aggregate({
       where: ofToday,
       _sum: { totalPaise: true },
@@ -100,17 +109,26 @@ export async function summary(actor: Actor, now = new Date()): Promise<HomeSumma
         _count: { select: { lines: true } }
       }
     }),
-    needsAttention(actor)
+    needsAttention(actor),
+    prisma.return.aggregate({
+      where: { clientId: actor.clientId, createdAt: { gte: start, lt: end } },
+      _sum: { totalPaise: true },
+      _count: true
+    }),
+    prisma.return.findMany({
+      where: { clientId: actor.clientId },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      select: {
+        id: true, creditNoteNo: true, totalPaise: true, createdAt: true,
+        customer: { select: { name: true } },
+        _count: { select: { lines: true } }
+      }
+    })
   ]);
 
-  return {
-    greeting: greetingFor(now.getHours()),
-    today: {
-      date: localDate(start),
-      salesPaise: totals._sum?.totalPaise ?? 0,
-      billCount: totals._count ?? 0
-    },
-    activity: recent.map(sale => ({
+  const activity: HomeSummary['activity'] = [
+    ...recent.map(sale => ({
       id: sale.id,
       kind: 'SALE' as const,
       invoiceNo: sale.invoiceNo,
@@ -119,6 +137,27 @@ export async function summary(actor: Actor, now = new Date()): Promise<HomeSumma
       itemCount: sale._count.lines,
       at: sale.createdAt
     })),
+    ...recentReturns.map(r => ({
+      id: r.id,
+      kind: 'RETURN' as const,
+      invoiceNo: r.creditNoteNo,
+      totalPaise: r.totalPaise,
+      customerName: r.customer?.name ?? null,
+      itemCount: r._count.lines,
+      at: r.createdAt
+    }))
+  ].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, 10);
+
+  return {
+    greeting: greetingFor(now.getHours()),
+    today: {
+      date: localDate(start),
+      salesPaise: totals._sum?.totalPaise ?? 0,
+      billCount: totals._count ?? 0,
+      returnsPaise: returnsToday._sum?.totalPaise ?? 0,
+      returnCount: returnsToday._count ?? 0
+    },
+    activity,
     orders,
     available: {
       // POS-HOME-004 -- unblocked in Phase 5.

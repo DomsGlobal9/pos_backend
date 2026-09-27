@@ -109,6 +109,23 @@ An ambiguous provider result is **not** a failure. Never treat it as one and ask
 pay again. It goes to `WF-PAY-02` needs-checking. `POS-PAY-010`, P0, before any provider
 integration exists.
 
+## 1.8 Returns (Phase 6)
+
+- **A returned piece is worth what was paid for it on that bill**, after its share of any discount
+  -- never today's tag. Worked out cumulatively, so a line returned piece by piece adds to exactly
+  the line; the bill's round-off comes back with the last piece. Every credit note for a bill
+  together equals what was paid.
+- **Nothing on a bill is ever edited or deleted.** A credit note beside it is the only correction.
+- **Money goes back as money only up to what was paid in money** (less money already refunded).
+  Store credit and exchange credit come back as store credit. Otherwise returning a saree bought
+  with credit turns credit into cash, and "exchange then return" turns a no-cash-refund exchange
+  into a cash refund. *This is a product rule chosen in Phase 6 -- decision #8 asks the owner to
+  confirm or overturn it.*
+- **No refund while a payment is being checked or money is owed.** Refunding money that may never
+  have arrived pays it out twice.
+- **The bill row is locked** before "how many are left" is read. Same pattern as collecting a
+  balance (Phase 5).
+
 ---
 
 # 2. Current API surface
@@ -123,6 +140,14 @@ Base `/api/v1`. Version in the path from the first commit.
 | POST | `/sales` | `services/sale` | dev | live |
 | GET | `/sales/:id` | `services/sale` | dev | live |
 | GET | `/home/summary` | `services/home` | dev | Phase 0 |
+| GET | `/returns/bill/:saleId` | `services/returns` | dev | Phase 6 -- what can come back, window, approval needed, money cap |
+| POST | `/returns/bill/:saleId/quote` | `services/returns` | dev | Phase 6 -- exact refund for a selection; writes nothing |
+| POST | `/returns/bill/:saleId` | `services/returns` | dev | Phase 6 -- record a return; idempotent on `onceKey` |
+| POST | `/returns/bill/:saleId/exchange` | `services/returns` | dev | Phase 6 -- return + new bill; new bill's key is `onceKey:sale` |
+| GET | `/returns/:id` | `services/returns` | dev | Phase 6 -- one credit note |
+
+This table lists Phase 0 and Phase 6. Phases 1-5 routes are in `src/routes/*.routes.ts`, each
+documented where it is declared; they are not repeated here to avoid a second copy that drifts.
 
 **Every service function takes an `Actor` as its first argument. No service function reads a
 request or a session.** `types/actor.ts`. This is what makes the public API a key check in front of

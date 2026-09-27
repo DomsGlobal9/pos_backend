@@ -5,6 +5,7 @@ import { badRequest, notFound } from '../../utils/httpError';
 import { literal } from '../../utils/likeText';
 import { normalisePhone, displayPhone, maskPhone, PhoneError } from '../../utils/phone';
 import { owedByCustomer } from '../orders';
+import { history as creditHistory, CreditEntry } from '../store-credit';
 
 /**
  * The customer. POS-CUST-002..010, -014.
@@ -49,6 +50,8 @@ export interface CustomerCard {
 export interface CustomerDetail extends CustomerCard {
   /** POS-CUST-011. What they owe across every kept order. Unblocked in Phase 5. */
   owedPaise: number;
+  /** POS-CUST-012. Why their store credit is what it is. Newest first. */
+  creditHistory: CreditEntry[];
   /** POS-CUST-009. */
   recent: {
     id: string;
@@ -56,6 +59,9 @@ export interface CustomerDetail extends CustomerCard {
     totalPaise: number;
     itemCount: number;
     createdAt: Date;
+    /** POS-CUST-015. RETURNED when everything came back; returnedPaise for part of it. */
+    status: string;
+    returnedPaise: number;
   }[];
 }
 
@@ -224,23 +230,33 @@ export async function detail(actor: Actor, customerId: string): Promise<Customer
       orderBy: { createdAt: 'desc' },
       take: RECENT_PURCHASES,
       select: {
-        id: true, invoiceNo: true, totalPaise: true, createdAt: true,
-        _count: { select: { lines: true } }
+        id: true, invoiceNo: true, totalPaise: true, createdAt: true, status: true,
+        _count: { select: { lines: true } },
+        returns: { select: { totalPaise: true } }
       }
     })
   ]);
 
   if (!row) throw notFound('That customer was not found.');
 
+  const [stats, owed, credits] = await Promise.all([
+    statsFor(actor.clientId, customerId),
+    owedByCustomer(actor.clientId, customerId),
+    creditHistory(actor, customerId, 10)
+  ]);
+
   return {
-    ...card(row, await statsFor(actor.clientId, customerId)),
-    owedPaise: await owedByCustomer(actor.clientId, customerId),
+    ...card(row, stats),
+    owedPaise: owed,
+    creditHistory: credits,
     recent: recent.map(sale => ({
       id: sale.id,
       invoiceNo: sale.invoiceNo,
       totalPaise: sale.totalPaise,
       itemCount: sale._count.lines,
-      createdAt: sale.createdAt
+      createdAt: sale.createdAt,
+      status: sale.status,
+      returnedPaise: sale.returns.reduce((sum, r) => sum + r.totalPaise, 0)
     }))
   };
 }
@@ -256,16 +272,24 @@ export async function detail(actor: Actor, customerId: string): Promise<Customer
  * rewarded for.
  */
 async function statsFor(clientId: string, customerId: string) {
-  const result = await prisma.sale.aggregate({
-    where: { clientId, customerId, status: { in: ['COMPLETED', 'BALANCE_DUE'] } },
-    _count: true,
-    _sum: { totalPaise: true },
-    _min: { createdAt: true },
-    _max: { createdAt: true }
-  });
+  const [result, back] = await Promise.all([
+    prisma.sale.aggregate({
+      where: { clientId, customerId, status: { in: ['COMPLETED', 'BALANCE_DUE'] } },
+      _count: true,
+      _sum: { totalPaise: true },
+      _min: { createdAt: true },
+      _max: { createdAt: true }
+    }),
+    // POS-CUST-015. What came back off those same bills. A fully returned bill is already left out
+    // above, so only the part-returned ones are subtracted -- never the same money twice.
+    prisma.return.aggregate({
+      where: { clientId, originalSale: { customerId, status: { in: ['COMPLETED', 'BALANCE_DUE'] } } },
+      _sum: { totalPaise: true }
+    })
+  ]);
   return {
     count: result._count ?? 0,
-    total: result._sum?.totalPaise ?? 0,
+    total: (result._sum?.totalPaise ?? 0) - (back._sum?.totalPaise ?? 0),
     first: result._min?.createdAt ?? null,
     last: result._max?.createdAt ?? null
   };
@@ -289,11 +313,25 @@ async function statsForMany(clientId: string, customerIds: string[]) {
     _max: { createdAt: true }
   });
 
+  // POS-CUST-015. Part-returned bills count for what was kept, as in statsFor.
+  const back = await prisma.return.findMany({
+    where: {
+      clientId,
+      originalSale: { customerId: { in: customerIds }, status: { in: ['COMPLETED', 'BALANCE_DUE'] } }
+    },
+    select: { totalPaise: true, originalSale: { select: { customerId: true } } }
+  });
+  const backBy = new Map<string, number>();
+  for (const r of back) {
+    const id = r.originalSale.customerId;
+    if (id) backBy.set(id, (backBy.get(id) ?? 0) + r.totalPaise);
+  }
+
   for (const row of grouped) {
     if (!row.customerId) continue;
     out.set(row.customerId, {
       count: row._count._all,
-      total: row._sum.totalPaise ?? 0,
+      total: (row._sum.totalPaise ?? 0) - (backBy.get(row.customerId) ?? 0),
       first: row._min.createdAt ?? null,
       last: row._max.createdAt ?? null
     });

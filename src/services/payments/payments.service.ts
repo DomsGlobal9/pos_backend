@@ -63,7 +63,11 @@ export function planPayments(
 
   // POS-SET-003. A shop that has turned card off should not be able to take one by any route,
   // including an older till that still shows the button.
+  //
+  // Store credit is not a method a shop turns on or off: it is the customer's own money, given by
+  // an earlier return, and whether it can be spent is decided by their balance.
   for (const payment of payments) {
+    if (payment.method === 'CREDIT') continue;
     if (enabledMethods.length > 0 && !enabledMethods.includes(payment.method)) {
       throw badRequest(`This shop is not set up to take ${pretty(payment.method)}.`);
     }
@@ -133,6 +137,10 @@ export function planPayments(
     // is standing there. Allowing it would give a cashier a way to record money they never took.
     if (isCash && status === 'NEEDS_CHECKING') {
       throw badRequest('Cash is either taken or it is not. Only UPI and card can be left to check.');
+    }
+    // The same for store credit: the balance is right here, so there is nothing to check later.
+    if (payment.method === 'CREDIT' && status === 'NEEDS_CHECKING') {
+      throw badRequest('Store credit is either there or it is not. Only UPI and card can be left to check.');
     }
 
     return {
@@ -296,5 +304,5 @@ export async function resolve(
 
 export const pretty = (m: PaymentMethod) => ({
   CASH: 'cash', UPI: 'UPI', CARD: 'card',
-  CREDIT: 'store credit', POINTS: 'points', BALANCE: 'balance'
+  CREDIT: 'store credit', POINTS: 'points', BALANCE: 'balance', EXCHANGE: 'exchange'
 }[m] ?? m);

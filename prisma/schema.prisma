@@ -266,7 +266,9 @@ model Customer {
   /// Free-text, for what the shop remembers about someone. "Prefers cotton", "sister of Priya".
   note String?
 
-  sales Sale[]
+  sales         Sale[]
+  returns       Return[]
+  creditEntries StoreCreditEntry[]
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -447,7 +449,9 @@ model Sale {
 
   lines     SaleLine[]
   payments  Payment[]
-  returns   Return[]
+  returns   Return[] @relation("ReturnOriginalSale")
+  /// Set on the NEW bill of an exchange: the return whose credit paid for part of it. POS-EXC-005.
+  exchangedFrom Return[] @relation("ReturnExchangeSale")
   approvals Approval[]
 
   counter  Counter   @relation(fields: [counterId], references: [id])
@@ -620,6 +624,10 @@ enum PaymentMethod {
   POINTS
   /// A KEPT sale's outstanding balance. Not money received -- the line that makes the bill add up.
   BALANCE
+  /// Goods brought back in the same exchange, standing in for money on the new bill. POS-EXC-004.
+  /// Never sent by a till: only the exchange path writes it, and the return it came from is the
+  /// credit note that says so.
+  EXCHANGE
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -650,21 +658,87 @@ model Return {
   holdId          String?   @map("hold_id")
   holdConfirmedAt DateTime? @map("hold_confirmed_at")
 
-  /// Set when a return outside the window was allowed, and by whom.
+  /// Set when a manager allowed this return, and by whom. Null when it was the person's own right.
   approvedById String? @map("approved_by_id")
 
-  lines ReturnLine[]
+  /// Who the store credit went to. Usually the bill's own customer; set at the return when the
+  /// original bill had none -- a cash buyer who gave no number is still owed their credit.
+  customerId String? @map("customer_id")
 
-  originalSale Sale  @relation(fields: [originalSaleId], references: [id])
-  cashier      User? @relation(fields: [cashierId], references: [id], onDelete: SetNull)
+  /// The tax inside totalPaise, taken back out. A credit note has to show it -- it reverses GST.
+  taxPaise      Int @default(0) @map("tax_paise")
+  /// Only ever non-zero on the return that empties a bill: the original bill's round-off comes
+  /// back with the last piece, so everything returned adds up to exactly what was paid.
+  roundOffPaise Int @default(0) @map("round_off_paise")
+
+  lines     ReturnLine[]
+  refunds   ReturnRefund[]
+  approvals Approval[]
+
+  originalSale Sale      @relation("ReturnOriginalSale", fields: [originalSaleId], references: [id])
+  exchangeSale Sale?     @relation("ReturnExchangeSale", fields: [exchangeSaleId], references: [id])
+  cashier      User?     @relation(fields: [cashierId], references: [id], onDelete: SetNull)
+  customer     Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now()) @map("created_at")
 
   @@unique([clientId, creditNoteNo])
   @@index([clientId, createdAt])
   @@index([originalSaleId])
+  @@index([exchangeSaleId])
+  @@index([customerId])
   @@index([holdId])
   @@map("returns")
+}
+
+/// Money going back out on a return. POS-RET-007, POS-PAY-015.
+///
+/// Rows, like payments, rather than one column on the return, because an exchange can need two
+/// answers: part of the credit settles the new bill and the rest goes back as cash. Day close
+/// (Phase 7) sums these by method to say what left the drawer.
+model ReturnRefund {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+  returnId String @map("return_id")
+
+  method      RefundMethod
+  amountPaise Int          @map("amount_paise")
+  /// The UPI or card refund's own reference. Required for those, as on a payment.
+  reference   String?
+
+  returnRow Return @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([returnId])
+  @@index([clientId, createdAt])
+  @@map("return_refunds")
+}
+
+/// Every change to a customer's store credit. POS-CUST-012, POS-PAY-016.
+///
+/// The balance on Customer is what gets checked and locked; this is how anyone finds out why it
+/// is what it is. Written in the same transaction as the change, never after.
+model StoreCreditEntry {
+  id         String @id @default(uuid())
+  clientId   String @map("client_id")
+  customerId String @map("customer_id")
+
+  /// Positive when the shop owes more (a return), negative when it is spent.
+  amountPaise       Int @map("amount_paise")
+  balanceAfterPaise Int @map("balance_after_paise")
+
+  returnId String? @map("return_id")
+  saleId   String? @map("sale_id")
+  byId     String? @map("by_id")
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([customerId, createdAt])
+  @@index([clientId, createdAt])
+  @@map("store_credit_entries")
 }
 
 enum RefundMethod {
@@ -683,7 +757,14 @@ model ReturnLine {
 
   saleLineId String @map("sale_line_id")
   qty        Int
+  /// This line's share of what was actually paid for it, tax included. Worked out cumulatively
+  /// (see services/returns) so returning a line one piece at a time adds up to the line exactly.
   amountPaise Int   @map("amount_paise")
+  /// The tax inside amountPaise, split the same way the original line was.
+  taxPaise   Int @default(0) @map("tax_paise")
+  cgstPaise  Int @default(0) @map("cgst_paise")
+  sgstPaise  Int @default(0) @map("sgst_paise")
+  igstPaise  Int @default(0) @map("igst_paise")
 
   returnRow Return   @relation(fields: [returnId], references: [id], onDelete: Cascade)
   saleLine  SaleLine @relation(fields: [saleLineId], references: [id])
@@ -938,15 +1019,19 @@ model Approval {
   /// Set once the sale it authorised is written. Null means the sale was abandoned after the
   /// approval was given -- which is worth being able to see.
   saleId String? @map("sale_id")
+  /// Or the return it authorised. POS-APR-004, -005.
+  returnId String? @map("return_id")
 
   createdAt DateTime @default(now()) @map("created_at")
 
-  requestedBy User? @relation("ApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
-  approvedBy  User  @relation("ApprovalApprovedBy", fields: [approvedById], references: [id])
-  sale        Sale? @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  requestedBy User?   @relation("ApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  approvedBy  User    @relation("ApprovalApprovedBy", fields: [approvedById], references: [id])
+  sale        Sale?   @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  returnRow   Return? @relation(fields: [returnId], references: [id], onDelete: SetNull)
 
   @@index([clientId, createdAt])
   @@index([saleId])
+  @@index([returnId])
   @@index([approvedById])
   @@map("approvals")
 }

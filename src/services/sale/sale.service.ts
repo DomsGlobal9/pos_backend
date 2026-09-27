@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { Actor } from '../../types/actor';
@@ -8,6 +9,7 @@ import { rupees, applyPercent } from '../money';
 import { planPayments, owedPaise } from '../payments';
 import { grant, attachToSale } from '../approvals';
 import { record, AuditEntry } from '../audit';
+import { spendCredit } from '../store-credit';
 import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
 
@@ -78,7 +80,83 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
      */
     const pendingAudit: AuditEntry[] = [];
 
-    const saleId = await prisma.$transaction(async (tx) => {
+    const saleId = await prisma.$transaction(
+      async (tx) => (await writeSale(tx, actor, input, pendingAudit)).saleId,
+      { timeout: 30_000, maxWait: 15_000 }
+    );
+
+    const made = await getSale(actor, saleId);
+
+    // Committed. Now, and only now, the audit trail may say it happened.
+    for (const entry of pendingAudit) {
+      await record(actor, { ...entry, subject: made.invoiceNo });
+    }
+
+    return { replayed: false, sale: made };
+  } catch (error: any) {
+    /*
+     * Lost a race with the same onceKey: the other request made the sale, and that IS the answer.
+     * Losing this race is not an error -- it is the unique constraint doing exactly its job.
+     */
+    const winner = await findByOnceKey(actor.clientId, input.onceKey).catch(() => null);
+    if (winner) return replay(actor, winner, input);
+    throw error;
+  }
+}
+
+export interface WriteSaleOptions {
+  /**
+   * An exchange's credit: what the goods brought back came to. POS-EXC-004.
+   *
+   * It pays for the new bill first; the payments sent cover only what is left. When the credit is
+   * more than the new bill, nothing is paid and the caller refunds the rest.
+   */
+  exchangeCreditPaise?: number;
+}
+
+export interface WrittenSale {
+  saleId: string;
+  invoiceNo: string;
+  totalPaise: number;
+  /** How much of the exchange credit this bill used. Zero outside an exchange. */
+  appliedCreditPaise: number;
+}
+
+/**
+ * Steps 1 to 5, inside a transaction the CALLER owns.
+ *
+ * Split out of completeSale for the exchange (Phase 6): the new bill of an exchange is an ordinary
+ * sale in every way -- the same prices from the database, the same discount limit and approvals,
+ * the same numbering -- and it has to commit together with the credit note that pays for part of
+ * it. One function, so an exchange can never price a saree differently from the counter.
+ */
+export async function writeSale(
+  tx: Prisma.TransactionClient,
+  actor: Actor,
+  input: CompleteSaleInput,
+  pendingAudit: AuditEntry[],
+  options: WriteSaleOptions = {}
+): Promise<WrittenSale> {
+  const isKept = input.kind === 'KEPT';
+  const exchange = options.exchangeCreditPaise !== undefined;
+  if (exchange && isKept) {
+    throw badRequest('An exchange is settled at the counter. It cannot be kept for later.');
+  }
+
+  /*
+   * STORE CREDIT NEEDS TO KNOW WHOSE. POS-PAY-016. Checked before anything is priced, so the
+   * cashier hears it before a PIN is asked for.
+   */
+  const creditPaise = input.payments
+    .filter(p => p.method === 'CREDIT')
+    .reduce((sum, p) => sum + p.amountPaise, 0);
+  if (creditPaise > 0 && !input.customerId) {
+    throw badRequest('Store credit belongs to a customer. Add the customer to the bill first.', {
+      code: 'CUSTOMER_REQUIRED'
+    });
+  }
+
+  {
       // 1. Prices from the database. The browser sent ids and quantities and nothing else.
       const items = await forSale(tx, actor.clientId, input.lines.map(l => l.itemId));
 
@@ -230,17 +308,38 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
        * methods cannot be used, UPI and card need a reference unless they are marked unconfirmed,
        * and cash can never be unconfirmed.
        */
-      const planned = planPayments(
-        priced.totalPaise,
-        input.payments,
-        settings?.enabledPaymentMethods ?? [],
-        // A kept order takes an advance -- anything from nothing up to the bill. POS-ORD-002.
-        isKept ? 'ADVANCE' : 'EXACT'
-      );
+      /*
+       * In an exchange, the credit from the goods brought back pays first and the payments cover
+       * only the difference. When the credit covers the whole bill there is nothing to pay, and a
+       * payment sent anyway is a mistake -- it would be money taken that nobody owes.
+       */
+      const applied = exchange ? Math.min(options.exchangeCreditPaise!, priced.totalPaise) : 0;
+      const due = priced.totalPaise - applied;
+
+      let planned: ReturnType<typeof planPayments>;
+      if (exchange && due === 0) {
+        if (input.payments.length > 0) {
+          throw conflict('The goods brought back cover this bill. Nothing more is to be paid.', {
+            code: 'NOTHING_TO_PAY'
+          });
+        }
+        planned = [];
+      } else {
+        planned = planPayments(
+          due,
+          input.payments,
+          settings?.enabledPaymentMethods ?? [],
+          // A kept order takes an advance -- anything from nothing up to the bill. POS-ORD-002.
+          isKept ? 'ADVANCE' : 'EXACT'
+        );
+      }
 
       // What the customer still owes once these payments are in. A payment still being checked is
-      // not owed -- see owedPaise for why that matters.
-      const owed = owedPaise(priced.totalPaise, planned);
+      // not owed -- see owedPaise for why that matters. Exchange credit is in hand.
+      const owed = owedPaise(priced.totalPaise, [
+        ...planned,
+        ...(applied > 0 ? [{ amountPaise: applied, status: 'COLLECTED' as const }] : [])
+      ]);
 
       /*
        * The customer, when there is one. Checked inside the transaction so a sale cannot be
@@ -334,25 +433,35 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
         }))
       });
 
-      return sale.id;
-    }, { timeout: 30_000, maxWait: 15_000 });
+      if (applied > 0) {
+        await tx.payment.create({
+          data: {
+            clientId: actor.clientId,
+            saleId: sale.id,
+            method: 'EXCHANGE',
+            amountPaise: applied,
+            status: 'COLLECTED',
+            onceKey: `${input.onceKey}:exchange`
+          }
+        });
+      }
 
-    const made = await getSale(actor, saleId);
+      /*
+       * Store credit comes off the customer's balance HERE, in the same transaction as the bill,
+       * with the balance check inside the UPDATE. If it is not there, the whole sale rolls back --
+       * number, lines and all -- and the cashier is told how much there really is.
+       */
+      if (creditPaise > 0) {
+        await spendCredit(tx, actor, input.customerId!, creditPaise, { saleId: sale.id });
+        pendingAudit.push({ action: 'store_credit.spent', detail: { amountPaise: creditPaise } });
+      }
 
-    // Committed. Now, and only now, the audit trail may say it happened.
-    for (const entry of pendingAudit) {
-      await record(actor, { ...entry, subject: made.invoiceNo });
-    }
-
-    return { replayed: false, sale: made };
-  } catch (error: any) {
-    /*
-     * Lost a race with the same onceKey: the other request made the sale, and that IS the answer.
-     * Losing this race is not an error -- it is the unique constraint doing exactly its job.
-     */
-    const winner = await findByOnceKey(actor.clientId, input.onceKey).catch(() => null);
-    if (winner) return replay(actor, winner, input);
-    throw error;
+      return {
+        saleId: sale.id,
+        invoiceNo: allocated.number,
+        totalPaise: priced.totalPaise,
+        appliedCreditPaise: applied
+      };
   }
 }
 
@@ -387,7 +496,7 @@ async function replay(
  * from another shop finds nothing in any of them.
  */
 export async function getSale(actor: Actor, saleId: string) {
-  const [sale, lines, payments, shop] = await Promise.all([
+  const [sale, lines, payments, shop, returns, exchangedFrom] = await Promise.all([
     prisma.sale.findFirst({
       where: { id: saleId, clientId: actor.clientId },
       select: {
@@ -399,7 +508,7 @@ export async function getSale(actor: Actor, saleId: string) {
         handedOverAt: true, handoverDuePaise: true,
         counter: { select: { id: true, name: true } },
         cashier: { select: { id: true, name: true } },
-        customer: { select: { id: true, name: true, phone: true, gstin: true } }
+        customer: { select: { id: true, name: true, phone: true, gstin: true, storeCreditPaise: true } }
       }
     }),
     prisma.saleLine.findMany({
@@ -422,10 +531,30 @@ export async function getSale(actor: Actor, saleId: string) {
     prisma.shopSettings.findUnique({
       where: { clientId: actor.clientId },
       select: { shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true }
+    }),
+    // Phase 6. The credit notes against this bill, and which pieces each took back.
+    prisma.return.findMany({
+      where: { originalSaleId: saleId, clientId: actor.clientId },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true, creditNoteNo: true, totalPaise: true, refundMethod: true, createdAt: true,
+        exchangeSale: { select: { id: true, invoiceNo: true } },
+        lines: { select: { saleLineId: true, qty: true } }
+      }
+    }),
+    // And, on the new bill of an exchange, the credit note that paid for part of it. POS-EXC-005.
+    prisma.return.findFirst({
+      where: { exchangeSaleId: saleId, clientId: actor.clientId },
+      select: { id: true, creditNoteNo: true, originalSale: { select: { id: true, invoiceNo: true } } }
     })
   ]);
 
   if (!sale) throw notFound('That bill was not found.');
+
+  const returned = new Map<string, number>();
+  for (const r of returns) {
+    for (const l of r.lines) returned.set(l.saleLineId, (returned.get(l.saleLineId) ?? 0) + l.qty);
+  }
 
   const phone = sale.customer?.phone ?? null;
   return {
@@ -437,8 +566,25 @@ export async function getSale(actor: Actor, saleId: string) {
       // The receipt goes home with the customer and is often left on the counter.
       phoneMasked: phone ? `••••${phone.slice(-4)}` : null
     },
-    lines,
+    lines: lines.map(line => ({ ...line, returnedQty: returned.get(line.id) ?? 0 })),
     payments,
+    returns: returns.map(r => ({
+      id: r.id,
+      creditNoteNo: r.creditNoteNo,
+      totalPaise: r.totalPaise,
+      refundMethod: r.refundMethod,
+      createdAt: r.createdAt,
+      exchangeSale: r.exchangeSale
+    })),
+    returnedPaise: returns.reduce((sum, r) => sum + r.totalPaise, 0),
+    exchangedFrom: exchangedFrom
+      ? {
+          returnId: exchangedFrom.id,
+          creditNoteNo: exchangedFrom.creditNoteNo,
+          originalSaleId: exchangedFrom.originalSale.id,
+          originalInvoiceNo: exchangedFrom.originalSale.invoiceNo
+        }
+      : null,
     shop: shop ?? null
   };
 }

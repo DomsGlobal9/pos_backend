@@ -8,9 +8,9 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | 1 | Sell + cash + receipt + bill history | **COMPLETE**, except POS-RCPT-002 (BLOCKED, reason recorded) |
 | 2 | UPI/card/split + payment safety | **COMPLETE** 2026-09-27 |
 | 3 | Customer + CRM seam | **COMPLETE** for the customer; CRM half BLOCKED (CHG-007) |
-| 4 | Discounts/overrides + approvals | **COMPLETE** 2026-09-27; 2 return approvals BLOCKED on Phase 6 |
+| 4 | Discounts/overrides + approvals | **COMPLETE** 2026-09-27 (the 2 return approvals closed in Phase 6) |
 | 5 | Orders/keep/dues | **COMPLETE** 2026-09-27 |
-| 6 | Returns + exchange | PLANNED |
+| 6 | Returns + exchange | **COMPLETE** 2026-09-27; stock and CRM effects BLOCKED on Phase 8 / CRM |
 | 7 | Shift + cash movements + day close | PLANNED |
 | 8 | Inventory seam + standalone | PLANNED |
 | 9 | Operational reports | PLANNED |
@@ -400,19 +400,99 @@ accountant, and is in CHANGELOG pending decisions rather than changed quietly.
 
 ---
 
+# Phase 6 — Returns, credit notes, store credit, exchange
+
+**Gate:** credit note, customer effects and difference settlement pass. **Passed 2026-09-27**, with
+stock effects BLOCKED on the Phase 8 Inventory seam and CRM effects on CRM existing.
+
+```text
+REQUIRED FEATURE IDS:   26 accounted
+                        (RET-001..009, EXC-001..006, APR-004/005, SALE-010..012,
+                         PAY-015/016, CUST-012, CUST-015, SET-006)
+DONE:                   20
+BUILDING:                2   (CUST-012 -- store credit done, loyalty points not the POS's yet;
+                              SET-006 -- window enforced, no settings screen)
+BLOCKED:                 3   (RET-008, EXC-006 -- Inventory seam, Phase 8; RET-009 -- no CRM)
+UNBLOCKED:               2   (APR-004, APR-005)
+SCREENS:                17/24 built, all three devices each
+TESTS:                 518 backend + 33 UI in real Chrome + 5 responsive, all passing
+UNAPPROVED REMOVALS:     0
+UNACCOUNTED FEATURES:    0
+
+STATUS: COMPLETE for what can be built
+```
+
+## What a return is
+
+A **credit note against one bill**: which lines, how many, why, and how the money goes back. It has
+its own number series (`CN/2026-27/0001`), because GST requires credit notes to be counted apart
+from invoices. An exchange is a return whose credit pays for a new bill first, with only the
+difference changing hands -- the credit note and the new bill are written in one transaction, and
+each points at the other.
+
+Nothing on the original bill changes except its status, and only when every piece has come back.
+The receipt a customer is holding stays true; the credit note sits beside it.
+
+## Decisions made in this phase, and why
+
+| Decision | Why |
+|---|---|
+| A piece comes back at **what was paid for it**, not the tag | A saree bought at 20% off must not refund at full price. Cumulative rounding makes a whole bill returned piece by piece add up to exactly what was paid |
+| **No refund while a payment is being checked or money is owed** | Refunding a UPI that never arrived is paying it out. Kept-order cancellation with a debt is decision #7 |
+| **Money back only up to money paid** | Otherwise store credit becomes cash by buying and returning. Decision #8 asks the owner to confirm |
+| Outside the window, **one** PIN | A manager allowing a late return is allowing the return. Two PINs for one saree is theatre |
+| The exchange's new bill uses the **sale's own code** | `writeSale` was split out of `completeSale` so an exchange can never price a saree differently from the counter |
+
+## Found while building
+
+| Found | Was |
+|---|---|
+| **The FEATURES header count was wrong** | Phase 5's summary said DONE 92; the rows said 100. It had been updated by arithmetic while rows changed. Now counted from the rows by script |
+| **A spend race the test design exposed** | The UI test tried to spend store credit that the earlier exchange had already used. The server refused ("no store credit left") -- the right answer; the test was fixed, not the code |
+| **Prisma rejects a second relation between the same two tables without names** | `Return.exchangeSale` needed the originals renamed (`ReturnOriginalSale`). Relation names only; no database change |
+
+## Store credit, and why it cannot be spent twice
+
+Spending is ONE statement with the check inside it -- `UPDATE ... SET balance = balance - x WHERE
+balance >= x`. Two tills at once: Postgres runs them one after the other on the row, and the second
+updates nothing. Tested with two concurrent sales of the whole balance: one sale, balance zero. The
+database also carries `CHECK (store_credit_paise >= 0)`, so a future path that forgets the guard
+fails loudly. Every change writes a ledger row, shown on the customer card with the credit note or
+invoice that caused it.
+
+## Not touched, on purpose
+
+**Stock.** A POS sale does not move stock today; the Inventory seam is Phase 8. So a return does not
+either, and the two are in step. The credit note already holds what the Phase 8 event needs.
+
+**GST rates.** A return reverses exactly the tax the original bill charged, read from the stored
+line. So when decision #5 fixes the rates, old bills and their returns stay consistent with each
+other -- the fix changes future bills only.
+
+---
+
 # Standing evidence
 
-Tests that exist today and must keep passing.
+Tests that exist today and must keep passing. **Run one at a time** -- they share the local
+database and the dev server restarts when `src/` changes.
 
 | Suite | Checks | Covers |
 |---|---:|---|
 | `verify-money` | 47 | CORE-007; 1,45,716 GST splits at 5/12/18% |
-| `verify-sale` | 48 | CORE-008, CORE-009, SELL-001..025 partial, PAY-001..004 |
-
-Run one at a time against the local Postgres:
+| `verify-sale` | 49 | CORE-008, CORE-009, SELL-001..025 partial, PAY-001..004 |
+| `verify-bills` | 27 | SALE-001..009, RCPT-003/004 |
+| `verify-payments` | 48 | PAY-005..011 |
+| `verify-variants` | 27 | SELL-006..008 |
+| `verify-customers` | 55 | CUST-001..011, -014 |
+| `verify-approvals` | 42 | APR-001..003, -006, CORE-010 |
+| `verify-orders` | 63 | ORD-001..014, PAY-014, HOME-004 |
+| `verify-held-bills` | 30 | SELL-020..022 |
+| `verify-returns` | 130 | RET-001..007, EXC-001..005, APR-004/005, SALE-010..012, PAY-015/016, CUST-012/015 |
+| frontend `scripts/verify-returns-ui.mjs` | 33 | WF-RETURN-01, WF-EXCHANGE-01 in real Chrome, three sizes |
+| frontend `scripts/verify-responsive.mjs` | 5 | CORE-001 live reflow |
 
 ```
 node src/scripts/local-db.mjs start
-npm run verify:money
-npm run verify:sale
+npm run typecheck
+npm run verify:money      (and each of the others, one at a time)
 ```

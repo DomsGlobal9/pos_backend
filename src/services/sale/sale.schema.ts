@@ -31,7 +31,12 @@ export const saleLineSchema = z.object({
 });
 
 export const paymentSchema = z.object({
-  method: z.enum(['CASH', 'UPI', 'CARD']),
+  /**
+   * CREDIT is the customer's store credit (POS-PAY-016). It needs a customer on the bill and is
+   * taken from their balance inside the sale's own transaction -- never from a figure the screen
+   * was showing. EXCHANGE is deliberately absent: only the exchange path may write one.
+   */
+  method: z.enum(['CASH', 'UPI', 'CARD', 'CREDIT']),
   amountPaise: paise.positive('A payment has to be for something'),
   /** Cash handed over. Only meaningful for CASH, and the change is worked out from it. */
   tenderedPaise: paise.positive().optional(),

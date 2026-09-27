@@ -12,14 +12,22 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 92 |
-| BUILDING (works, gate not met) | 2 |
-| BLOCKED (dependency named) | 12 |
-| PLANNED | 105 |
+| DONE | 120 |
+| BUILDING (works, gate not met) | 10 |
+| BLOCKED (dependency named) | 13 |
+| DEFERRED (approved) | 2 |
+| PLANNED | 66 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, at Phase 5 close.
+Last reconciled: 2026-09-27, at Phase 6 close -- **counted from the rows by script**, not by adding
+to the previous figure.
+
+> **The Phase 5 figures above this line were wrong** (they said DONE 92, BUILDING 2, BLOCKED 12,
+> PLANNED 105). Counting the rows at the start of Phase 6 gave DONE 100, BUILDING 9, BLOCKED 13,
+> DEFERRED 2, PLANNED 87 -- the header had been updated by arithmetic while rows changed
+> underneath it, and never re-counted. No feature was lost; the summary had drifted. From Phase 6
+> the count is taken from the rows every time.
 
 ---
 
@@ -95,10 +103,10 @@ Last reconciled: 2026-09-27, at Phase 5 close.
 | POS-CUST-009 | P0 | Recent purchases | 3 | **DONE** | Last five, each linking to the bill |
 | POS-CUST-010 | P0 | Visit count / lifetime spend | 3 | **DONE** | Derived from sales, not a stored counter that drifts on a return |
 | POS-CUST-011 | P0 | Outstanding balance | 5 | **DONE** | Unblocked in Phase 5. On the customer card, summed across every kept order |
-| POS-CUST-012 | P0 | Loyalty / store credit when enabled | 6 | **BLOCKED** | Columns exist and show on the card. Nothing creates a balance until returns give store credit (Phase 6). Spending one: see CONTRACTS §1.1 |
+| POS-CUST-012 | P0 | Loyalty / store credit when enabled | 6 | BUILDING | **Store credit DONE** (Phase 6): given by returns, spent at the till and on kept orders, with a ledger on the card. **Loyalty points are not earned or spent by the POS** -- that waits on CRM (decision #2) and offers (decision #4), so the ID stays BUILDING rather than claiming both halves |
 | POS-CUST-013 | P1 | View in CRM deep link | — | **BLOCKED** | CRM does not exist (CHG-007). A button that goes nowhere is worse than no button |
 | POS-CUST-014 | P0 | Sale updates customer history automatically | 3 | **DONE** | The sale carries the customer; history is derived, so it cannot drift |
-| POS-CUST-015 | P0 | Return/exchange updates customer history | 6 | PLANNED | Derived the same way, so it will follow automatically |
+| POS-CUST-015 | P0 | Return/exchange updates customer history | 6 | **DONE** | Spend counts what was kept; a fully returned bill is not a visit; history marks "returned" / "Rs X returned". `verify-returns` + browser |
 
 ## 6.5 Payments
 
@@ -118,8 +126,8 @@ Last reconciled: 2026-09-27, at Phase 5 close.
 | POS-PAY-012 | P1 | Dynamic UPI QR / provider | 10 | PLANNED | |
 | POS-PAY-013 | P1 | Card terminal integration | 10 | PLANNED | |
 | POS-PAY-014 | P0 | Collect later against kept order | 5 | **DONE** | Row-locked; five concurrent collections of one balance charge it once |
-| POS-PAY-015 | P0 | Refund payment path | 6 | PLANNED | |
-| POS-PAY-016 | P1 | Store credit refund / spend | 6 | PLANNED | |
+| POS-PAY-015 | P0 | Refund payment path | 6 | **DONE** | Cash / UPI / card / store credit, as `ReturnRefund` rows. UPI and card need the refund reference. Money back is capped at what was paid in money (CONTRACTS §1.8) |
+| POS-PAY-016 | P1 | Store credit refund / spend | 6 | **DONE** | Spend is one guarded UPDATE; two tills spending the same credit at once: one succeeds. DB CHECK keeps it >= 0. Ledger per change |
 
 ## 6.6 Receipts
 
@@ -179,19 +187,32 @@ once, and shows under both.
 | POS-SALE-007 | P0 | Bill detail | 1 | **DONE** | `WF-SALE-02`, the same component as the original receipt |
 | POS-SALE-008 | P0 | View payment history | 1 | **DONE** | On the bill, with tendered and change |
 | POS-SALE-009 | P0 | View customer | 3 | **DONE** | Link from the bill, when it has one |
-| POS-SALE-010 | P0 | Start return from bill | 6 | PLANNED | Attaches to `WF-SALE-02` |
-| POS-SALE-011 | P0 | Start exchange from bill | 6 | PLANNED | |
-| POS-SALE-012 | P0 | Cancel / void / correction policy | 6 | PLANNED | Never delete history |
+| POS-SALE-010 | P0 | Start return from bill | 6 | **DONE** | Return button on `WF-SALE-02`; credit notes listed above the receipt, never written onto it |
+| POS-SALE-011 | P0 | Start exchange from bill | 6 | **DONE** | Exchange button beside it |
+| POS-SALE-012 | P0 | Cancel / void / correction policy | 6 | **DONE** | **No edit or delete path exists for a bill.** The only correction is a credit note beside it (a full return). Open: cancelling a kept order that still owes money -- decision #7 |
 
 ## 6.9 Returns / exchange
 
-All PLANNED, Phase 6. `Return`, `ReturnLine`, credit-note series all exist in schema.
+Phase 6. `services/returns`, `services/store-credit`. `verify-returns` 130 checks,
+`verify-returns-ui` 33 in real Chrome at 375 / 768 / 1440.
 
-`POS-RET-001` return from bill · `-002` line + qty (never more than remaining) · `-003` reason ·
-`-004` return window · `-005` outside-window approval · `-006` credit note numbering ·
-`-007` refund path · `-008` updates Inventory · `-009` updates CRM.
-`POS-EXC-001` exchange from bill · `-002` replacement variant · `-003` reprice ·
-`-004` difference only · `-005` credit note linked to new sale · `-006` updates both seams.
+| ID | P | Feature | Phase | Status | Evidence / note |
+|---|---|---|---|---|---|
+| POS-RET-001 | P0 | Return from original bill | 6 | **DONE** | Always against a bill -- there is no free-standing refund. Refused up front, in words, when a payment is still being checked or money is owed |
+| POS-RET-002 | P0 | Select line + quantity | 6 | **DONE** | Never more than remains. Row lock: two cashiers returning the same pieces at once -- one succeeds, the other is told |
+| POS-RET-003 | P0 | Return reason | 6 | **DONE** | Four one-tap reasons plus free text; on the credit note and in the audit trail |
+| POS-RET-004 | P0 | Return window rule | 6 | **DONE** | By calendar day in shop time: bought Monday, returnable all day the Monday after (7-day window) |
+| POS-RET-005 | P0 | Outside-window manager approval | 6 | **DONE** | Late-return approval; a senior cashier's PIN is refused by name; a manager's own late return is still audited |
+| POS-RET-006 | P0 | Credit note numbering | 6 | **DONE** | `CN/2026-27/0001` series, separate from invoices, taken inside the transaction: a refused return uses no number |
+| POS-RET-007 | P0 | Refund path | 6 | **DONE** | See POS-PAY-015 |
+| POS-RET-008 | P0 | Return updates Inventory | 8 | **BLOCKED** | The Inventory seam is Phase 8. A POS sale does not move stock either, so nothing is out of step; the credit note holds item, line and quantity for the Phase 8 event |
+| POS-RET-009 | P0 | Return updates CRM | — | **BLOCKED** | CRM not started (CHG-007). The POS's own customer history does update (POS-CUST-015) |
+| POS-EXC-001 | P0 | Exchange from original bill | 6 | **DONE** | Return + new bill in ONE transaction; a failure anywhere keeps neither |
+| POS-EXC-002 | P0 | Select replacement product/variant | 6 | **DONE** | Same search and colour/size picker as the till |
+| POS-EXC-003 | P0 | Reprice replacement | 6 | **DONE** | The new bill goes through the sale's own code (`writeSale`) -- same prices, discount limit, approvals, numbering |
+| POS-EXC-004 | P0 | Collect/refund difference only | 6 | **DONE** | Dearer: pays the difference (cash / UPI / card / store credit). Cheaper: the rest goes back by the chosen method. Same: nothing moves |
+| POS-EXC-005 | P0 | Link credit note to new sale | 6 | **DONE** | `Return.exchangeSaleId` both ways; the new bill's receipt prints "Exchange against INV... credit note CN..." |
+| POS-EXC-006 | P0 | Exchange updates Inventory + CRM | 8 | **BLOCKED** | Both seams, as POS-RET-008 and -009 |
 
 ## 6.10 Manager approval / permissions
 
@@ -200,8 +221,8 @@ All PLANNED, Phase 6. `Return`, `ReturnLine`, credit-note series all exist in sc
 | POS-APR-001 | P0 | In-place approval, no cashier logout | 4 | **DONE** | A manager's PIN over the open sale; the receipt still names the cashier |
 | POS-APR-002 | P0 | Approve exceptional discount | 4 | **DONE** | Requester, approver and typed reason on every row |
 | POS-APR-003 | P0 | Approve price override | 4 | **DONE** | |
-| POS-APR-004 | P0 | Approve cashier return/refund | 6 | **BLOCKED** | `ApprovalKind.RETURN` exists; returns do not until Phase 6 |
-| POS-APR-005 | P0 | Approve outside-window return | 6 | **BLOCKED** | `ApprovalKind.RETURN_OUTSIDE_WINDOW` exists; same |
+| POS-APR-004 | P0 | Approve cashier return/refund | 6 | **DONE** | Unblocked in Phase 6. MASTER §8: a cashier needs a manager for ANY return. The approval points at the return it allowed |
+| POS-APR-005 | P0 | Approve outside-window return | 6 | **DONE** | Unblocked in Phase 6. One PIN covers a late return -- allowing it late is allowing it |
 | POS-APR-006 | P0 | Permission denied, in words | 4 | **DONE** | "Ravi (senior cashier) is not allowed to approve a discount above the limit." — seen in the browser |
 
 ## 6.11 Shift / drawer / day close
@@ -281,7 +302,7 @@ All PLANNED, Phase 9.
 | POS-SET-003 | P0 | Payment methods enabled | 2 | **DONE** | Enforced server-side; a disabled method is refused by any route |
 | POS-SET-004 | P0 | Receipt footer / print setup | 1 | BUILDING | Footer prints |
 | POS-SET-005 | P0 | Discount limits | 4 | **DONE** | Enforced server-side |
-| POS-SET-006 | P0 | Return window / rules | 6 | BUILDING | Column exists, not enforced |
+| POS-SET-006 | P0 | Return window / rules | 6 | BUILDING | **Enforced** from Phase 6 (`ShopSettings.returnWindowDays`, default 7). No settings screen to change it yet |
 | POS-SET-007 | P0 | Hold threshold | 8 | BUILDING | Column exists, default 3, not enforced |
 | POS-SET-008 | P0 | Role-gated settings | 4 | BUILDING | Setting a PIN is owner-only; a settings SCREEN does not exist yet |
 | POS-DEV-001..004 | P1 | Counter/printer/scanner/health | 10 | PLANNED | |

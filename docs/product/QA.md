@@ -21,9 +21,9 @@ pass today and where the evidence is.
 | QA-CUST-12 | Customer | Concurrent same-phone create | One customer identity | **PASS** | `verify-customers`: five concurrent attempts, one record |
 | QA-ORD-13 | Orders | Partial balance collection | Due and history correct | **PASS** | Browser: 799 owed, 300 taken, 499 left; `verify-orders` |
 | QA-ORD-14 | Orders | Handover with money due | Explicit warning | **PASS** | Browser: "₹499 is still owed... your name will be recorded." |
-| QA-RET-15 | Return | Partial previous return | Cannot exceed remaining eligible qty | PLANNED | Phase 6 |
-| QA-RET-16 | Return | Outside the return window | Correct approval path | PLANNED | Phase 6 |
-| QA-EXC-17 | Exchange | Replacement dearer or cheaper | Only the difference moves | PLANNED | Phase 6 |
+| QA-RET-15 | Return | Partial previous return | Cannot exceed remaining eligible qty | **PASS** | `verify-returns`: "Only 2 of Cotton saree can still come back. 1 already has."; concurrent race, one wins |
+| QA-RET-16 | Return | Outside the return window | Correct approval path | **PASS** | Browser + `verify-returns`: 10-day-old bill, late-return approval, senior PIN refused, manager's own audited |
+| QA-EXC-17 | Exchange | Replacement dearer or cheaper | Only the difference moves | **PASS** | Browser: Rs 12,999 for Rs 14,999, paid Rs 1,299 store credit + Rs 701 cash. `verify-returns`: dearer, cheaper, same price |
 | QA-APR-18 | Approval | Cashier exceeds the discount limit | In-place approval, cashier context kept | **PASS** | Browser: sheet over the open payment; receipt still names the cashier |
 | QA-CASH-19 | Cash | Petty cash removed | Cash-out explains the drawer expectation | PLANNED | Phase 7 |
 | QA-SHIFT-20 | Shift | Drawer short or over | Difference recorded, never silently corrected | PLANNED | Phase 7 |
@@ -44,11 +44,31 @@ pass today and where the evidence is.
 | | |
 |---|---:|
 | Scenarios required | 31 |
-| PASS | 19 |
+| PASS | 22 |
 | PARTIAL | 4 |
 | FAIL (named, not hidden) | **0** |
 | BLOCKED | 1 |
-| PLANNED | 7 |
+| PLANNED | 4 |
+
+Added during Phase 6 (all invented, then run through the API and, where marked, the screens):
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-RET-68 | Return | Three pieces returned one at a time from a discounted bill | Each at the price paid; the three add to exactly the bill, round-off on the last | **PASS** | `verify-returns`; property sweep of 4,300 lines in uneven pieces |
+| QA-RET-69 | Return | Same return pressed twice | One credit note | **PASS** | `verify-returns` |
+| QA-RET-70 | Return | A return refused after its credit-note number was taken | Number given back; no gap | **PASS** | `verify-returns` |
+| QA-RET-71 | Return | Bill with a UPI still being checked | Refused up front, pointing to Payment checks | **PASS** | Browser + `verify-returns` |
+| QA-RET-72 | Return | Bill paid in store credit, refund asked as cash | Explained before pressing; only store credit allowed | **PASS** | Browser + `verify-returns` |
+| QA-RET-73 | Return | Walk-in with no number on the bill wants store credit | Gives a number now; credit goes to them | **PASS** | `verify-returns` |
+| QA-RET-74 | Return | Credit for Priya's bill to somebody else | Refused | **PASS** | `verify-returns` |
+| QA-RET-75 | Return | Paid kept order returned before collection | Leaves Waiting; cannot be marked ready | **PASS** | `verify-returns` |
+| QA-CRD-76 | Credit | Same store credit spent at two tills at once | One sale; balance 0, never negative | **PASS** | `verify-returns`; DB CHECK also refuses -1 |
+| QA-CRD-77 | Credit | Spend more credit than held | Refused with the real balance; no invoice number used | **PASS** | `verify-returns` |
+| QA-EXC-78 | Exchange | Wrong difference paid | Refused with the right one; neither credit note nor new bill kept | **PASS** | `verify-returns` |
+| QA-EXC-79 | Exchange | Replacement no longer sold | Whole exchange refused; original not half-returned | **PASS** | `verify-returns` |
+| QA-EXC-80 | Exchange | Cashier's exchange with a discount over the limit | One PIN; two approvals recorded | **PASS** | `verify-returns` |
+| QA-EXC-81 | Exchange | Return the saree taken in an exchange | Money back only up to the cash difference paid | **PASS** | `verify-returns` |
+| QA-MOB-82 | Mobile | Return screen at 375 / 768 / 1440 | No sideways scroll; Record return on screen | **PASS** | `verify-returns-ui` |
 
 Added during Phase 5:
 

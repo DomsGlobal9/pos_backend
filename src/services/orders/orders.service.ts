@@ -7,6 +7,7 @@ import { rupees } from '../money';
 import { planPayments, owedPaise, refreshMoneyStatus } from '../payments';
 import { PaymentInput } from '../sale/sale.schema';
 import { record } from '../audit';
+import { spendCredit } from '../store-credit';
 
 /**
  * Orders: goods kept for a customer, money still owed, things to hand over. POS-ORD-001..014.
@@ -87,8 +88,9 @@ function toRow(sale: any): OrderRow {
 export async function list(actor: Actor, tab: OrderTab = 'ALL', rawQuery?: unknown): Promise<OrderRow[]> {
   const where: Prisma.SaleWhereInput = { clientId: actor.clientId, kind: 'KEPT' };
 
-  if (tab === 'WAITING') where.fulfilment = 'WAITING';
-  if (tab === 'READY') where.fulfilment = 'READY';
+  // A kept order that was returned before collection is not waiting for anything any more.
+  if (tab === 'WAITING') { where.fulfilment = 'WAITING'; where.status = { not: 'RETURNED' }; }
+  if (tab === 'READY') { where.fulfilment = 'READY'; where.status = { not: 'RETURNED' }; }
   if (tab === 'DUE') where.status = 'BALANCE_DUE';
   if (tab === 'COMPLETE') { where.fulfilment = 'HANDED_OVER'; where.status = 'COMPLETED'; }
 
@@ -124,6 +126,7 @@ async function loadOrder(db: Prisma.TransactionClient | typeof prisma, actor: Ac
     where: { id: saleId, clientId: actor.clientId },
     select: {
       id: true, kind: true, status: true, fulfilment: true, totalPaise: true, invoiceNo: true,
+      customerId: true,
       payments: { select: { amountPaise: true, status: true } }
     }
   });
@@ -202,6 +205,14 @@ export async function collect(
         onceKey: `${input.onceKey}:pay:${index}`
       }))
     });
+
+    // POS-PAY-016. A balance can be paid from store credit, taken with the same guarded UPDATE as
+    // at the counter. A kept order always has a customer, so there is always someone to take it from.
+    const credit = planned.filter(p => p.method === 'CREDIT').reduce((sum, p) => sum + p.amountPaise, 0);
+    if (credit > 0) {
+      if (!order.customerId) throw badRequest('Store credit belongs to a customer, and this order has none.');
+      await spendCredit(tx, actor, order.customerId, credit, { saleId });
+    }
 
     await refreshMoneyStatus(tx, saleId);
   });
