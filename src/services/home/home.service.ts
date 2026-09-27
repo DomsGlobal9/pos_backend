@@ -1,6 +1,7 @@
 import { SaleStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
+import { needsAttention, NeedsAttention } from '../orders';
 
 /**
  * What matters right now. POS-HOME-002, -003, -006, -007.
@@ -32,6 +33,8 @@ export interface HomeSummary {
     itemCount: number;
     at: Date;
   }[];
+  /** POS-HOME-004. Null only if it could not be worked out -- never a fake zero. */
+  orders: NeedsAttention | null;
   /** Which approved sections have data behind them yet. The screen renders only these, so an
    * unbuilt feature is absent rather than faked. */
   available: {
@@ -81,7 +84,7 @@ export async function summary(actor: Actor, now = new Date()): Promise<HomeSumma
 
   // Side by side rather than one after another. Each is a round trip, and Home is on the path
   // between opening the app and being able to sell.
-  const [totals, recent] = await Promise.all([
+  const [totals, recent, orders] = await Promise.all([
     prisma.sale.aggregate({
       where: ofToday,
       _sum: { totalPaise: true },
@@ -96,7 +99,8 @@ export async function summary(actor: Actor, now = new Date()): Promise<HomeSumma
         customer: { select: { name: true } },
         _count: { select: { lines: true } }
       }
-    })
+    }),
+    needsAttention(actor)
   ]);
 
   return {
@@ -115,9 +119,10 @@ export async function summary(actor: Actor, now = new Date()): Promise<HomeSumma
       itemCount: sale._count.lines,
       at: sale.createdAt
     })),
+    orders,
     available: {
-      // Phase 5. POS-HOME-004.
-      ordersWaiting: false,
+      // POS-HOME-004 -- unblocked in Phase 5.
+      ordersWaiting: true,
       // Phase 7. POS-HOME-005.
       shiftStatus: false
     }

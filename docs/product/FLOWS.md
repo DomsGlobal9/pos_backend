@@ -5,7 +5,7 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 
 ## Screen build status
 
-24 screens are registered in `MASTER.md` §4. Built: 12 of 24.
+24 screens are registered in `MASTER.md` §4. Built: 15 of 24.
 
 | Screen ID | Name | Status | Phone | Tablet | Desktop | Note |
 |---|---|---|---|---|---|---|
@@ -16,13 +16,13 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 | `WF-PAY-01` | Payment | **DONE** | yes | yes | yes | Cash, UPI, card, split. Sticky Complete on a 3-way split |
 | `WF-PAY-02` | Payment needs checking | **DONE** | yes | yes | yes | The worklist that makes "not confirmed yet" safe to offer |
 | `WF-SUCCESS-01` | Sale success | **DONE** | yes | yes | yes | Same component as `WF-SALE-02`, by design |
-| `WF-ORDERS-01` | Orders | PLANNED | | | | Phase 5 |
-| `WF-ORDER-02` | Order detail | PLANNED | | | | Phase 5 |
+| `WF-ORDERS-01` | Orders | **DONE** | yes | yes | yes | Tab strip scrolls on a phone; the page never does |
+| `WF-ORDER-02` | Order detail | **DONE** | yes | yes | yes | Take payment / Mark ready / Hand over |
 | `WF-SALES-01` | Sales / Bills | **DONE** | yes | yes | yes | One search box for invoice, phone or name |
 | `WF-SALE-02` | Bill detail | **DONE** | yes | yes | yes | Reprint with duplicate marking |
 | `WF-RETURN-01` | Return | PLANNED | | | | Phase 6 |
 | `WF-EXCHANGE-01` | Exchange | PLANNED | | | | Phase 6 |
-| `WF-HELD-01` | Held bills | PLANNED | | | | Phase 5 |
+| `WF-HELD-01` | Held bills | **DONE** | yes | yes | yes | A sheet on Sell, not under Orders -- a draft is not an order |
 | `WF-CUSTOMERS-01` | Customers | **DONE** | yes | yes | yes | One box for a name or a number |
 | `WF-CUSTOMER-02` | Customer detail | **DONE** | yes | yes | yes | No "View in CRM" until there is a CRM |
 | `WF-SHIFT-01` | Shift | PLANNED | | | | Phase 7 |
@@ -99,11 +99,18 @@ disabled with a visible reason. **No dead buttons.**
 | `WF-CUSTOMER-02` | A recent bill | `WF-SALE-02` | built |
 | `WF-CUSTOMER-02` | View in CRM | — | **absent until CRM exists** (CHG-007) |
 | `WF-SALE-02` | The customer | `WF-CUSTOMER-02` | built |
+| `WF-SELL-01` | More | the More sheet | built -- one primary action, the rest behind this |
+| More sheet | Keep for customer | `WF-CUST-01` if no customer, then Keep sheet, then `WF-PAY-01` (advance) | built |
+| More sheet | Park this bill | stays on `WF-SELL-01`, emptied | built |
+| More sheet | Parked bills | `WF-HELD-01` | built |
+| `WF-HELD-01` | A parked bill | back to `WF-SELL-01`, restored | built |
+| Nav | Orders | `WF-ORDERS-01` | built |
+| `WF-ORDERS-01` | An order | `WF-ORDER-02` | built |
+| `WF-ORDER-02` | Take payment | `WF-PAY-01` (collect) | built |
+| `WF-ORDER-02` | Hand over, money owed | the warning, then handed over | built |
+| `WF-HOME-01` | Orders tile | `WF-ORDERS-01` | built -- was hidden until Phase 5 |
+| `WF-CUSTOMER-02` | Owes ... on kept orders | `WF-ORDERS-01` | built |
 
 ### Empty states for unbuilt tabs
 
-**Customers is now live** (Phase 3). Orders remains a registered screen with an honest empty state
-naming what it will do, until Phase 5 — not a hidden tab and not a dead button.
-
-Recorded rather than assumed, because it is a visible product compromise: a shop opening the app
-today sees one tab that does not yet do anything.
+**All five tabs are live** as of Phase 5. The placeholder screen is now used only for unknown URLs.

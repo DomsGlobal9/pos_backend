@@ -19,8 +19,8 @@ pass today and where the evidence is.
 | QA-PAY-10 | Payment | Provider debited but timed out | Needs-checking; no blind second charge | **PASS** | `NEEDS_CHECKING`; sale completes, `WF-PAY-02` settles it. Verified end to end in the browser |
 | QA-CUST-11 | Customer | Customer refuses to give a phone | Sale completes normally | **PASS** | No code path requires a customer |
 | QA-CUST-12 | Customer | Concurrent same-phone create | One customer identity | **PASS** | `verify-customers`: five concurrent attempts, one record |
-| QA-ORD-13 | Orders | Partial balance collection | Due and history correct | PLANNED | Phase 5 |
-| QA-ORD-14 | Orders | Handover with money due | Explicit warning | PLANNED | Phase 5 |
+| QA-ORD-13 | Orders | Partial balance collection | Due and history correct | **PASS** | Browser: 799 owed, 300 taken, 499 left; `verify-orders` |
+| QA-ORD-14 | Orders | Handover with money due | Explicit warning | **PASS** | Browser: "₹499 is still owed... your name will be recorded." |
 | QA-RET-15 | Return | Partial previous return | Cannot exceed remaining eligible qty | PLANNED | Phase 6 |
 | QA-RET-16 | Return | Outside the return window | Correct approval path | PLANNED | Phase 6 |
 | QA-EXC-17 | Exchange | Replacement dearer or cheaper | Only the difference moves | PLANNED | Phase 6 |
@@ -44,11 +44,25 @@ pass today and where the evidence is.
 | | |
 |---|---:|
 | Scenarios required | 31 |
-| PASS | 17 |
+| PASS | 19 |
 | PARTIAL | 4 |
 | FAIL (named, not hidden) | **0** |
 | BLOCKED | 1 |
-| PLANNED | 9 |
+| PLANNED | 7 |
+
+Added during Phase 5:
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-ORD-59 | Orders | Five cashiers collect one balance at once | Customer charged once | **PASS** | `verify-orders`, row lock |
+| QA-ORD-60 | Orders | Part-paid by a UPI still being checked | Not shown as owed | **PASS** | `verify-orders` |
+| QA-ORD-61 | Orders | That UPI then found never to have arrived | Owed again, back under Due, automatically | **PASS** | Was a drift bug; fixed and covered |
+| QA-ORD-62 | Orders | Keep with no customer on the bill | Asks for one first, then carries on | **PASS** | Browser |
+| QA-ORD-63 | Orders | Advance field on screen | Starts empty, not at the whole bill | **PASS** | Browser |
+| QA-HELD-64 | Park | Six cashiers recall one parked bill at once | One gets it; the rest are told | **PASS** | `verify-held-bills` |
+| QA-HELD-65 | Park | Park, then recall | Same lines, discount, customer and once-key | **PASS** | Browser + `verify-held-bills` |
+| QA-HELD-66 | Park | Parking | Makes no sale and uses no invoice number | **PASS** | `verify-held-bills` |
+| QA-MOB-67 | Mobile | Sell bar with Phase 5's new actions | Still one primary action; nothing sideways | **PASS** | Three buttons, More holds the rest |
 
 Added during Phase 4:
 

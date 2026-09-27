@@ -9,7 +9,7 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | 2 | UPI/card/split + payment safety | **COMPLETE** 2026-09-27 |
 | 3 | Customer + CRM seam | **COMPLETE** for the customer; CRM half BLOCKED (CHG-007) |
 | 4 | Discounts/overrides + approvals | **COMPLETE** 2026-09-27; 2 return approvals BLOCKED on Phase 6 |
-| 5 | Orders/keep/dues | PLANNED |
+| 5 | Orders/keep/dues | **COMPLETE** 2026-09-27 |
 | 6 | Returns + exchange | PLANNED |
 | 7 | Shift + cash movements + day close | PLANNED |
 | 8 | Inventory seam + standalone | PLANNED |
@@ -344,6 +344,59 @@ proving anything about PINs. Rewritten to call `grant()` directly.
 restart clears it. Right-sized for a shop's own till, where the realistic attacker is a cashier with
 a minute alone rather than a script. A deployment behind a load balancer needs it in the database or
 Redis, and that is a real limitation, not a detail.
+
+---
+
+# Phase 5 — Orders: keep for customer, advances, dues, handover, park
+
+**Gate:** advance, due, collect, ready and handover pass. **Passed 2026-09-27.**
+
+```text
+REQUIRED FEATURE IDS:   20 accounted
+DONE:                   20
+UNBLOCKED:               2   (POS-HOME-004, POS-CUST-011 -- both waiting on this phase)
+SCREENS:                15/24 built, all three devices each
+TESTS:                 393/393 passing   (verify-orders 63, verify-held-bills 30)
+UNAPPROVED REMOVALS:     0
+UNACCOUNTED FEATURES:    0
+
+STATUS: COMPLETE
+```
+
+## One word for the shop, two facts underneath
+
+"Orders" is the word a shop uses. Underneath are two independent questions -- where are the goods
+(Waiting / Ready / Handed over) and is money owed -- kept in two columns. The four tabs are
+filters over them, so an order that is Ready and still owes 800 appears under both. A single
+status would have to hide one of those, and "READY_BALANCE_DUE_PARTIALLY_COLLECTED" is how a
+cashier stops knowing what to do next.
+
+Parked bills are deliberately NOT orders. A parked bill is a cashier's draft -- no invoice, no money,
+nothing kept for anyone. MASTER keeps them on separate screens and so does this.
+
+## Found while building, not reported
+
+| Found | Was |
+|---|---|
+| **`Sale.status` drifted from the truth** | It is a stored summary of the payments, and payments change after a sale. Checking an unconfirmed UPI and finding it never arrived left the bill saying COMPLETED while money was owed on it. `refreshMoneyStatus` now runs wherever a payment changes -- including Phase 2's `resolve()` -- and it applies to counter sales too |
+| **A zod default broke every existing caller's types** | Defaulting `kind` to COMPLETE made it REQUIRED in the inferred type, which would have broken every suite that never mentioned it. `tsc` excludes `src/scripts/`, so the app typecheck passed. There is now `npm run typecheck`, which checks the suites as well |
+| **A test that passed once and failed on the rerun** | It summed a customer's debts by NAME, and each run creates a new customer with the same name. The code was right; the check was not. Now it counts the orders it made, by id -- and was run twice to prove it |
+
+## The two rules that protect real money
+
+- **Two cashiers, one balance.** Collecting takes a row lock on the sale before reading what is
+  owed. Five concurrent attempts to collect the whole balance: exactly one succeeds, and the
+  customer pays once.
+- **Money being checked is not money owed.** A UPI still being checked is excluded from "due", or
+  the Orders screen would tell the next cashier to ask for it again. Once the bank says it never
+  arrived, it is owed again -- automatically.
+
+## Open question recorded, not decided
+
+A kept order takes its GST invoice number at creation, following the decision that has run in
+Inventory's counter sale since 17 Sep 2026. Strictly, an advance for goods not yet supplied may call
+for a receipt voucher now and the invoice at handover. That is a compliance question for the shop's
+accountant, and is in CHANGELOG pending decisions rather than changed quietly.
 
 ---
 

@@ -27,7 +27,8 @@ export type AuditAction =
   | 'payment.resolved'
   | 'bill.reprinted'
   | 'approval.granted'
-  | 'approval.refused';
+  | 'approval.refused'
+  | 'order.handed_over_with_due';
 
 export interface AuditEntry {
   action: AuditAction;

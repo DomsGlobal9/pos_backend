@@ -4,6 +4,7 @@ import { Actor } from '../../types/actor';
 import { badRequest, notFound } from '../../utils/httpError';
 import { literal } from '../../utils/likeText';
 import { normalisePhone, displayPhone, maskPhone, PhoneError } from '../../utils/phone';
+import { owedByCustomer } from '../orders';
 
 /**
  * The customer. POS-CUST-002..010, -014.
@@ -46,6 +47,8 @@ export interface CustomerCard {
 }
 
 export interface CustomerDetail extends CustomerCard {
+  /** POS-CUST-011. What they owe across every kept order. Unblocked in Phase 5. */
+  owedPaise: number;
   /** POS-CUST-009. */
   recent: {
     id: string;
@@ -231,6 +234,7 @@ export async function detail(actor: Actor, customerId: string): Promise<Customer
 
   return {
     ...card(row, await statsFor(actor.clientId, customerId)),
+    owedPaise: await owedByCustomer(actor.clientId, customerId),
     recent: recent.map(sale => ({
       id: sale.id,
       invoiceNo: sale.invoiceNo,

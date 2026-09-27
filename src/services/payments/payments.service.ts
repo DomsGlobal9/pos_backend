@@ -35,18 +35,31 @@ export interface PlannedPayment {
 }
 
 /**
- * Check a set of payments against the bill, and say what should be written.
+ * How much the payments have to come to.
  *
- * Pure: no database, no clock. The caller hands it the total it actually priced, and gets back
+ *   EXACT    a normal sale -- the whole bill, to the paisa
+ *   ADVANCE  keeping goods for a customer (POS-ORD-002) -- anything from nothing up to the bill.
+ *            Nothing is allowed: a trusted regular leaving a blouse to be stitched may pay the
+ *            lot on collection, and forcing a token advance only teaches cashiers to type "1".
+ *   COLLECT  money coming in later against a kept order (POS-ORD-012) -- something, but never
+ *            more than is still owed. Taking more than the balance is taking money nobody owes.
+ */
+export type PaymentMode = 'EXACT' | 'ADVANCE' | 'COLLECT';
+
+/**
+ * Check a set of payments against what is owed, and say what should be written.
+ *
+ * Pure: no database, no clock. The caller hands it the figure it actually priced, and gets back
  * either rows to write or an error a cashier can read. That makes every rule below testable
  * without a sale, which is why they are all covered by cases rather than by hope.
  */
 export function planPayments(
   totalPaise: number,
   payments: PaymentInput[],
-  enabledMethods: PaymentMethod[]
+  enabledMethods: PaymentMethod[],
+  mode: PaymentMode = 'EXACT'
 ): PlannedPayment[] {
-  if (payments.length === 0) throw badRequest('Nothing has been paid.');
+  if (payments.length === 0 && mode !== 'ADVANCE') throw badRequest('Nothing has been paid.');
 
   // POS-SET-003. A shop that has turned card off should not be able to take one by any route,
   // including an older till that still shows the button.
@@ -59,17 +72,31 @@ export function planPayments(
   const paid = payments.reduce((sum, p) => sum + p.amountPaise, 0);
 
   /*
-   * POS-PAY-007. The split has to come to the bill exactly -- and the message says which way it is
+   * POS-PAY-007. The amounts have to fit what is owed -- and every message says which way it is
    * out and by how much, because "amount mismatch" leaves a cashier doing arithmetic with a queue
    * waiting.
    */
-  if (paid !== totalPaise) {
+  if (mode === 'EXACT' && paid !== totalPaise) {
     const difference = Math.abs(totalPaise - paid);
     throw conflict(
       paid < totalPaise
         ? `${rupees(difference)} still to pay on a ${rupees(totalPaise)} bill.`
         : `That is ${rupees(difference)} more than the ${rupees(totalPaise)} bill.`,
       { code: 'AMOUNT_MISMATCH', totalPaise, paidPaise: paid, differencePaise: totalPaise - paid }
+    );
+  }
+
+  if (mode === 'ADVANCE' && paid > totalPaise) {
+    throw conflict(
+      `An advance of ${rupees(paid)} is more than the ${rupees(totalPaise)} bill.`,
+      { code: 'AMOUNT_MISMATCH', totalPaise, paidPaise: paid, differencePaise: totalPaise - paid }
+    );
+  }
+
+  if (mode === 'COLLECT' && paid > totalPaise) {
+    throw conflict(
+      `Only ${rupees(totalPaise)} is still owed on this order.`,
+      { code: 'OVERPAYMENT', owedPaise: totalPaise, paidPaise: paid }
     );
   }
 
@@ -121,11 +148,60 @@ export function planPayments(
   });
 }
 
+/**
+ * Bring a sale's money status back in line with its payments.
+ *
+ * `Sale.status` is a stored summary of the payments -- BALANCE_DUE or COMPLETED -- so the Orders
+ * screen can filter on it. A stored summary drifts the moment the thing it summarises changes, and
+ * payments DO change after a sale: a balance is collected later, or an unconfirmed UPI is checked
+ * and turns out never to have arrived. Before this existed, that second case left a customer owing
+ * money on a bill that still said COMPLETED -- found while writing the Orders screen, not reported.
+ *
+ * So every path that changes a payment calls this, inside its own transaction. One function, so
+ * the rule for "is anything owed" lives in one place (owedPaise) and cannot be restated wrongly.
+ *
+ * A RETURNED or PENDING_SYNC sale is left alone: those statuses are about something other than
+ * money, and a payment arriving does not undo a return.
+ */
+export async function refreshMoneyStatus(tx: Prisma.TransactionClient, saleId: string) {
+  const sale = await tx.sale.findUnique({
+    where: { id: saleId },
+    select: { status: true, totalPaise: true, payments: { select: { amountPaise: true, status: true } } }
+  });
+  if (!sale || sale.status === 'RETURNED' || sale.status === 'PENDING_SYNC') return sale?.status;
+
+  const next = owedPaise(sale.totalPaise, sale.payments) > 0 ? 'BALANCE_DUE' : 'COMPLETED';
+  if (next !== sale.status) {
+    await tx.sale.update({ where: { id: saleId }, data: { status: next } });
+  }
+  return next;
+}
+
 /** How much of a bill is actually in hand, ignoring anything still being checked. */
 export function collectedPaise(payments: { amountPaise: number; status: PaymentStatus }[]) {
   return payments
     .filter(p => p.status === 'COLLECTED')
     .reduce((sum, p) => sum + p.amountPaise, 0);
+}
+
+/**
+ * What the customer genuinely still owes on a bill. POS-ORD-003.
+ *
+ * NOT simply "total minus collected". A payment still being CHECKED is excluded from what is owed
+ * as well, because the customer believes they paid it -- and showing it as due would put it on the
+ * Orders screen as something to ask them for, which is exactly what Phase 2's rule forbids. It is
+ * the bank's question, not the customer's.
+ *
+ * A VOID payment does count as owed again: it was checked, and the money never arrived.
+ */
+export function owedPaise(
+  totalPaise: number,
+  payments: { amountPaise: number; status: PaymentStatus }[]
+) {
+  const inOrPending = payments
+    .filter(p => p.status === 'COLLECTED' || p.status === 'NEEDS_CHECKING')
+    .reduce((sum, p) => sum + p.amountPaise, 0);
+  return Math.max(0, totalPaise - inOrPending);
 }
 
 export interface UncheckedPayment {
@@ -181,7 +257,7 @@ export async function resolve(
 ) {
   const payment = await prisma.payment.findFirst({
     where: { id: paymentId, clientId: actor.clientId },
-    select: { id: true, status: true, method: true, amountPaise: true }
+    select: { id: true, status: true, method: true, amountPaise: true, saleId: true }
   });
   if (!payment) throw notFound('That payment was not found.');
 
@@ -202,7 +278,15 @@ export async function resolve(
   };
   if (input.arrived && input.reference?.trim()) data.reference = input.reference.trim();
 
-  await prisma.payment.update({ where: { id: paymentId }, data });
+  /*
+   * The payment and the sale's money status change together. Checking a UPI and finding it never
+   * arrived means the customer owes that money again, and the bill has to say so -- otherwise the
+   * Orders screen shows nothing due on a bill that is short.
+   */
+  await prisma.$transaction(async (tx) => {
+    await tx.payment.update({ where: { id: paymentId }, data });
+    await refreshMoneyStatus(tx, payment.saleId);
+  });
 
   return {
     status: input.arrived ? ('COLLECTED' as const) : ('VOID' as const),

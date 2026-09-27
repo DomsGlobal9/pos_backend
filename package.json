@@ -16,7 +16,10 @@
     "verify:payments": "ts-node src/scripts/verify-payments.ts",
     "verify:variants": "ts-node src/scripts/verify-variants.ts",
     "verify:customers": "ts-node src/scripts/verify-customers.ts",
-    "verify:approvals": "ts-node src/scripts/verify-approvals.ts"
+    "verify:approvals": "ts-node src/scripts/verify-approvals.ts",
+    "verify:orders": "ts-node src/scripts/verify-orders.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json",
+    "verify:held-bills": "ts-node src/scripts/verify-held-bills.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

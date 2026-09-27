@@ -5,7 +5,7 @@ import { priceBasket, BasketLine } from '../basket';
 import { forSale } from '../items';
 import { nextNumber } from '../invoice-series';
 import { rupees, applyPercent } from '../money';
-import { planPayments } from '../payments';
+import { planPayments, owedPaise } from '../payments';
 import { grant, attachToSale } from '../approvals';
 import { record, AuditEntry } from '../audit';
 import { may, PERMISSIONS } from '../../types/actor';
@@ -39,6 +39,32 @@ const basketKey = (lines: { itemId: string; qty: number }[]) =>
 export async function completeSale(actor: Actor, input: CompleteSaleInput) {
   const existing = await findByOnceKey(actor.clientId, input.onceKey);
   if (existing) return replay(actor, existing, input);
+
+  const isKept = input.kind === 'KEPT';
+
+  /*
+   * A KEPT ORDER NEEDS A CUSTOMER. POS-ORD-001.
+   *
+   * The one place in the POS where a customer is required, and the reason is practical rather
+   * than a rule for its own sake: the shop is holding goods for somebody and may be owed money by
+   * them. "The lady in the green saree" is not someone you can hand a blouse to next Saturday.
+   *
+   * An ordinary sale still never needs one. That rule does not bend.
+   */
+  if (isKept && !input.customerId) {
+    throw badRequest('Choose who this is being kept for. A kept order needs a customer.', {
+      code: 'CUSTOMER_REQUIRED'
+    });
+  }
+
+  if (input.promisedAt) {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    // A date that has already passed is a typo, not a promise.
+    if (input.promisedAt < startOfToday) {
+      throw badRequest('The collection date has already passed. Choose today or later.');
+    }
+  }
 
   try {
     /*
@@ -207,8 +233,14 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
       const planned = planPayments(
         priced.totalPaise,
         input.payments,
-        settings?.enabledPaymentMethods ?? []
+        settings?.enabledPaymentMethods ?? [],
+        // A kept order takes an advance -- anything from nothing up to the bill. POS-ORD-002.
+        isKept ? 'ADVANCE' : 'EXACT'
       );
+
+      // What the customer still owes once these payments are in. A payment still being checked is
+      // not owed -- see owedPaise for why that matters.
+      const owed = owedPaise(priced.totalPaise, planned);
 
       /*
        * The customer, when there is one. Checked inside the transaction so a sale cannot be
@@ -238,8 +270,15 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
           counterId: input.counterId,
           cashierId: actor.kind === 'USER' ? actor.id : null,
           customerId: input.customerId ?? null,
-          kind: 'COMPLETE',
-          status: 'COMPLETED',
+          kind: isKept ? 'KEPT' : 'COMPLETE',
+          // The money view. A kept order with nothing owed is still kept -- it just is not due.
+          status: owed > 0 ? 'BALANCE_DUE' : 'COMPLETED',
+          // The goods view. A counter sale leaves with the customer; a kept order waits.
+          fulfilment: isKept ? 'WAITING' : 'HANDED_OVER',
+          handedOverAt: isKept ? null : new Date(),
+          handedOverById: isKept ? null : (actor.kind === 'USER' ? actor.id : null),
+          promisedAt: input.promisedAt ?? null,
+          note: input.note ?? null,
           subtotalPaise: priced.subtotalPaise,
           discountPaise: priced.discountPaise,
           taxPaise: priced.taxPaise,
@@ -356,6 +395,8 @@ export async function getSale(actor: Actor, saleId: string) {
         subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true,
         totalPaise: true, savedPaise: true, madeOfflineAt: true,
         printCount: true, lastPrintedAt: true,
+        fulfilment: true, promisedAt: true, note: true, readyAt: true,
+        handedOverAt: true, handoverDuePaise: true,
         counter: { select: { id: true, name: true } },
         cashier: { select: { id: true, name: true } },
         customer: { select: { id: true, name: true, phone: true, gstin: true } }
@@ -389,6 +430,8 @@ export async function getSale(actor: Actor, saleId: string) {
   const phone = sale.customer?.phone ?? null;
   return {
     ...sale,
+    // POS-ORD-003. Derived from the payments every time, by the one function that defines it.
+    owedPaise: owedPaise(sale.totalPaise, payments),
     customer: sale.customer && {
       ...sale.customer,
       // The receipt goes home with the customer and is often left on the counter.

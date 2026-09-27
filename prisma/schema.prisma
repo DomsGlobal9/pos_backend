@@ -366,7 +366,33 @@ model Sale {
   cashierId String? @map("cashier_id")
 
   kind   SaleKind
+  /// The MONEY view: is anything still owed. BALANCE_DUE or COMPLETED.
   status SaleStatus @default(COMPLETED)
+
+  /// The GOODS view: where the saree is. POS-ORD-006, -007, -014.
+  ///
+  /// Two separate questions, deliberately kept in two columns. An order can be ready and still owe
+  /// money, or paid in full and still at the tailor's. Folding them into one status is how a shop
+  /// ends up with "READY_BALANCE_DUE_PARTIALLY_COLLECTED" -- and a cashier who cannot tell what
+  /// to do next.
+  ///
+  /// A COMPLETE sale is handed over at the counter, so it defaults to HANDED_OVER and never
+  /// changes. Only a KEPT order moves through WAITING and READY.
+  fulfilment Fulfilment @default(HANDED_OVER)
+
+  /// When the customer was told to come back. POS-ORD-004.
+  promisedAt DateTime? @map("promised_at")
+  /// What the shop needs to remember. "Fall and pico, blouse to be stitched". POS-ORD-005.
+  note       String?
+
+  readyAt        DateTime? @map("ready_at")
+  handedOverAt   DateTime? @map("handed_over_at")
+  handedOverById String?   @map("handed_over_by_id")
+  /// What was still owed at the moment the goods left, when anything was. POS-ORD-013.
+  ///
+  /// Recorded because handing over with money due is a decision someone made, and a shop owner
+  /// chasing that money later needs to know who decided it and how much it was at the time.
+  handoverDuePaise Int? @map("handover_due_paise")
 
   customerId String? @map("customer_id")
 
@@ -434,6 +460,8 @@ model Sale {
   @@unique([clientId, invoiceNo])
   @@index([clientId, createdAt])
   @@index([clientId, status])
+  /// The Orders screen: kept orders by where they are.
+  @@index([clientId, kind, fulfilment])
   @@index([counterId])
   @@index([customerId])
   @@index([holdId])
@@ -445,6 +473,15 @@ enum SaleKind {
   COMPLETE
   /// Kept for the customer -- part payment now, balance later, goods held or handed over.
   KEPT
+}
+
+enum Fulfilment {
+  /// Kept for the customer, not ready yet -- at the tailor's, being fall-pico'd, being altered.
+  WAITING
+  /// Ready. The customer can come and collect.
+  READY
+  /// Gone. Every COMPLETE sale is this from the moment it is made.
+  HANDED_OVER
 }
 
 enum SaleStatus {

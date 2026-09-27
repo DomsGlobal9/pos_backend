@@ -55,8 +55,31 @@ export const completeSaleSchema = z.object({
   onceKey: z.string().min(8).max(100),
   counterId: z.string().min(1, 'Which till is this?'),
   lines: z.array(saleLineSchema).min(1, 'There is nothing on this bill'),
-  /** One row per method. POS-PAY-007/008: a split is simply more than one. */
-  payments: z.array(paymentSchema).min(1, 'Nothing has been paid').max(6, 'That is too many separate payments for one bill'),
+  /**
+   * One row per method. POS-PAY-007/008: a split is simply more than one.
+   *
+   * May be EMPTY for a kept order -- see services/payments PaymentMode. Whether an empty list is
+   * allowed is decided there, per kind of sale, rather than here where the kind is not yet known.
+   */
+  payments: z.array(paymentSchema).max(6, 'That is too many separate payments for one bill'),
+
+  /**
+   * COMPLETE: paid for and taken away. KEPT: kept for the customer. POS-ORD-001.
+   *
+   * A kept order is a real sale -- it takes an invoice number and the goods are the customer's --
+   * but the money can come in over time and the goods leave later. The decision to treat it as a
+   * sale at creation is carried over from the counter sale that has run inside Inventory since
+   * 17 Sep 2026, and is not re-opened here.
+   *
+   * OPTIONAL, not defaulted. Absent means an ordinary counter sale. A zod default makes the field
+   * REQUIRED in the inferred type every caller sees, which broke every existing call site that
+   * never mentioned it -- caught when the suites were run, because tsc excludes src/scripts.
+   */
+  kind: z.enum(['COMPLETE', 'KEPT']).optional(),
+  /** When the customer was told to come back. POS-ORD-004. */
+  promisedAt: z.coerce.date().optional(),
+  /** "Fall and pico, blouse to be stitched." POS-ORD-005. */
+  note: z.string().trim().max(280).optional(),
   /**
    * POS-CUST-001 and POS-SELL-018. Optional, and it must stay that way.
    *

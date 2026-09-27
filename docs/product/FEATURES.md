@@ -12,14 +12,14 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 72 |
+| DONE | 92 |
 | BUILDING (works, gate not met) | 2 |
-| BLOCKED (dependency named) | 14 |
-| PLANNED | 123 |
+| BLOCKED (dependency named) | 12 |
+| PLANNED | 105 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, at Phase 4 close.
+Last reconciled: 2026-09-27, at Phase 5 close.
 
 ---
 
@@ -45,7 +45,7 @@ Last reconciled: 2026-09-27, at Phase 4 close.
 | POS-HOME-001 | P0 | New Sale CTA | 0 | **DONE** | 56px, full width, reachable on a 375px phone |
 | POS-HOME-002 | P0 | Today sales total | 0 | **DONE** | `services/home`; local trading day, not UTC |
 | POS-HOME-003 | P0 | Bill count | 0 | **DONE** | |
-| POS-HOME-004 | P0 | Orders needing attention | 0 | **BLOCKED** | No Order data until Phase 5. Tile shows nothing rather than a fake zero |
+| POS-HOME-004 | P0 | Orders needing attention | 5 | **DONE** | Unblocked in Phase 5. Ready, overdue and owed said separately; only lines with something in them show |
 | POS-HOME-005 | P0 | Shift status | 0 | **BLOCKED** | No Shift service until Phase 7 |
 | POS-HOME-006 | P0 | Human sync/connection status | 0 | **DONE** | Shell header: "All saved" / "Saving is paused. Nothing you have entered is lost." |
 | POS-HOME-007 | P0 | Recent activity feed | 0 | **DONE** | Sales only until returns and orders exist |
@@ -72,9 +72,9 @@ Last reconciled: 2026-09-27, at Phase 4 close.
 | POS-SELL-016 | P0 | Discount above limit approval | 4 | **DONE** | Checked against the bill as priced on the server, never the screen's figure |
 | POS-SELL-017 | P0 | Price override approval | 4 | **DONE** | Tag price kept beside the charged one (`listPricePaise`) so an override is visible forever |
 | POS-SELL-018 | P0 | Add/select optional customer inline | 3 | **DONE** | `WF-CUST-01`, without leaving the sale. Skip is as prominent as Use |
-| POS-SELL-019 | P0 | Park/hold active basket | 5 | PLANNED | `HeldBill` model exists |
-| POS-SELL-020 | P0 | Recall parked basket | 5 | PLANNED | |
-| POS-SELL-021 | P0 | Multiple parked baskets with labels | 5 | PLANNED | |
+| POS-SELL-019 | P0 | Park/hold active basket | 5 | **DONE** | Keeps its once-key; the till gets a fresh one |
+| POS-SELL-020 | P0 | Recall parked basket | 5 | **DONE** | Exact restoration incl. overrides and discount. Six concurrent recalls: one wins |
+| POS-SELL-021 | P0 | Multiple parked baskets with labels | 5 | **DONE** | Shift-visible, not per cashier. Labelled by customer or time, never an id |
 | POS-SELL-022 | P0 | Continue to payment | 1 | **DONE** | |
 | POS-SELL-023 | P0 | Complete sale | 1 | **DONE** for POS | Inventory and CRM effects are Phases 8 and 3, tracked there |
 | POS-SELL-024 | P0 | Round-off as explicit line | 1 | **DONE** | |
@@ -94,7 +94,7 @@ Last reconciled: 2026-09-27, at Phase 4 close.
 | POS-CUST-008 | P0 | Compact customer card | 3 | **DONE** | `WF-CUSTOMER-02` |
 | POS-CUST-009 | P0 | Recent purchases | 3 | **DONE** | Last five, each linking to the bill |
 | POS-CUST-010 | P0 | Visit count / lifetime spend | 3 | **DONE** | Derived from sales, not a stored counter that drifts on a return |
-| POS-CUST-011 | P0 | Outstanding balance | 5 | **BLOCKED** | No dues until Orders exist (Phase 5) |
+| POS-CUST-011 | P0 | Outstanding balance | 5 | **DONE** | Unblocked in Phase 5. On the customer card, summed across every kept order |
 | POS-CUST-012 | P0 | Loyalty / store credit when enabled | 6 | **BLOCKED** | Columns exist and show on the card. Nothing creates a balance until returns give store credit (Phase 6). Spending one: see CONTRACTS §1.1 |
 | POS-CUST-013 | P1 | View in CRM deep link | — | **BLOCKED** | CRM does not exist (CHG-007). A button that goes nowhere is worse than no button |
 | POS-CUST-014 | P0 | Sale updates customer history automatically | 3 | **DONE** | The sale carries the customer; history is derived, so it cannot drift |
@@ -117,7 +117,7 @@ Last reconciled: 2026-09-27, at Phase 4 close.
 | POS-PAY-011 | P0 | Check / reconcile payment status | 2 | **DONE** | `WF-PAY-02` worklist; resolves to COLLECTED or VOID, never deleted |
 | POS-PAY-012 | P1 | Dynamic UPI QR / provider | 10 | PLANNED | |
 | POS-PAY-013 | P1 | Card terminal integration | 10 | PLANNED | |
-| POS-PAY-014 | P0 | Collect later against kept order | 5 | PLANNED | `Payment.collectedAt` exists |
+| POS-PAY-014 | P0 | Collect later against kept order | 5 | **DONE** | Row-locked; five concurrent collections of one balance charge it once |
 | POS-PAY-015 | P0 | Refund payment path | 6 | PLANNED | |
 | POS-PAY-016 | P1 | Store credit refund / spend | 6 | PLANNED | |
 
@@ -145,18 +145,26 @@ Last reconciled: 2026-09-27, at Phase 4 close.
 
 ## 6.7 Orders / keep for customer / dues
 
-All PLANNED, Phase 5. `Sale.kind = KEPT` and `SaleStatus.BALANCE_DUE` exist; collection date,
-notes and user-facing status are **schema gaps**.
+All DONE in Phase 5. The four tabs are filters over TWO independent facts -- where the goods are
+(`Sale.fulfilment`) and whether money is owed (`Sale.status`) -- so an order can be Ready and Due at
+once, and shows under both.
 
-| ID | P | Feature | ID | P | Feature |
-|---|---|---|---|---|---|
-| POS-ORD-001 | P0 | Keep for customer | POS-ORD-008 | P0 | Due status |
-| POS-ORD-002 | P0 | Advance payment | POS-ORD-009 | P0 | Complete status |
-| POS-ORD-003 | P0 | Balance due | POS-ORD-010 | P0 | Orders list / filter |
-| POS-ORD-004 | P0 | Collection / promised date | POS-ORD-011 | P0 | Order detail |
-| POS-ORD-005 | P0 | Order / bill notes | POS-ORD-012 | P0 | Collect partial / full balance |
-| POS-ORD-006 | P0 | Waiting status | POS-ORD-013 | P0 | Warn before handover with due |
-| POS-ORD-007 | P0 | Ready status | POS-ORD-014 | P0 | Hand over / complete |
+| ID | P | Feature | Status | Evidence / note |
+|---|---|---|---|---|
+| POS-ORD-001 | P0 | Keep for customer | **DONE** | The one place a customer is required; refused without one |
+| POS-ORD-002 | P0 | Advance payment | **DONE** | Zero to the bill. Starts EMPTY on screen, so it is never silently fully paid |
+| POS-ORD-003 | P0 | Balance due | **DONE** | `owedPaise`: a payment still being checked is NOT owed -- never ask twice |
+| POS-ORD-004 | P0 | Collection / promised date | **DONE** | Optional; a date already passed is refused as a typo |
+| POS-ORD-005 | P0 | Order / bill notes | **DONE** | Printed on the claim-ticket receipt |
+| POS-ORD-006 | P0 | Waiting status | **DONE** | |
+| POS-ORD-007 | P0 | Ready status | **DONE** | Pressing it twice is not an error |
+| POS-ORD-008 | P0 | Due status | **DONE** | Stays under Due after a handover with money owed |
+| POS-ORD-009 | P0 | Complete status | **DONE** | Handed over AND nothing owed |
+| POS-ORD-010 | P0 | Orders list / filter | **DONE** | Soonest promise first; overdue flagged |
+| POS-ORD-011 | P0 | Order detail | **DONE** | Actions above the same bill component every screen uses |
+| POS-ORD-012 | P0 | Collect partial / full balance | **DONE** | Never more than is owed; idempotent |
+| POS-ORD-013 | P0 | Warn before handover with due | **DONE** | Names the amount; recorded with the person's name and audited |
+| POS-ORD-014 | P0 | Hand over / complete | **DONE** | Straight from Waiting allowed; never twice |
 
 ## 6.8 Sales history
 

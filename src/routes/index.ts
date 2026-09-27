@@ -7,6 +7,8 @@ import billsRoutes from './bills.routes';
 import paymentsRoutes from './payments.routes';
 import customersRoutes from './customers.routes';
 import adminRoutes from './admin.routes';
+import ordersRoutes from './orders.routes';
+import heldBillsRoutes from './held-bills.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -26,5 +28,7 @@ router.use('/bills', billsRoutes);
 router.use('/payments', paymentsRoutes);
 router.use('/customers', customersRoutes);
 router.use('/admin', adminRoutes);
+router.use('/orders', ordersRoutes);
+router.use('/held-bills', heldBillsRoutes);
 
 export default router;
