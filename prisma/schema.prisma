@@ -416,6 +416,15 @@ model SaleLine {
   taxPaise       Int @default(0) @map("tax_paise")
   lineTotalPaise Int @map("line_total_paise")
 
+  /// The tax split AS IT WAS CHARGED, stored rather than worked out again when the bill is
+  /// reprinted. The odd paisa of an odd tax has to go to one side or the other, and if that rule
+  /// ever changes -- or an invoice is reprinted by a newer build -- a recomputed split would make
+  /// the reprint disagree with the original. A GST invoice has to say the same thing in five
+  /// years as it said at the counter, so this is copied onto the line like the description is.
+  cgstPaise Int @default(0) @map("cgst_paise")
+  sgstPaise Int @default(0) @map("sgst_paise")
+  igstPaise Int @default(0) @map("igst_paise")
+
   /// Which offers touched this line, and what each took off. Frozen at the moment of sale: the
   /// rules may change tomorrow, but this bill was priced under today's.
   appliedOffers Json? @map("applied_offers")

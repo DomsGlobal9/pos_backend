@@ -8,7 +8,10 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "prisma generate && prisma migrate deploy && tsc",
     "migrate:deploy": "prisma migrate deploy",
-    "verify:money": "ts-node src/scripts/verify-money.ts"
+    "verify:money": "ts-node src/scripts/verify-money.ts",
+    "verify:sale": "ts-node src/scripts/verify-sale.ts",
+    "seed:dev": "ts-node src/scripts/seed-dev.ts",
+    "db:local": "node src/scripts/local-db.mjs start"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
@@ -29,6 +32,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "embedded-postgres": "^18.4.0-beta.17",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0"
   }

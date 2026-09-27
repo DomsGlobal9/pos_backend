@@ -1,0 +1,4 @@
+-- AlterTable
+ALTER TABLE "sale_lines" ADD COLUMN     "cgst_paise" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "igst_paise" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "sgst_paise" INTEGER NOT NULL DEFAULT 0;
