@@ -30,3 +30,6 @@ npm-debug.log*
 
 # Product docs stay local, not on GitHub.
 docs/
+
+# Test and helper scripts stay local.
+src/scripts/
