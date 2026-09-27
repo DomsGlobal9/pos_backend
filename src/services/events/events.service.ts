@@ -131,7 +131,7 @@ async function loadReturn(tx: Tx, returnId: string) {
           saleLine: { select: { description: true, hsn: true, taxRate: true, item: { select: { code: true } } } }
         }
       },
-      refunds: { select: { method: true, amountPaise: true } }
+      refunds: { select: { method: true, amountPaise: true, reference: true } }
     }
   });
 }
@@ -157,7 +157,7 @@ export async function saleReturned(tx: Tx, clientId: string, returnId: string) {
     customerRef: r.customer?.phone ?? null,
     lines: r.lines.map(returnedLine),
     totals: { totalPaise: r.totalPaise, taxPaise: r.taxPaise, roundOffPaise: r.roundOffPaise },
-    refunds: r.refunds.map(x => ({ method: x.method, amountPaise: x.amountPaise }))
+    refunds: r.refunds.map(x => ({ method: x.method, amountPaise: x.amountPaise, reference: x.reference ?? null }))
   }, r.creditNoteNo);
 }
 

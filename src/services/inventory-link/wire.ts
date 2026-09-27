@@ -25,6 +25,22 @@ const line = (l: any) => ({
   ...(l.taxPaise !== undefined ? { taxPaise: l.taxPaise } : {})
 });
 
+/**
+ * How the money went back, in Inventory's words (Inventory, 27 Sep): its day book shows refunds by
+ * method, so a UPI refund filed as cash would make a drawer count wrong. One `refund` -- the largest,
+ * when a refund was split -- plus the whole list. Store credit is Inventory's CREDIT; the part of an
+ * exchange settled by the new goods is not money and is left out.
+ */
+const REFUND: Record<string, string> = { CASH: 'CASH', UPI: 'UPI', CARD: 'CARD', STORE_CREDIT: 'CREDIT' };
+function refundOf(refunds: any[] | undefined) {
+  const list = (refunds ?? [])
+    .filter(r => REFUND[r.method] && r.amountPaise > 0)
+    .map(r => ({ method: REFUND[r.method], amountPaise: r.amountPaise, ...(r.reference ? { reference: r.reference } : {}) }));
+  if (list.length === 0) return {};
+  const main = [...list].sort((a, b) => b.amountPaise - a.amountPaise)[0];
+  return { refund: { method: main.method, ...(main.reference ? { reference: main.reference } : {}) }, refunds: list };
+}
+
 const collected = (payments: any[] | undefined) =>
   (payments ?? []).filter(p => !p.status || p.status === 'COLLECTED').map(p => ({ method: p.method, amountPaise: p.amountPaise }));
 
@@ -47,7 +63,8 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
       againstInvoiceNo: payload.originalInvoiceNo,
       occurredAt: payload.occurredAt,
       lines: (payload.lines ?? []).map(line),
-      totals: { roundOffPaise: payload.totals?.roundOffPaise ?? 0 }
+      totals: { roundOffPaise: payload.totals?.roundOffPaise ?? 0 },
+      ...refundOf(payload.refunds)
     };
   }
   if (eventType === 'sale.exchanged') {
