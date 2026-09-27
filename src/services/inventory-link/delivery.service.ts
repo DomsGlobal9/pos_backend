@@ -43,6 +43,9 @@ function refusal(status: number, body: any): { code: string; message: string } |
   if (status === 401 || status === 403) {
     return { code: 'KEY_REFUSED', message: 'Inventory no longer accepts this till\'s key. Connect again with a new key from Inventory.' };
   }
+  // "Not now, try again" (contract §4, Inventory 27 Sep): a return that overtook its own sale while
+  // Inventory is still applying the sale. A race, not a fault -- retried with the normal backoff.
+  if (RETRYABLE.includes(code ?? '')) return null;
   if (status === 400 || status === 404 || status === 409 || status === 422) {
     // Inventory's own sentence names the item and the figures -- that is what a person needs.
     const said = detail ? ` Inventory said: "${detail}"` : '';
@@ -57,6 +60,9 @@ function refusal(status: number, body: any): { code: string; message: string } |
   }
   return null;
 }
+
+/** Answers that mean "wait and send the same event again", whatever the HTTP status. */
+const RETRYABLE = ['SALE_NOT_YET_APPLIED'];
 
 export type Outcome = 'DELIVERED' | 'EMPTY' | 'BUSY' | 'RETRY_LATER' | 'BLOCKED' | 'NOT_CONNECTED';
 

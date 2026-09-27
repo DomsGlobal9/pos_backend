@@ -617,7 +617,7 @@ database and the dev server restarts when `src/` changes.
 | `verify-returns` | 130 | RET-001..007, EXC-001..005, APR-004/005, SALE-010..012, PAY-015/016, CUST-012/015 |
 | `verify-shifts` | 69 | SHIFT-001..009, DAY-001..005, HOME-005 |
 | `verify-events` | 42 | INV-003, -006..-008 (POS side): stock count, outbox |
-| `verify-inventory-link` | 57 | INV-001, -009, SYNC-006 (POS side, against a stand-in) |
+| `verify-inventory-link` | 59 | INV-001, -009, SYNC-006 (POS side, against a stand-in). **Known race:** a dev server running its own delivery loop (DISABLE_BACKGROUND_JOBS unset) can pick up the suite's test shop mid-run and fail a timing check; rerun, or run the server with background jobs off |
 | `verify-reports` | 41 | RPT-001..011 |
 | `verify-receipts` | 61 | RCPT-002, -006, -009, PAY-012, DEV-001..004 |
 | `verify-inventory-e2e` (needs a throwaway Inventory tenant) | 17 | Phase 8 against the REAL Inventory |

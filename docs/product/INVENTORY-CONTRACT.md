@@ -173,6 +173,7 @@ plus a sale is the whole of it.
 | 401/403 | — | stops, tells the owner the connection needs a new key |
 | 409 | `QTY_EXCEEDS_SOLD` (return of more than was dispatched) | as 400 |
 | 409 | `AMOUNT_MISMATCH` (with `itemCode`, `posPaise`, `inventoryPaise`) | as 400 |
+| 409 | `SALE_NOT_YET_APPLIED` -- a return overtook its own sale, still being applied (async `/events`) | **retried** with the normal backoff, never stops the queue. `UNKNOWN_ORDER` now means only that no such sale exists or is coming |
 | 429 / 5xx / timeout | — | retries with backoff (30 s → 2 min → 10 min → 1 h, then hourly), same event, never reordered |
 
 "Stops that tenant's queue" is deliberate: delivering a return whose sale failed would be wrong,

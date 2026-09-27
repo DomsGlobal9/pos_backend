@@ -173,6 +173,20 @@ async function main() {
     eq('back up: the same event goes, once', invoicesSeen(), [`INV/${run}/busy`]);
     eq('and the retry count is cleared', (await link()).attempts, 0);
 
+    // A return that overtakes its own sale while Inventory is still applying it: retry, not stop.
+    stand.seen = [];
+    await emit(`CN/${run}/race`, 'sale.returned');
+    let raced = 0;
+    stand.answer = (b) => b.creditNoteNo === `CN/${run}/race` && raced++ === 0
+      ? { status: 409, body: { success: false, data: { answer: 'SALE_NOT_YET_APPLIED', detail: 'Invoice X has been taken in but not applied yet. Send this return again in a moment.' } } }
+      : null;
+    eq('a return that overtook its sale is retried, not stopped', (await deliverNext(clientId)).outcome, 'RETRY_LATER');
+    eq('the queue is not stopped for a person', (await status(owner) as any).blocked, null);
+    await prisma.inventoryLink.update({ where: { clientId }, data: { nextAttemptAt: null } });
+    await drain(clientId);
+    stand.answer = null;
+    eq('and goes through on the next try', invoicesSeen(), [`CN/${run}/race`]);
+
     // ==========================================================================================
     console.log('\nwhen Inventory refuses: stop for a person');
     // ==========================================================================================
