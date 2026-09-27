@@ -31,7 +31,13 @@ export type AuditAction =
   | 'order.handed_over_with_due'
   | 'return.created'
   | 'exchange.created'
-  | 'store_credit.spent';
+  | 'store_credit.spent'
+  | 'shift.opened'
+  | 'shift.closed'
+  | 'shift.count_mismatch'
+  | 'cash.in'
+  | 'cash.out'
+  | 'day.closed';
 
 export interface AuditEntry {
   action: AuditAction;

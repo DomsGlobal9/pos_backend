@@ -52,7 +52,9 @@ export const createReturnSchema = z.object({
    * gave no number is still owed their credit -- they give the number now.
    */
   customerId: z.string().min(1).optional(),
-  approval
+  approval,
+  /** Which till, so a cash refund comes out of that drawer. POS-SHIFT-005. */
+  counterId: z.string().min(1).optional()
 });
 
 /**

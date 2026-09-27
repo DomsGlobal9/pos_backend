@@ -10,6 +10,7 @@ import { grant } from '../approvals';
 import { record, AuditEntry } from '../audit';
 import { addCredit } from '../store-credit';
 import { writeSale, getSale } from '../sale/sale.service';
+import { shiftFor } from '../shifts';
 import { CreateExchangeInput, CreateReturnInput, RefundInput } from './returns.schema';
 
 /**
@@ -546,8 +547,12 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
       }
 
       if (refunds.length > 0) {
+        // A cash refund comes out of the drawer open at this counter. POS-SHIFT-005.
+        const shiftId = await shiftFor(
+          tx, actor, mode.kind === 'EXCHANGE' ? mode.input.newSale.counterId : mode.input.counterId
+        );
         await tx.returnRefund.createMany({
-          data: refunds.map(r => ({ clientId: actor.clientId, returnId: created.id, ...r }))
+          data: refunds.map(r => ({ clientId: actor.clientId, returnId: created.id, shiftId, ...r }))
         });
       }
 

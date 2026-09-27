@@ -12,15 +12,15 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 120 |
+| DONE | 135 |
 | BUILDING (works, gate not met) | 10 |
-| BLOCKED (dependency named) | 13 |
+| BLOCKED (dependency named) | 12 |
 | DEFERRED (approved) | 2 |
-| PLANNED | 66 |
+| PLANNED | 52 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, at Phase 6 close -- **counted from the rows by script**, not by adding
+Last reconciled: 2026-09-27, at Phase 7 close -- **counted from the rows by script**, not by adding
 to the previous figure.
 
 > **The Phase 5 figures above this line were wrong** (they said DONE 92, BUILDING 2, BLOCKED 12,
@@ -54,7 +54,7 @@ to the previous figure.
 | POS-HOME-002 | P0 | Today sales total | 0 | **DONE** | `services/home`; local trading day, not UTC |
 | POS-HOME-003 | P0 | Bill count | 0 | **DONE** | |
 | POS-HOME-004 | P0 | Orders needing attention | 5 | **DONE** | Unblocked in Phase 5. Ready, overdue and owed said separately; only lines with something in them show |
-| POS-HOME-005 | P0 | Shift status | 0 | **BLOCKED** | No Shift service until Phase 7 |
+| POS-HOME-005 | P0 | Shift status | 7 | **DONE** | Unblocked in Phase 7. Each open drawer by counter and person; "open since yesterday" in red; "No shift open" links to open one |
 | POS-HOME-006 | P0 | Human sync/connection status | 0 | **DONE** | Shell header: "All saved" / "Saving is paused. Nothing you have entered is lost." |
 | POS-HOME-007 | P0 | Recent activity feed | 0 | **DONE** | Sales only until returns and orders exist |
 
@@ -227,13 +227,25 @@ Phase 6. `services/returns`, `services/store-credit`. `verify-returns` 130 check
 
 ## 6.11 Shift / drawer / day close
 
-All PLANNED, Phase 7. `Shift` and `DayClose` exist; **cash in/out has no model — schema gap**.
+Phase 7. `services/shifts`, `services/day-close`. `verify-shifts` 69 checks; `verify-shifts-ui` 33
+in real Chrome as a cashier AND a manager (a second backend with `DEV_ACTOR=dev-manager`).
 
-`POS-SHIFT-001` open shift · `-002` cashier/counter per sale (partly present: `Sale.cashierId`) ·
-`-003` cash in · `-004` cash out · `-005` expected cash · `-006` counted cash ·
-`-007` variance never silently corrected · `-008` close shift · `-009` overnight warning.
-`POS-DAY-001` totals by method · `-002` returns/discounts · `-003` cash position ·
-`-004` pending sync count · `-005` closed day immutable.
+| ID | P | Feature | Phase | Status | Evidence / note |
+|---|---|---|---|---|---|
+| POS-SHIFT-001 | P0 | Open shift | 7 | **DONE** | Float typed in, prefilled with the last count. One open shift per counter held by a partial unique index: five concurrent opens, one shift |
+| POS-SHIFT-002 | P0 | Record cashier/counter per sale | 7 | **DONE** | `Sale.cashierId`, `counterId`, and now `shiftId` |
+| POS-SHIFT-003 | P0 | Cash in | 7 | **DONE** | Amount + reason + person; idempotent |
+| POS-SHIFT-004 | P0 | Cash out | 7 | **DONE** | A cashier needs a manager's PIN (`cash:out`); never more than the drawer should hold |
+| POS-SHIFT-005 | P0 | Expected cash | 7 | **DONE** | Derived from payment, refund and movement rows every time -- never a running total. Change is not takings |
+| POS-SHIFT-006 | P0 | Counted cash | 7 | **DONE** | Blind: typed before the expected figure is shown |
+| POS-SHIFT-007 | P0 | Variance short/over | 7 | **DONE** | Stored as it is. A mismatch needs a recount or a note; every mismatched count is audited with both figures |
+| POS-SHIFT-008 | P0 | Close shift | 7 | **DONE** | Immutable. Row-locked against sales in flight: six concurrent sales during a close, expected = exactly the cash attached |
+| POS-SHIFT-009 | P0 | Shift left open overnight warning | 7 | **DONE** | On Home, on the till bar, on the shift screen and at the day close |
+| POS-DAY-001 | P0 | Day totals by payment method | 7 | **DONE** | Paid in and given back, by method; a UPI still being checked is not counted as in |
+| POS-DAY-002 | P0 | Returns/discount totals | 7 | **DONE** | |
+| POS-DAY-003 | P0 | Cash position | 7 | **DONE** | Floats + cash sales - cash refunds + in - out; cash taken with no shift open on its own line |
+| POS-DAY-004 | P0 | Pending offline/sync count | 7 | **DONE** | Counts `PENDING_SYNC` bills; always 0 until offline selling (Phase 11) creates any |
+| POS-DAY-005 | P0 | Closed day immutable | 7 | **DONE** | Snapshot frozen at close; later activity shown as "since closing"; three concurrent closes, one close |
 
 ## 6.12 Inventory seam / standalone
 

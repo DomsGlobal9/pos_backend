@@ -56,6 +56,8 @@ export const PERMISSIONS = {
   REFUND: 'return:create',
   REFUND_OUTSIDE_WINDOW: 'return:outside_window',
   CLOSE_DAY: 'day:close',
+  /** Taking cash out of the drawer. A cashier without it needs a manager's PIN. POS-SHIFT-004. */
+  CASH_OUT: 'cash:out',
   SEE_COST: 'report:cost',
   SETTINGS: 'settings:manage',
   INTEGRATIONS: 'integration:manage'

@@ -25,9 +25,9 @@ pass today and where the evidence is.
 | QA-RET-16 | Return | Outside the return window | Correct approval path | **PASS** | Browser + `verify-returns`: 10-day-old bill, late-return approval, senior PIN refused, manager's own audited |
 | QA-EXC-17 | Exchange | Replacement dearer or cheaper | Only the difference moves | **PASS** | Browser: Rs 12,999 for Rs 14,999, paid Rs 1,299 store credit + Rs 701 cash. `verify-returns`: dearer, cheaper, same price |
 | QA-APR-18 | Approval | Cashier exceeds the discount limit | In-place approval, cashier context kept | **PASS** | Browser: sheet over the open payment; receipt still names the cashier |
-| QA-CASH-19 | Cash | Petty cash removed | Cash-out explains the drawer expectation | PLANNED | Phase 7 |
-| QA-SHIFT-20 | Shift | Drawer short or over | Difference recorded, never silently corrected | PLANNED | Phase 7 |
-| QA-DAY-21 | Day | Shift left open overnight | Explicit warning at day close | PLANNED | Phase 7 |
+| QA-CASH-19 | Cash | Petty cash removed | Cash-out explains the drawer expectation | **PASS** | Browser: "The drawer should then hold Rs 200 less"; manager sheet over it; more than the drawer refused with the figure |
+| QA-SHIFT-20 | Shift | Drawer short or over | Difference recorded, never silently corrected | **PASS** | `verify-shifts`: Rs 100 short stored with the note; browser: blind recount to exact |
+| QA-DAY-21 | Day | Shift left open overnight | Explicit warning at day close | **PASS** | Browser: "Counter 1 is still open... since yesterday", then a confirm; the close records 1 shift left open |
 | QA-OFF-22 | Offline | Network blinks mid-basket | Basket safe + human status | **PASS** | Basket safe; header says the work is safe without a status code |
 | QA-RETRY-23 | Retry | Pending sale/event retried | No duplicate financial/stock/customer effect | PARTIAL | Financial side proven; stock and customer effects not built |
 | QA-INV-24 | Inventory | Inventory slow or unavailable | UI does not freeze; configured safe behaviour | PLANNED | Phase 8 |
@@ -44,11 +44,31 @@ pass today and where the evidence is.
 | | |
 |---|---:|
 | Scenarios required | 31 |
-| PASS | 22 |
-| PARTIAL | 4 |
+| PASS | 25 |
+| PARTIAL | 3 |
 | FAIL (named, not hidden) | **0** |
 | BLOCKED | 1 |
-| PLANNED | 4 |
+| PLANNED | 2 |
+
+Counted from the rows by script at Phase 7 close. (The Phase 6 figures above said PARTIAL 4 and
+PLANNED 4; the rows said 3 and 5. Corrected, nothing lost.)
+
+Added during Phase 7:
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-SHF-83 | Shift | Rs 2,000 handed over for a Rs 1,299 saree | Drawer gains Rs 1,299, not the change | **PASS** | `verify-shifts` |
+| QA-SHF-84 | Shift | Five people open one counter at once | One shift; the rest told who has it | **PASS** | `verify-shifts`; DB partial unique index |
+| QA-SHF-85 | Shift | Kept-order balance collected at another counter | Counts in the drawer it was collected at | **PASS** | `verify-shifts` |
+| QA-SHF-86 | Shift | Sale with no shift open | Still sells; cash reported as "no shift open" at day close | **PASS** | `verify-shifts` + browser bar |
+| QA-SHF-87 | Shift | Close while six sales are in flight | Expected = exactly the cash attached; every sale kept | **PASS** | `verify-shifts`, row locks |
+| QA-SHF-88 | Shift | Wrong count | Refused without the figure to aim for; attempt audited | **PASS** | Browser + `verify-shifts` |
+| QA-SHF-89 | Shift | Another cashier closes my shift | Refused, naming whose it is; a manager may | **PASS** | `verify-shifts` |
+| QA-SHF-90 | Cash | Cashier cash out; senior cashier's PIN | Manager needed; senior refused by name | **PASS** | Browser + `verify-shifts` |
+| QA-DAY-91 | Day | Close a day twice / three managers at once | One close; the rest told who closed it | **PASS** | `verify-shifts` |
+| QA-DAY-92 | Day | A sale lands on the day after it closed | Closed figures unchanged; "since closing" shows it | **PASS** | `verify-shifts` |
+| QA-DAY-93 | Day | Stored date | The calendar date itself, not the day before (UTC) | **PASS** | `verify-shifts` |
+| QA-DAY-94 | Day | Cashier opens the day close | Reads it; cannot close it | **PASS** | Browser |
 
 Added during Phase 6 (all invented, then run through the API and, where marked, the screens):
 

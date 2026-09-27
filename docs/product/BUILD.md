@@ -11,7 +11,7 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | 4 | Discounts/overrides + approvals | **COMPLETE** 2026-09-27 (the 2 return approvals closed in Phase 6) |
 | 5 | Orders/keep/dues | **COMPLETE** 2026-09-27 |
 | 6 | Returns + exchange | **COMPLETE** 2026-09-27; stock and CRM effects BLOCKED on Phase 8 / CRM |
-| 7 | Shift + cash movements + day close | PLANNED |
+| 7 | Shift + cash movements + day close | **COMPLETE** 2026-09-27 |
 | 8 | Inventory seam + standalone | PLANNED |
 | 9 | Operational reports | PLANNED |
 | 10 | Digital receipts + devices | PLANNED |
@@ -471,6 +471,58 @@ other -- the fix changes future bills only.
 
 ---
 
+# Phase 7 — Shift, drawer and day close
+
+**Gate:** expected vs counted, variance, overnight warning and an immutable day close pass.
+**Passed 2026-09-27.**
+
+```text
+REQUIRED FEATURE IDS:   15 accounted  (SHIFT-001..009, DAY-001..005, HOME-005)
+DONE:                   15
+UNBLOCKED:               1   (POS-HOME-005, waiting on this phase since Phase 0)
+SCHEMA GAP CLOSED:       1   (cash movement model)
+SCREENS:                20/24 built, all three devices each
+TESTS:                 587 backend + 66 UI in real Chrome + 5 responsive, all passing
+UNAPPROVED REMOVALS:     0
+UNACCOUNTED FEATURES:    0
+
+STATUS: COMPLETE
+```
+
+## What the owner gets at 9 pm
+
+One page per day: what was sold and how it was paid, what went back, what the drawers should hold,
+what they were counted at, and the difference -- plus anything still unsettled (a shift left open,
+a UPI still being checked, a bill not synced). Once closed, that page is frozen; anything later
+shows on its own "since closing" line.
+
+## Decisions made in this phase, and why
+
+| Decision | Why |
+|---|---|
+| Cash is tied to a drawer on each **payment/refund row**, not the sale | A kept order's balance collected on Saturday belongs in Saturday's drawer |
+| **Blind count**, refused without the figure when it does not match | A count that is shown the answer first is a copy, not a count. Recounting is allowed -- real shops do -- and every attempt is audited |
+| Cashiers do not see the expected figure while open | Same reason. Managers do. A closed shift's difference is shown to everyone |
+| **A sale is never blocked** by a missing shift | The customer at the counter is served; the bar says the cash won't count, and the day close shows it separately. Decision #9 asks the owner to confirm |
+| Cashier's cash OUT needs a manager's PIN | MASTER §8 leaves cash in/out "policy-controlled" for cashiers; money out is the risky direction. Decision #9 |
+| Closing a day with a shift open needs an explicit yes | Same shape as handing over an order with money owed |
+
+## Found while building
+
+| Found | Was |
+|---|---|
+| **The QA header count was off by one** | Said PARTIAL 4 / PLANNED 4; the rows said 3 / 5. Now counted by script |
+| **A test that looked like a product bug** | The close stored an expected figure of Rs 448 against Rs 2,698 on screen. Traced: the test's hand-sum missed one Rs 449 sale, so its "more than the drawer" cash-out was genuinely allowed and every later figure moved. The code was right; the test was fixed |
+| **A `@db.Date` column stores the day before** if handed local midnight | Local midnight in Chennai is 18:30 UTC the previous day. The day-close key is built as UTC midnight of the calendar date; tested |
+
+## Testing both people
+
+The dev server acts as the cashier. The UI suite starts a second backend on 4008 with
+`DEV_ACTOR=dev-manager` and routes the browser's API calls to it for the manager half, so the blind
+count (cashier) and the day close (manager) are both driven through the real screens.
+
+---
+
 # Standing evidence
 
 Tests that exist today and must keep passing. **Run one at a time** -- they share the local
@@ -488,7 +540,9 @@ database and the dev server restarts when `src/` changes.
 | `verify-orders` | 63 | ORD-001..014, PAY-014, HOME-004 |
 | `verify-held-bills` | 30 | SELL-020..022 |
 | `verify-returns` | 130 | RET-001..007, EXC-001..005, APR-004/005, SALE-010..012, PAY-015/016, CUST-012/015 |
+| `verify-shifts` | 69 | SHIFT-001..009, DAY-001..005, HOME-005 |
 | frontend `scripts/verify-returns-ui.mjs` | 33 | WF-RETURN-01, WF-EXCHANGE-01 in real Chrome, three sizes |
+| frontend `scripts/verify-shifts-ui.mjs` | 33 | WF-SHIFT-01, WF-CASH-01, WF-DAY-01 as cashier and manager, three sizes |
 | frontend `scripts/verify-responsive.mjs` | 5 | CORE-001 live reflow |
 
 ```

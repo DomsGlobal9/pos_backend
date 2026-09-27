@@ -1,6 +1,7 @@
 import { SaleStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
+import { openShifts } from '../shifts';
 import { needsAttention, NeedsAttention } from '../orders';
 
 /**
@@ -38,6 +39,8 @@ export interface HomeSummary {
   }[];
   /** POS-HOME-004. Null only if it could not be worked out -- never a fake zero. */
   orders: NeedsAttention | null;
+  /** POS-HOME-005. Every open drawer, and whether any was left open overnight (POS-SHIFT-009). */
+  shifts: { open: Awaited<ReturnType<typeof openShifts>>; overnight: number };
   /** Which approved sections have data behind them yet. The screen renders only these, so an
    * unbuilt feature is absent rather than faked. */
   available: {
@@ -93,7 +96,7 @@ export async function summary(actor: Actor, now = new Date()): Promise<HomeSumma
 
   // Side by side rather than one after another. Each is a round trip, and Home is on the path
   // between opening the app and being able to sell.
-  const [totals, recent, orders, returnsToday, recentReturns] = await Promise.all([
+  const [totals, recent, orders, returnsToday, recentReturns, shiftsOpen] = await Promise.all([
     prisma.sale.aggregate({
       where: ofToday,
       _sum: { totalPaise: true },
@@ -124,7 +127,8 @@ export async function summary(actor: Actor, now = new Date()): Promise<HomeSumma
         customer: { select: { name: true } },
         _count: { select: { lines: true } }
       }
-    })
+    }),
+    openShifts(actor.clientId)
   ]);
 
   const activity: HomeSummary['activity'] = [
@@ -159,11 +163,12 @@ export async function summary(actor: Actor, now = new Date()): Promise<HomeSumma
     },
     activity,
     orders,
+    shifts: { open: shiftsOpen, overnight: shiftsOpen.filter(s => s.openSinceYesterday).length },
     available: {
       // POS-HOME-004 -- unblocked in Phase 5.
       ordersWaiting: true,
-      // Phase 7. POS-HOME-005.
-      shiftStatus: false
+      // POS-HOME-005 -- unblocked in Phase 7.
+      shiftStatus: true
     }
   };
 }

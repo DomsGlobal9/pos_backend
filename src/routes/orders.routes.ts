@@ -23,7 +23,9 @@ router.get('/', async (req, res, next) => {
 
 const collection = z.object({
   onceKey: z.string().min(8),
-  payments: z.array(paymentSchema).min(1, 'Nothing has been paid').max(6)
+  payments: z.array(paymentSchema).min(1, 'Nothing has been paid').max(6),
+  /** Which till the money was taken at, so it counts in that drawer. POS-SHIFT-005. */
+  counterId: z.string().min(1).optional()
 });
 
 /** POST /api/v1/orders/:id/collect -- POS-ORD-012. Idempotent on onceKey. */

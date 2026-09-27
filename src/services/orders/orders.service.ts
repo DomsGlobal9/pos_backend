@@ -8,6 +8,7 @@ import { planPayments, owedPaise, refreshMoneyStatus } from '../payments';
 import { PaymentInput } from '../sale/sale.schema';
 import { record } from '../audit';
 import { spendCredit } from '../store-credit';
+import { shiftFor } from '../shifts';
 
 /**
  * Orders: goods kept for a customer, money still owed, things to hand over. POS-ORD-001..014.
@@ -160,7 +161,7 @@ async function lock(tx: Prisma.TransactionClient, saleId: string) {
 export async function collect(
   actor: Actor,
   saleId: string,
-  input: { onceKey: string; payments: PaymentInput[] }
+  input: { onceKey: string; payments: PaymentInput[]; counterId?: string }
 ) {
   if (!input.onceKey || input.onceKey.length < 8) throw badRequest('This collection needs a key.');
 
@@ -191,6 +192,8 @@ export async function collect(
     const planned = planPayments(owed, input.payments, settings?.enabledPaymentMethods ?? [], 'COLLECT');
 
     const now = new Date();
+    // Saturday's balance goes into Saturday's drawer -- whichever is open where it is collected.
+    const shiftId = await shiftFor(tx, actor, input.counterId);
     await tx.payment.createMany({
       data: planned.map((payment, index) => ({
         clientId: actor.clientId,
@@ -202,6 +205,7 @@ export async function collect(
         changePaise: payment.changePaise,
         status: payment.status,
         collectedAt: now,
+        shiftId,
         onceKey: `${input.onceKey}:pay:${index}`
       }))
     });

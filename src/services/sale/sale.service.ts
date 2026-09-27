@@ -10,6 +10,7 @@ import { planPayments, owedPaise } from '../payments';
 import { grant, attachToSale } from '../approvals';
 import { record, AuditEntry } from '../audit';
 import { spendCredit } from '../store-credit';
+import { shiftFor } from '../shifts';
 import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
 
@@ -360,6 +361,10 @@ export async function writeSale(
       // the series never gains a gap.
       const allocated = await nextNumber(tx, actor.clientId, 'INVOICE', settings?.invoicePrefix ?? 'INV');
 
+      // The drawer this bill's cash goes into. POS-SHIFT-002, -005. Null when no shift is open on
+      // the counter -- the sale still goes through, and the day close reports the cash separately.
+      const shiftId = await shiftFor(tx, actor, input.counterId);
+
       // 5.
       const sale = await tx.sale.create({
         data: {
@@ -368,6 +373,7 @@ export async function writeSale(
           financialYear: allocated.financialYear,
           counterId: input.counterId,
           cashierId: actor.kind === 'USER' ? actor.id : null,
+          shiftId,
           customerId: input.customerId ?? null,
           kind: isKept ? 'KEPT' : 'COMPLETE',
           // The money view. A kept order with nothing owed is still kept -- it just is not due.
@@ -428,6 +434,7 @@ export async function writeSale(
           tenderedPaise: payment.tenderedPaise,
           changePaise: payment.changePaise,
           status: payment.status,
+          shiftId,
           // One key per payment, derived from the sale's. A retry writes the same rows or none.
           onceKey: `${input.onceKey}:pay:${index}`
         }))
@@ -441,6 +448,7 @@ export async function writeSale(
             method: 'EXCHANGE',
             amountPaise: applied,
             status: 'COLLECTED',
+            shiftId,
             onceKey: `${input.onceKey}:exchange`
           }
         });

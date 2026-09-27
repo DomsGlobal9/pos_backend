@@ -366,6 +366,8 @@ model Sale {
 
   counterId String  @map("counter_id")
   cashierId String? @map("cashier_id")
+  /// The shift open on this counter when the bill was made. POS-SHIFT-002. Null: none was open.
+  shiftId   String? @map("shift_id")
 
   kind   SaleKind
   /// The MONEY view: is anything still owed. BALANCE_DUE or COMPLETED.
@@ -446,6 +448,8 @@ model Sale {
   /// after it says so.
   printCount    Int       @default(0) @map("print_count")
   lastPrintedAt DateTime? @map("last_printed_at")
+
+  shift     Shift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
   lines     SaleLine[]
   payments  Payment[]
@@ -568,6 +572,12 @@ model Payment {
 
   /// Same idempotency rule as the sale: one key per payment attempt.
   onceKey String @unique @map("once_key")
+
+  /// The drawer this money went into. POS-SHIFT-005. Set on the PAYMENT rather than read from the
+  /// sale, because a kept order's balance is collected days later -- into whichever drawer is open
+  /// then, not the one the order was taken at. Null when no shift was open: reported, not hidden.
+  shiftId String? @map("shift_id")
+  shift   Shift?  @relation(fields: [shiftId], references: [id], onDelete: SetNull)
 
   /// Collected later against a KEPT sale, rather than at the moment of sale.
   collectedAt DateTime? @map("collected_at")
@@ -706,6 +716,10 @@ model ReturnRefund {
   /// The UPI or card refund's own reference. Required for those, as on a payment.
   reference   String?
 
+  /// The drawer a cash refund came out of. Null when no shift was open.
+  shiftId String? @map("shift_id")
+  shift   Shift?  @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
   returnRow Return @relation(fields: [returnId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -828,13 +842,59 @@ model Shift {
   /// counted - expected. Negative is short. Recorded either way, never silently corrected.
   differencePaise   Int?     @map("difference_paise")
   closingNote       String?  @map("closing_note")
+  /// Who closed it. A cashier closes their own; anyone else's needs the day-close right.
+  closedById        String?  @map("closed_by_id")
 
   counter Counter @relation(fields: [counterId], references: [id])
   cashier User?   @relation(fields: [cashierId], references: [id], onDelete: SetNull)
 
+  /// Everything that moved cash in this drawer while it was open. Expected cash is derived from
+  /// these every time it is asked for -- never kept as a running total that could drift.
+  sales     Sale[]
+  payments  Payment[]
+  refunds   ReturnRefund[]
+  movements CashMovement[]
+
   @@index([clientId, openedAt])
   @@index([counterId, closedAt])
   @@map("shifts")
+}
+
+enum CashDirection {
+  /// Change float topped up, a supplier's refund in cash -- money INTO the drawer that is not a sale.
+  IN
+  /// Tea, courier, petty expenses, a bank deposit -- money OUT that is not a refund.
+  OUT
+}
+
+/// Cash into or out of the drawer that is not a sale or a refund. POS-SHIFT-003, -004.
+///
+/// Every one names an amount, a reason and a person. "The drawer is Rs 400 short" is a question the
+/// owner asks weeks later, and the only good answer is a row that says "Rs 400 out, courier, Ravi,
+/// 3:12 pm".
+model CashMovement {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+  shiftId  String @map("shift_id")
+
+  direction   CashDirection
+  amountPaise Int           @map("amount_paise")
+  reason      String
+
+  byId         String? @map("by_id")
+  /// Set when a manager's PIN allowed a cashier to take cash out.
+  approvedById String? @map("approved_by_id")
+
+  /// A double press records the movement once.
+  onceKey String @unique @map("once_key")
+
+  shift Shift @relation(fields: [shiftId], references: [id])
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([shiftId])
+  @@index([clientId, createdAt])
+  @@map("cash_movements")
 }
 
 /// A closed day cannot be edited. A correction is a new entry -- the same rule the day book in
@@ -851,8 +911,22 @@ model DayClose {
   taxPaise       Int @default(0) @map("tax_paise")
   netPaise       Int @default(0) @map("net_paise")
   returnsPaise   Int @default(0) @map("returns_paise")
+  returnsCount   Int @default(0) @map("returns_count")
   /// What should be in the drawer across the day, after opening cash and payouts.
   cashPositionPaise Int @default(0) @map("cash_position_paise")
+  openingCashPaise  Int @default(0) @map("opening_cash_paise")
+  cashInPaise       Int @default(0) @map("cash_in_paise")
+  cashOutPaise      Int @default(0) @map("cash_out_paise")
+  /// Summed from the shifts closed that day. Null when none was counted.
+  countedCashPaise  Int? @map("counted_cash_paise")
+  variancePaise     Int? @map("variance_paise")
+  /// Cash taken or refunded with no shift open. Shown so it cannot hide.
+  unattributedCashPaise Int @default(0) @map("unattributed_cash_paise")
+  /// Shifts still open when the day was closed -- allowed only when someone said so.
+  openShiftsAtClose Int @default(0) @map("open_shifts_at_close")
+  /// Payments still being checked against the bank when the day closed.
+  paymentsToCheck   Int @default(0) @map("payments_to_check")
+  note              String?
 
   /// Amount per payment method. Json because the enabled methods differ per shop and a column per
   /// method would mean a migration every time one is added.
@@ -1045,6 +1119,8 @@ enum ApprovalKind {
   RETURN
   /// A return after the shop's window has closed.
   RETURN_OUTSIDE_WINDOW
+  /// A cashier taking cash out of the drawer.
+  CASH_OUT
 }
 
 // ---------------------------------------------------------------------------------------------

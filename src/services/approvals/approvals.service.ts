@@ -24,14 +24,16 @@ const REQUIRED_PERMISSION: Record<ApprovalKind, string> = {
   DISCOUNT_OVER_LIMIT: PERMISSIONS.DISCOUNT_OVER_LIMIT,
   PRICE_OVERRIDE: PERMISSIONS.PRICE_OVERRIDE,
   RETURN: PERMISSIONS.REFUND,
-  RETURN_OUTSIDE_WINDOW: PERMISSIONS.REFUND_OUTSIDE_WINDOW
+  RETURN_OUTSIDE_WINDOW: PERMISSIONS.REFUND_OUTSIDE_WINDOW,
+  CASH_OUT: PERMISSIONS.CASH_OUT
 };
 
 const HUMAN_KIND: Record<ApprovalKind, string> = {
   DISCOUNT_OVER_LIMIT: 'a discount above the limit',
   PRICE_OVERRIDE: 'a price change',
   RETURN: 'a refund',
-  RETURN_OUTSIDE_WINDOW: 'a return after the return window'
+  RETURN_OUTSIDE_WINDOW: 'a return after the return window',
+  CASH_OUT: 'taking cash out of the drawer'
 };
 
 /**

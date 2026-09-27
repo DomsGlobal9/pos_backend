@@ -126,6 +126,20 @@ integration exists.
 - **The bill row is locked** before "how many are left" is read. Same pattern as collecting a
   balance (Phase 5).
 
+## 1.9 Shifts and the day (Phase 7)
+
+- **Expected cash is derived from rows, never kept as a running total.** Float + cash payments -
+  cash refunds + cash in - cash out, for rows carrying that shift's id.
+- **Cash belongs to the drawer it went into**: `shiftId` is on the payment, refund and movement
+  rows, not only on the sale. A balance collected days later counts where it was collected.
+- **The count is blind and it sticks.** A mismatch is refused without the expected figure; every
+  mismatched count is audited; a closed shift is never changed.
+- **Selling is never blocked by a missing shift.** Cash with no shift open is reported on its own
+  line at the day close. *Chosen in Phase 7 -- decision #9.*
+- **A closed day is frozen.** Later activity is shown as "since closing", never folded in.
+- **Lock order:** a sale takes FOR SHARE on its counter's open shift; a close or cash movement takes
+  FOR UPDATE. So a close cannot count a drawer halfway through a sale.
+
 ---
 
 # 2. Current API surface
@@ -145,8 +159,14 @@ Base `/api/v1`. Version in the path from the first commit.
 | POST | `/returns/bill/:saleId` | `services/returns` | dev | Phase 6 -- record a return; idempotent on `onceKey` |
 | POST | `/returns/bill/:saleId/exchange` | `services/returns` | dev | Phase 6 -- return + new bill; new bill's key is `onceKey:sale` |
 | GET | `/returns/:id` | `services/returns` | dev | Phase 6 -- one credit note |
+| GET | `/shifts/counter/:counterId` | `services/shifts` | dev | Phase 7 -- open shift, figures (managers only), recent closes |
+| POST | `/shifts` | `services/shifts` | dev | Phase 7 -- open with the float |
+| POST | `/shifts/cash` | `services/shifts` | dev | Phase 7 -- cash in / out; idempotent on `onceKey` |
+| POST | `/shifts/:id/close` | `services/shifts` | dev | Phase 7 -- blind count; `COUNT_MISMATCH` until it matches or has a note |
+| GET | `/day-close/:date` | `services/day-close` | dev | Phase 7 -- live figures, or the frozen close |
+| POST | `/day-close/:date` | `services/day-close` | dev | Phase 7 -- close; `acceptOpenShifts` to close with a shift open |
 
-This table lists Phase 0 and Phase 6. Phases 1-5 routes are in `src/routes/*.routes.ts`, each
+This table lists Phase 0, 6 and 7. Phases 1-5 routes are in `src/routes/*.routes.ts`, each
 documented where it is declared; they are not repeated here to avoid a second copy that drifts.
 
 **Every service function takes an `Actor` as its first argument. No service function reads a
@@ -228,7 +248,7 @@ Found in the 2026-09-27 preflight. Each belongs to its phase; none is silently d
 | Gap | Needed by | Phase |
 |---|---|---|
 | ~~`Payment.status` for ambiguous/needs-checking~~ | POS-PAY-010, -011 | 2 — **closed** |
-| Cash movement model (in/out, reason, actor) | POS-SHIFT-003, -004 | 7 |
+| ~~Cash movement model (in/out, reason, actor)~~ | POS-SHIFT-003, -004 | 7 — **closed** (`CashMovement`) |
 | ~~Approval record (requester, approver, reason)~~ | POS-APR-001..005 | 4 — **closed** |
 | Order collection date, notes, user-facing status | POS-ORD-004, -005, -006..009 | 5 |
 | ~~Reprint / duplicate marking~~ | POS-RCPT-004 | 1 — **closed** |

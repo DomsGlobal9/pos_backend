@@ -25,9 +25,9 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 | `WF-HELD-01` | Held bills | **DONE** | yes | yes | yes | A sheet on Sell, not under Orders -- a draft is not an order |
 | `WF-CUSTOMERS-01` | Customers | **DONE** | yes | yes | yes | One box for a name or a number |
 | `WF-CUSTOMER-02` | Customer detail | **DONE** | yes | yes | yes | No "View in CRM" until there is a CRM |
-| `WF-SHIFT-01` | Shift | PLANNED | | | | Phase 7 |
-| `WF-CASH-01` | Cash movement | PLANNED | | | | Phase 7 |
-| `WF-DAY-01` | Day close | PLANNED | | | | Phase 7 |
+| `WF-SHIFT-01` | Shift | **DONE** | yes | yes | yes | Open with the float; the close is a blind count |
+| `WF-CASH-01` | Cash movement | **DONE** | yes | yes | yes | A sheet on WF-SHIFT-01; cashier's cash out opens the manager sheet in place |
+| `WF-DAY-01` | Day close | **DONE** | yes | yes | yes | Open shifts and payments to check first; closed day frozen, "since closing" apart |
 | `WF-REPORTS-01` | Reports | PLANNED | | | | Phase 9 |
 | `WF-MORE-01` | More | **DONE** | yes | yes | yes | Bills live; the rest disabled with a visible phase |
 | `WF-SYNC-01` | Sync status | PLANNED | | | | Phase 11 |

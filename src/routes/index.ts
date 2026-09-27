@@ -10,6 +10,8 @@ import adminRoutes from './admin.routes';
 import ordersRoutes from './orders.routes';
 import heldBillsRoutes from './held-bills.routes';
 import returnsRoutes from './returns.routes';
+import shiftsRoutes from './shifts.routes';
+import dayCloseRoutes from './day-close.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -32,5 +34,7 @@ router.use('/admin', adminRoutes);
 router.use('/orders', ordersRoutes);
 router.use('/held-bills', heldBillsRoutes);
 router.use('/returns', returnsRoutes);
+router.use('/shifts', shiftsRoutes);
+router.use('/day-close', dayCloseRoutes);
 
 export default router;
