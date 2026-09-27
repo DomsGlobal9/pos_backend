@@ -27,3 +27,6 @@ npm-debug.log*
 
 # Local development database (src/scripts/local-db.mjs). Real Postgres, real data, not committed.
 .localdb/
+
+# Product docs stay local, not on GitHub.
+docs/
