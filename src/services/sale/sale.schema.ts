@@ -47,6 +47,13 @@ export const completeSaleSchema = z.object({
   lines: z.array(saleLineSchema).min(1, 'There is nothing on this bill'),
   /** One row per method. POS-PAY-007/008: a split is simply more than one. */
   payments: z.array(paymentSchema).min(1, 'Nothing has been paid').max(6, 'That is too many separate payments for one bill'),
+  /**
+   * POS-CUST-001 and POS-SELL-018. Optional, and it must stay that way.
+   *
+   * Someone paying cash who will not give a number is a normal Saturday. Nothing in this path may
+   * require a customer, which is why this is `.optional()` and not a nullable-with-default.
+   */
+  customerId: z.string().min(1).optional(),
   billDiscountPaise: paise.nonnegative().optional(),
   /** A bill to another state: one IGST figure rather than a CGST and SGST pair. */
   interState: z.boolean().optional(),

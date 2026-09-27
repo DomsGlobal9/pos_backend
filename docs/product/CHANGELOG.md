@@ -6,6 +6,38 @@ Newest first.
 
 ---
 
+## 2026-09-27 — CRM is not started; POS owns customers
+
+**Approved by:** product owner, in chat: *"standalone only for now... inventory is there crm is
+not strted"*.
+
+### CHG-007 — Customers are the POS's own, for now
+
+CHG-003 said CRM owns relationship depth and the POS keeps a cache. **CRM does not exist yet**, so
+Phase 3 builds the customer against the POS's own table as master.
+
+This is a sequencing change, not a reversal. `services/customers` is written as a lookup whose
+source nothing outside the folder knows about — exactly how `services/items` is written — so when
+CRM arrives the swap is one folder, and CHG-003's rule takes effect then.
+
+**What this means for the ledger:** eight approved features cannot be built and are recorded
+`BLOCKED` with the dependency named, not removed:
+
+| ID | Blocked on |
+|---|---|
+| POS-CRM-001..007 | CRM does not exist |
+| POS-CUST-013 | "View in CRM" has nowhere to go |
+
+A button that goes nowhere is worse than no button, so the action is absent from
+`WF-CUSTOMER-02` until there is a CRM to link to.
+
+### CHG-008 — Inventory exists and is the Phase 8 target
+
+Confirmed in the same message. Nothing changes today — the POS still reads its own `Item` table —
+but Phase 8 has a real system to integrate with rather than a hypothetical one.
+
+---
+
 ## 2026-09-27 — v2.0 baseline adopted
 
 **Approved by:** product owner, in chat.

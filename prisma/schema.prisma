@@ -227,12 +227,29 @@ model Customer {
   name     String?
   gstin    String?
 
-  /// Both are Inventory's figures when that module is on, mirrored here only so the sell screen can
-  /// show them instantly. Neither may be SPENT from this cache: a balance moves from outside the
-  /// till (a colleague processing an exchange), so paying with POINTS or CREDIT always takes a live
-  /// hold. See Sale.holdId.
+  /// WHO OWNS THESE DEPENDS ON THE MODE, and the difference decides whether they may be SPENT.
+  ///
+  /// Standalone (today): the POS owns them outright, and spending one is guarded here the way
+  /// Inventory guards its own -- a row lock plus a balance check in the same statement.
+  ///
+  /// With CRM on (not yet built): these become a mirror for display only. A balance moves from
+  /// outside the till -- a colleague processing the same customer's exchange is enough -- so the
+  /// cached figure is precisely the one that is wrong, and paying with POINTS or CREDIT must take
+  /// a live hold. See Sale.holdId and docs/product/CONTRACTS.md §1.1.
   loyaltyPoints    Int @default(0) @map("loyalty_points")
   storeCreditPaise Int @default(0) @map("store_credit_paise")
+
+  /// MARKETING CONSENT. POS-CUST-006.
+  ///
+  /// Only ever turned ON at a till, when the cashier ticks that the customer agreed. A counter
+  /// screen WITHOUT the tick is not the customer saying no -- it is usually nobody having asked --
+  /// so this is never set back to false from here. Withdrawing consent is a deliberate act and
+  /// belongs where a person can act on a request to stop, not in a sale flow.
+  marketingConsent Boolean   @default(false) @map("marketing_consent")
+  consentAt        DateTime? @map("consent_at")
+
+  /// Free-text, for what the shop remembers about someone. "Prefers cotton", "sister of Priya".
+  note String?
 
   sales Sale[]
 
@@ -242,6 +259,8 @@ model Customer {
 
   @@unique([clientId, phone])
   @@index([clientId])
+  /// Finding someone by name when they cannot remember which number they gave.
+  @@index([clientId, name])
   @@map("customers")
 }
 

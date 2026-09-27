@@ -18,7 +18,7 @@ pass today and where the evidence is.
 | QA-PAY-09 | Payment | Split short or over | Blocked with the exact difference | **PASS** | `verify-payments`; message names the shortfall, and Complete stays disabled |
 | QA-PAY-10 | Payment | Provider debited but timed out | Needs-checking; no blind second charge | **PASS** | `NEEDS_CHECKING`; sale completes, `WF-PAY-02` settles it. Verified end to end in the browser |
 | QA-CUST-11 | Customer | Customer refuses to give a phone | Sale completes normally | **PASS** | No code path requires a customer |
-| QA-CUST-12 | Customer | Concurrent same-phone create | One customer identity | PLANNED | Phase 3 |
+| QA-CUST-12 | Customer | Concurrent same-phone create | One customer identity | **PASS** | `verify-customers`: five concurrent attempts, one record |
 | QA-ORD-13 | Orders | Partial balance collection | Due and history correct | PLANNED | Phase 5 |
 | QA-ORD-14 | Orders | Handover with money due | Explicit warning | PLANNED | Phase 5 |
 | QA-RET-15 | Return | Partial previous return | Cannot exceed remaining eligible qty | PLANNED | Phase 6 |
@@ -31,7 +31,7 @@ pass today and where the evidence is.
 | QA-OFF-22 | Offline | Network blinks mid-basket | Basket safe + human status | **PASS** | Basket safe; header says the work is safe without a status code |
 | QA-RETRY-23 | Retry | Pending sale/event retried | No duplicate financial/stock/customer effect | PARTIAL | Financial side proven; stock and customer effects not built |
 | QA-INV-24 | Inventory | Inventory slow or unavailable | UI does not freeze; configured safe behaviour | PLANNED | Phase 8 |
-| QA-CRM-25 | CRM | CRM unavailable | Sale usable; limitation explained | PLANNED | Phase 3 |
+| QA-CRM-25 | CRM | CRM unavailable | Sale usable; limitation explained | **BLOCKED** | CRM not started (CHG-007). The rule it encodes already holds: no path requires a customer |
 | QA-RCPT-26 | Receipt | Printer unavailable | Sale complete; reprint available | **PASS** | Print never gates the save; reprint from `WF-SALE-02`, marked duplicate |
 | QA-HIST-27 | History | Product renamed after the sale | Old bill shows the original description, price and tax | **PASS** | Frozen onto the line; reprint split test in `verify-sale` |
 | QA-PERM-28 | Permissions | Cashier tries a restricted action | Human denial or approval path, no data leak | PLANNED | Phase 4 |
@@ -44,10 +44,23 @@ pass today and where the evidence is.
 | | |
 |---|---:|
 | Scenarios required | 31 |
-| PASS | 14 |
+| PASS | 15 |
 | PARTIAL | 4 |
 | FAIL (named, not hidden) | **0** |
-| PLANNED | 13 |
+| BLOCKED | 1 |
+| PLANNED | 11 |
+
+Added during Phase 3:
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-CUST-45 | Customer | One number written seven ways | All find the same person | **PASS** | `verify-customers`; browser: `09876543210` recognised Priya |
+| QA-CUST-46 | Customer | A number that cannot be valid | Refused in plain words, not saved | **PASS** | "An Indian mobile number starts with 6, 7, 8 or 9" — seen in the browser |
+| QA-CUST-47 | Customer | Retype a name shorter on a later visit | The fuller name survives | **PASS** | `verify-customers` |
+| QA-CUST-48 | Customer | A later sale with consent unticked | Consent is NOT withdrawn | **PASS** | `verify-customers` |
+| QA-CUST-49 | Customer | Same number at two different shops | Two different people | **PASS** | `verify-customers` |
+| QA-CUST-50 | Customer | Search a name with no digits in it | Results, not a crash | **PASS** | Was a crash; fixed and covered |
+| QA-CUST-51 | Receipt | A bill with a customer | Number masked, full digits never printed | **PASS** | Browser: "Priya Raman ••••3210" |
 
 Added during Phase 2:
 

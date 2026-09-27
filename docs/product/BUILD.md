@@ -7,7 +7,7 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | 0 | Foundation + responsive shell | **COMPLETE** 2026-09-27 |
 | 1 | Sell + cash + receipt + bill history | **COMPLETE**, except POS-RCPT-002 (BLOCKED, reason recorded) |
 | 2 | UPI/card/split + payment safety | **COMPLETE** 2026-09-27 |
-| 3 | Customer + CRM seam | PLANNED |
+| 3 | Customer + CRM seam | **COMPLETE** for the customer; CRM half BLOCKED (CHG-007) |
 | 4 | Discounts/overrides + approvals | PLANNED |
 | 5 | Orders/keep/dues | PLANNED |
 | 6 | Returns + exchange | PLANNED |
@@ -230,6 +230,61 @@ took.
 | `POS-RCPT-002` server-rendered PDF | BLOCKED, Phase 10 — one renderer, not two |
 | `POS-SALE-009` view customer from a bill | Phase 3, needs customers |
 | `POS-PAY-012/013` real UPI and card provider integration | Phase 10. The needs-checking state is already the seam they will plug into |
+
+---
+
+# Phase 3 — Customer (standalone; CRM not started)
+
+**Gate:** lookup, create, history work and failure degrades safely. **Passed 2026-09-27.**
+
+```text
+REQUIRED FEATURE IDS:   24 accounted
+DONE:                   13
+BLOCKED - no CRM:        8   (POS-CRM-001..007, POS-CUST-013)
+BLOCKED - other phases:  2   (POS-CUST-011 Orders, POS-CUST-012 store credit)
+PLANNED:                 1   (POS-CUST-015, Phase 6)
+SCREENS:                12/24 built, all three devices each
+TESTS:                 258/258 passing   (verify-customers adds 55)
+UNAPPROVED REMOVALS:     0
+UNACCOUNTED FEATURES:    0
+
+STATUS: COMPLETE for what can be built
+```
+
+## The failure this phase is designed against
+
+The phone number is the identity, so two ways of writing it must produce one record. Otherwise a
+cashier types `09876543210` on Tuesday and `+91 98765 43210` on Friday, a second customer appears,
+and from then on that person has two visit counts and two lifetime spends. Nobody notices until
+they say "I have shopped here for years" and the screen says first visit.
+
+All seven of these are now one person: `9876543210`, `98765 43210`, `+91 9876543210`,
+`09876543210`, `0919876543210`, `(098) 76543210`, `+919876543210`.
+
+A number that cannot be made sense of is **refused, not guessed** — "An Indian mobile number starts
+with 6, 7, 8 or 9" — because a wrong number saved silently is a record nobody can ever find again.
+
+## Two rules the screens enforce
+
+**Skip is as prominent as Use.** Someone paying cash who will not give a number is a normal
+Saturday. A sheet that makes a cashier feel obliged to fill it in gets fake numbers typed into it,
+which is worse than no customer — a fake number becomes a permanent record that splits someone
+else's history.
+
+**Consent only ever goes on.** A counter screen without the tick is not the customer saying no; it
+is usually nobody having asked. Tested: a later sale with the box unticked does not withdraw it.
+
+## Found by testing
+
+| Found | Was |
+|---|---|
+| Searching any name without a digit in it **crashed the screen** | A NUL byte used as a "match nothing" sentinel, which Postgres rejects outright: `invalid byte sequence for encoding "UTF8": 0x00`. Found by searching for a name that does not exist — the most ordinary thing a cashier can type |
+
+## What CRM will change, and what it will not
+
+`services/customers` is written as a lookup whose source nothing outside the folder knows about —
+the same shape as `services/items`. When CRM arrives, the swap is that one folder plus the outbox.
+No screen changes, because no screen knows where a customer came from.
 
 ---
 

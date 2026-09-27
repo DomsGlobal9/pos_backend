@@ -5,14 +5,14 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 
 ## Screen build status
 
-24 screens are registered in `MASTER.md` §4. Built: 9 of 24.
+24 screens are registered in `MASTER.md` §4. Built: 12 of 24.
 
 | Screen ID | Name | Status | Phone | Tablet | Desktop | Note |
 |---|---|---|---|---|---|---|
 | `WF-HOME-01` | Home | **DONE** | yes | yes | yes | Activity rows open the bill |
 | `WF-SELL-01` | Sell | **DONE** | yes | yes | yes | `pages/Till.jsx`; full sale completed at 375px |
 | `WF-PRODUCT-01` | Product/variant sheet | **DONE** | yes | yes | yes | Out-of-stock colours shown, not hidden |
-| `WF-CUST-01` | Customer quick sheet | PLANNED | | | | Phase 3 |
+| `WF-CUST-01` | Customer quick sheet | **DONE** | yes | yes | yes | Phone first; Skip is as prominent as Use |
 | `WF-PAY-01` | Payment | **DONE** | yes | yes | yes | Cash, UPI, card, split. Sticky Complete on a 3-way split |
 | `WF-PAY-02` | Payment needs checking | **DONE** | yes | yes | yes | The worklist that makes "not confirmed yet" safe to offer |
 | `WF-SUCCESS-01` | Sale success | **DONE** | yes | yes | yes | Same component as `WF-SALE-02`, by design |
@@ -23,8 +23,8 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 | `WF-RETURN-01` | Return | PLANNED | | | | Phase 6 |
 | `WF-EXCHANGE-01` | Exchange | PLANNED | | | | Phase 6 |
 | `WF-HELD-01` | Held bills | PLANNED | | | | Phase 5 |
-| `WF-CUSTOMERS-01` | Customers | PLANNED | | | | Phase 3 |
-| `WF-CUSTOMER-02` | Customer detail | PLANNED | | | | Phase 3 |
+| `WF-CUSTOMERS-01` | Customers | **DONE** | yes | yes | yes | One box for a name or a number |
+| `WF-CUSTOMER-02` | Customer detail | **DONE** | yes | yes | yes | No "View in CRM" until there is a CRM |
 | `WF-SHIFT-01` | Shift | PLANNED | | | | Phase 7 |
 | `WF-CASH-01` | Cash movement | PLANNED | | | | Phase 7 |
 | `WF-DAY-01` | Day close | PLANNED | | | | Phase 7 |
@@ -91,12 +91,19 @@ disabled with a visible reason. **No dead buttons.**
 | `WF-MORE-01` | Payments to check | `WF-PAY-02` | built |
 | `WF-PAY-02` | It arrived / Never arrived | stays, row clears | built |
 | `WF-PAY-02` | The invoice number | `WF-SALE-02` | built |
+| `WF-SELL-01` | Add customer | `WF-CUST-01` | built |
+| `WF-CUST-01` | Use / Add and use | back to `WF-SELL-01`, attached | built |
+| `WF-CUST-01` | Skip | back to `WF-SELL-01`, no customer | built |
+| Nav | Customers | `WF-CUSTOMERS-01` | built |
+| `WF-CUSTOMERS-01` | A customer row | `WF-CUSTOMER-02` | built |
+| `WF-CUSTOMER-02` | A recent bill | `WF-SALE-02` | built |
+| `WF-CUSTOMER-02` | View in CRM | — | **absent until CRM exists** (CHG-007) |
+| `WF-SALE-02` | The customer | `WF-CUSTOMER-02` | built |
 
 ### Empty states for unbuilt tabs
 
-Orders and Customers are in the fixed five from day one, but their features arrive in Phases 5
-and 3. Until then each tab is a **registered screen with an honest empty state** naming what it
-will do — not a hidden tab and not a dead button.
+**Customers is now live** (Phase 3). Orders remains a registered screen with an honest empty state
+naming what it will do, until Phase 5 — not a hidden tab and not a dead button.
 
-This is recorded rather than assumed, because it is a visible product compromise: a shop opening
-the app in Phase 0 will see two tabs that do not yet do anything.
+Recorded rather than assumed, because it is a visible product compromise: a shop opening the app
+today sees one tab that does not yet do anything.

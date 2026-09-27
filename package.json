@@ -14,7 +14,8 @@
     "db:local": "node src/scripts/local-db.mjs start",
     "verify:bills": "ts-node src/scripts/verify-bills.ts",
     "verify:payments": "ts-node src/scripts/verify-payments.ts",
-    "verify:variants": "ts-node src/scripts/verify-variants.ts"
+    "verify:variants": "ts-node src/scripts/verify-variants.ts",
+    "verify:customers": "ts-node src/scripts/verify-customers.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

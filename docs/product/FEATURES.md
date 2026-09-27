@@ -12,14 +12,14 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 50 |
-| BUILDING (works, gate not met) | 5 |
-| BLOCKED (dependency named) | 2 |
-| PLANNED | 154 |
+| DONE | 62 |
+| BUILDING (works, gate not met) | 1 |
+| BLOCKED (dependency named) | 12 |
+| PLANNED | 136 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, at Phase 2 close.
+Last reconciled: 2026-09-27, at Phase 3 close.
 
 ---
 
@@ -71,7 +71,7 @@ Last reconciled: 2026-09-27, at Phase 2 close.
 | POS-SELL-015 | P0 | Manual discount within limit | 4 | PLANNED | `priceBasket` accepts it; no UI, no permission check |
 | POS-SELL-016 | P0 | Discount above limit approval | 4 | PLANNED | |
 | POS-SELL-017 | P0 | Price override approval | 4 | PLANNED | `SaleLine.priceOverrideReason` exists, unused |
-| POS-SELL-018 | P0 | Add/select optional customer inline | 3 | PLANNED | |
+| POS-SELL-018 | P0 | Add/select optional customer inline | 3 | **DONE** | `WF-CUST-01`, without leaving the sale. Skip is as prominent as Use |
 | POS-SELL-019 | P0 | Park/hold active basket | 5 | PLANNED | `HeldBill` model exists |
 | POS-SELL-020 | P0 | Recall parked basket | 5 | PLANNED | |
 | POS-SELL-021 | P0 | Multiple parked baskets with labels | 5 | PLANNED | |
@@ -85,20 +85,20 @@ Last reconciled: 2026-09-27, at Phase 2 close.
 | ID | P | Feature | Phase | Status | Evidence / note |
 |---|---|---|---|---|---|
 | POS-CUST-001 | P0 | Sale without customer | 1 | **DONE** | No code path requires a customer |
-| POS-CUST-002 | P0 | Phone lookup | 3 | PLANNED | |
-| POS-CUST-003 | P0 | Country code / foreign phone | 3 | PLANNED | |
-| POS-CUST-004 | P0 | Quick customer create | 3 | PLANNED | |
-| POS-CUST-005 | P0 | Name capture | 3 | PLANNED | |
-| POS-CUST-006 | P0 | Explicit marketing consent | 3 | PLANNED | Only ever turned ON at the till, never off |
-| POS-CUST-007 | P0 | Customer list/search | 3 | PLANNED | |
-| POS-CUST-008 | P0 | Compact customer card | 3 | PLANNED | |
-| POS-CUST-009 | P0 | Recent purchases | 3 | PLANNED | |
-| POS-CUST-010 | P0 | Visit count / lifetime spend | 3 | PLANNED | |
-| POS-CUST-011 | P0 | Outstanding balance | 5 | PLANNED | Needs Orders |
-| POS-CUST-012 | P0 | Loyalty / store credit when enabled | 3 | PLANNED | **Always needs a live hold** — never spent from cache |
-| POS-CUST-013 | P1 | View in CRM deep link | 3 | PLANNED | |
-| POS-CUST-014 | P0 | Sale updates customer history automatically | 3 | PLANNED | |
-| POS-CUST-015 | P0 | Return/exchange updates customer history | 6 | PLANNED | |
+| POS-CUST-002 | P0 | Phone lookup | 3 | **DONE** | Seven ways of writing one number all find the same person |
+| POS-CUST-003 | P0 | Country code / foreign phone | 3 | **DONE** | A `+` keeps its own country code; bare digits default to +91 |
+| POS-CUST-004 | P0 | Quick customer create | 3 | **DONE** | Find-or-create; five concurrent attempts make one customer |
+| POS-CUST-005 | P0 | Name capture | 3 | **DONE** | A hurried retype never overwrites a fuller name |
+| POS-CUST-006 | P0 | Explicit marketing consent | 3 | **DONE** | Only ever ON here; a later sale with the box unticked does not withdraw it |
+| POS-CUST-007 | P0 | Customer list/search | 3 | **DONE** | `WF-CUSTOMERS-01`; one box for a name or a number |
+| POS-CUST-008 | P0 | Compact customer card | 3 | **DONE** | `WF-CUSTOMER-02` |
+| POS-CUST-009 | P0 | Recent purchases | 3 | **DONE** | Last five, each linking to the bill |
+| POS-CUST-010 | P0 | Visit count / lifetime spend | 3 | **DONE** | Derived from sales, not a stored counter that drifts on a return |
+| POS-CUST-011 | P0 | Outstanding balance | 5 | **BLOCKED** | No dues until Orders exist (Phase 5) |
+| POS-CUST-012 | P0 | Loyalty / store credit when enabled | 6 | **BLOCKED** | Columns exist and show on the card. Nothing creates a balance until returns give store credit (Phase 6). Spending one: see CONTRACTS §1.1 |
+| POS-CUST-013 | P1 | View in CRM deep link | — | **BLOCKED** | CRM does not exist (CHG-007). A button that goes nowhere is worse than no button |
+| POS-CUST-014 | P0 | Sale updates customer history automatically | 3 | **DONE** | The sale carries the customer; history is derived, so it cannot drift |
+| POS-CUST-015 | P0 | Return/exchange updates customer history | 6 | PLANNED | Derived the same way, so it will follow automatically |
 
 ## 6.5 Payments
 
@@ -170,7 +170,7 @@ notes and user-facing status are **schema gaps**.
 | POS-SALE-006 | P0 | Filter by status | 1 | **DONE** | API done; UI exposes date and method only until more statuses exist |
 | POS-SALE-007 | P0 | Bill detail | 1 | **DONE** | `WF-SALE-02`, the same component as the original receipt |
 | POS-SALE-008 | P0 | View payment history | 1 | **DONE** | On the bill, with tendered and change |
-| POS-SALE-009 | P0 | View customer | 3 | BUILDING | Name shows; the link needs Phase 3 |
+| POS-SALE-009 | P0 | View customer | 3 | **DONE** | Link from the bill, when it has one |
 | POS-SALE-010 | P0 | Start return from bill | 6 | PLANNED | Attaches to `WF-SALE-02` |
 | POS-SALE-011 | P0 | Start exchange from bill | 6 | PLANNED | |
 | POS-SALE-012 | P0 | Cancel / void / correction policy | 6 | PLANNED | Never delete history |
@@ -222,10 +222,21 @@ All PLANNED, Phase 7. `Shift` and `DayClose` exist; **cash in/out has no model �
 
 ## 6.13 CRM seam
 
-All PLANNED, Phase 3. New since CHG-003; nothing exists.
+**All seven are BLOCKED: CRM has not been started** (CHG-007). Recorded, not removed — every one
+is still an approved feature with a named dependency.
 
-`POS-CRM-001` lookup · `-002` create/update · `-003` sale event · `-004` return/exchange event ·
-`-005` dues/payment change · `-006` consent sync · `-007` CRM-unavailable safe UX.
+| ID | Feature | Status | Note |
+|---|---|---|---|
+| POS-CRM-001 | CRM customer lookup | **BLOCKED** | `services/customers` is the seam it will plug into |
+| POS-CRM-002 | CRM customer create/update | **BLOCKED** | |
+| POS-CRM-003 | Sale event to CRM | **BLOCKED** | Outbox tables already exist |
+| POS-CRM-004 | Return/exchange event to CRM | **BLOCKED** | |
+| POS-CRM-005 | Dues/payment change to CRM | **BLOCKED** | Also needs Orders |
+| POS-CRM-006 | Consent sync | **BLOCKED** | Consent is captured and stored today, ready to send |
+| POS-CRM-007 | CRM unavailable safe UX | **BLOCKED** | The rule it encodes already holds: a sale never needs a customer |
+
+When CRM arrives, the work is inside `services/customers` and the outbox — not across the screens,
+because nothing outside that folder knows where a customer comes from.
 
 ## 6.14 Sync / offline stage 1
 

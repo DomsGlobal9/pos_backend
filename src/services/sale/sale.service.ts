@@ -86,6 +86,21 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
         settings?.enabledPaymentMethods ?? []
       );
 
+      /*
+       * The customer, when there is one. Checked inside the transaction so a sale cannot be
+       * attached to somebody else's customer, or to one deleted between the screen loading and
+       * Complete being pressed.
+       */
+      if (input.customerId) {
+        const customer = await tx.customer.findFirst({
+          where: { id: input.customerId, clientId: actor.clientId, deletedAt: null },
+          select: { id: true }
+        });
+        if (!customer) {
+          throw notFound('That customer was not found. Complete the sale without one, or add them again.');
+        }
+      }
+
       // 4. Inside this transaction, deliberately: a sale that fails takes its number with it, so
       // the series never gains a gap.
       const allocated = await nextNumber(tx, actor.clientId, 'INVOICE', settings?.invoicePrefix ?? 'INV');
@@ -98,6 +113,7 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
           financialYear: allocated.financialYear,
           counterId: input.counterId,
           cashierId: actor.kind === 'USER' ? actor.id : null,
+          customerId: input.customerId ?? null,
           kind: 'COMPLETE',
           status: 'COMPLETED',
           subtotalPaise: priced.subtotalPaise,
