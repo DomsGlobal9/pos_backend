@@ -5,8 +5,8 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | Phase | Outcome | Status |
 |---|---|---|
 | 0 | Foundation + responsive shell | **COMPLETE** 2026-09-27 |
-| 1 | Sell + cash + receipt + bill history | **GATE PASSED**, 2 items open (see below) |
-| 2 | UPI/card/split + payment safety | PLANNED |
+| 1 | Sell + cash + receipt + bill history | **COMPLETE**, except POS-RCPT-002 (BLOCKED, reason recorded) |
+| 2 | UPI/card/split + payment safety | **COMPLETE** 2026-09-27 |
 | 3 | Customer + CRM seam | PLANNED |
 | 4 | Discounts/overrides + approvals | PLANNED |
 | 5 | Orders/keep/dues | PLANNED |
@@ -176,6 +176,60 @@ is a different thing from the phase, and conflating them is how a checklist star
   a reprint cannot drift from the paper a customer is holding.
 - Paging survives a sale landing mid-scroll. Keyset, not offset — verified by making a sale
   between page one and page two and asserting nothing repeated.
+
+---
+
+# Phase 2 — UPI, card, split, payment safety
+
+**Gate:** payment retry and unknown scenarios pass. **Passed 2026-09-27.**
+
+```text
+REQUIRED FEATURE IDS:    7 accounted   (POS-PAY-005..008, -010, -011, POS-SET-003)
+DONE:                    7
+PLUS Phase 1 leftovers:  2   (POS-SELL-006 variant picker, -007 images)
+SCREENS:                 9/24 built, all three devices each
+TESTS:                 203/203 passing
+                                verify-money       47
+                                verify-sale        49
+                                verify-bills       27
+                                verify-payments    48
+                                verify-variants    27
+                                verify-responsive   5
+UNAPPROVED REMOVALS:     0
+UNACCOUNTED FEATURES:    0
+
+STATUS: COMPLETE
+```
+
+## The rule this phase exists for
+
+> A customer pays 4,500 rupees by UPI. The shop's phone has not dinged. The saree is in their hand
+> and there is a queue behind them.
+
+A till with two buttons forces the cashier to wave them off unpaid or ask them to send it again.
+The second is what gets a shop a reputation. So there is a third answer: **not confirmed yet**. The
+sale completes, the customer leaves, and the payment lands on `WF-PAY-02` to settle against the
+bank — resolved to COLLECTED or VOID, never silently deleted.
+
+Cash is deliberately excluded from it. Cash is in the drawer or it is not, and the person holding
+it is standing there; allowing uncertainty would hand a cashier a way to record money they never
+took.
+
+## Three things found by testing rather than by reading
+
+| Found | Was |
+|---|---|
+| Variant grouping made search **worse** | Three colours each rendered their own row saying "3 colours and sizes". The count was added without collapsing. Now one row, "from ₹12,999", picker behind it |
+| Sizes sorted as text | `L, M, S, XL` for letters and `10, 38, 8` for numbers. Now letters run in wearing order and numbers sort numerically |
+| Complete was below the fold on a phone | A three-way split made the panel taller than a 375px screen, so the primary action needed a scroll to find. Now sticky |
+
+## Carried forward
+
+| Item | Where |
+|---|---|
+| `POS-RCPT-002` server-rendered PDF | BLOCKED, Phase 10 — one renderer, not two |
+| `POS-SALE-009` view customer from a bill | Phase 3, needs customers |
+| `POS-PAY-012/013` real UPI and card provider integration | Phase 10. The needs-checking state is already the seam they will plug into |
 
 ---
 

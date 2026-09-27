@@ -5,16 +5,16 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 
 ## Screen build status
 
-24 screens are registered in `MASTER.md` §4. Built: 7 of 24.
+24 screens are registered in `MASTER.md` §4. Built: 9 of 24.
 
 | Screen ID | Name | Status | Phone | Tablet | Desktop | Note |
 |---|---|---|---|---|---|---|
 | `WF-HOME-01` | Home | **DONE** | yes | yes | yes | Activity rows open the bill |
 | `WF-SELL-01` | Sell | **DONE** | yes | yes | yes | `pages/Till.jsx`; full sale completed at 375px |
-| `WF-PRODUCT-01` | Product/variant sheet | PLANNED | | | | Phase 1 |
+| `WF-PRODUCT-01` | Product/variant sheet | **DONE** | yes | yes | yes | Out-of-stock colours shown, not hidden |
 | `WF-CUST-01` | Customer quick sheet | PLANNED | | | | Phase 3 |
-| `WF-PAY-01` | Payment | **DONE** (cash) | yes | yes | yes | Sheet fits 375px exactly. UPI/card/split are Phase 2 |
-| `WF-PAY-02` | Payment needs checking | PLANNED | | | | Phase 2 — P0 even before provider integration |
+| `WF-PAY-01` | Payment | **DONE** | yes | yes | yes | Cash, UPI, card, split. Sticky Complete on a 3-way split |
+| `WF-PAY-02` | Payment needs checking | **DONE** | yes | yes | yes | The worklist that makes "not confirmed yet" safe to offer |
 | `WF-SUCCESS-01` | Sale success | **DONE** | yes | yes | yes | Same component as `WF-SALE-02`, by design |
 | `WF-ORDERS-01` | Orders | PLANNED | | | | Phase 5 |
 | `WF-ORDER-02` | Order detail | PLANNED | | | | Phase 5 |
@@ -86,6 +86,11 @@ disabled with a visible reason. **No dead buttons.**
 | `WF-SALE-02` | All bills | `WF-SALES-01` | built |
 | `WF-SALE-02` | Print again | system print, marked DUPLICATE | built |
 | `WF-SALE-02` | Return / Exchange | `WF-RETURN-01` / `WF-EXCHANGE-01` | Phase 6 |
+| `WF-SELL-01` | A grouped search row | `WF-PRODUCT-01` | built |
+| `WF-PRODUCT-01` | A colour or size | back to `WF-SELL-01`, added | built |
+| `WF-MORE-01` | Payments to check | `WF-PAY-02` | built |
+| `WF-PAY-02` | It arrived / Never arrived | stays, row clears | built |
+| `WF-PAY-02` | The invoice number | `WF-SALE-02` | built |
 
 ### Empty states for unbuilt tabs
 

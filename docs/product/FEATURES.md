@@ -12,14 +12,14 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 39 |
-| BUILDING (works, gate not met) | 9 |
+| DONE | 50 |
+| BUILDING (works, gate not met) | 5 |
 | BLOCKED (dependency named) | 2 |
-| PLANNED | 161 |
+| PLANNED | 154 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, at Phase 1 partial close (bill history slice).
+Last reconciled: 2026-09-27, at Phase 2 close.
 
 ---
 
@@ -59,8 +59,8 @@ Last reconciled: 2026-09-27, at Phase 1 partial close (bill history slice).
 | POS-SELL-003 | P0 | Barcode scanner input | 1 | **DONE** | 150 ms contract, counter only per CHG-002 |
 | POS-SELL-004 | P0 | Phone camera barcode scan | 10 | PLANNED | No 150 ms claim, CHG-002 |
 | POS-SELL-005 | P0 | Exact barcode auto-add | 1 | **DONE** | Two exact matches are offered as a choice |
-| POS-SELL-006 | P0 | Product/variant picker | 1 | PLANNED | `Item.variantGroup` added; `WF-PRODUCT-01` still to build |
-| POS-SELL-007 | P0 | Product image where available | 1 | PLANNED | `Item.imageUrl` added; not shown on screen yet |
+| POS-SELL-006 | P0 | Product/variant picker | 1 | **DONE** | Colours collapse to one row; picker shows all sizes in wearing order |
+| POS-SELL-007 | P0 | Product image where available | 1 | **DONE** | Thumbnail in search results and in the picker; absent image renders a blank, not a broken icon |
 | POS-SELL-008 | P0 | Stock/last-one indication | 1 | **DONE** | "last one" / "none left"; null is never shown as zero |
 | POS-SELL-009 | P0 | Add line to basket | 1 | **DONE** | |
 | POS-SELL-010 | P0 | Change quantity | 1 | **DONE** | |
@@ -108,13 +108,13 @@ Last reconciled: 2026-09-27, at Phase 1 partial close (bill history slice).
 | POS-PAY-002 | P0 | Tendered cash | 1 | **DONE** | Stored as drawer evidence |
 | POS-PAY-003 | P0 | Change due | 1 | **DONE** | Shown large |
 | POS-PAY-004 | P0 | Exact cash shortcut | 1 | **DONE** | Plus next-note shortcuts |
-| POS-PAY-005 | P0 | UPI manual / reference | 2 | PLANNED | Schema accepts it; no UI |
-| POS-PAY-006 | P0 | Card manual / reference | 2 | PLANNED | |
-| POS-PAY-007 | P0 | Split payment | 2 | PLANNED | Server already sums and refuses a mismatch |
-| POS-PAY-008 | P0 | Multiple payment rows | 2 | BUILDING | Model supports it; UI sends one |
+| POS-PAY-005 | P0 | UPI manual / reference | 2 | **DONE** | Reference required unless marked unconfirmed |
+| POS-PAY-006 | P0 | Card manual / reference | 2 | **DONE** | |
+| POS-PAY-007 | P0 | Split payment | 2 | **DONE** | Up to 6 rows; refusal names the exact shortfall |
+| POS-PAY-008 | P0 | Multiple payment rows | 2 | **DONE** | |
 | POS-PAY-009 | P0 | Idempotent payment retry | 1 | **DONE** | `onceKey:pay:N` per row |
-| POS-PAY-010 | P0 | Ambiguous / unknown provider state | 2 | PLANNED | **No `status` field on `Payment` yet — schema gap** |
-| POS-PAY-011 | P0 | Check / reconcile payment status | 2 | PLANNED | `WF-PAY-02` |
+| POS-PAY-010 | P0 | Ambiguous / unknown provider state | 2 | **DONE** | `PaymentStatus.NEEDS_CHECKING`; cash can never be uncertain |
+| POS-PAY-011 | P0 | Check / reconcile payment status | 2 | **DONE** | `WF-PAY-02` worklist; resolves to COLLECTED or VOID, never deleted |
 | POS-PAY-012 | P1 | Dynamic UPI QR / provider | 10 | PLANNED | |
 | POS-PAY-013 | P1 | Card terminal integration | 10 | PLANNED | |
 | POS-PAY-014 | P0 | Collect later against kept order | 5 | PLANNED | `Payment.collectedAt` exists |
@@ -256,7 +256,7 @@ All PLANNED, Phase 9.
 |---|---|---|---|---|---|
 | POS-SET-001 | P0 | Business name/GSTIN/address/logo | 0 | BUILDING | Stored + on receipt; no editor UI |
 | POS-SET-002 | P0 | Invoice format / FY / rounding | 0 | BUILDING | `invoicePrefix` used; rounding fixed at NEAREST_RUPEE |
-| POS-SET-003 | P0 | Payment methods enabled | 2 | BUILDING | Column exists, not enforced |
+| POS-SET-003 | P0 | Payment methods enabled | 2 | **DONE** | Enforced server-side; a disabled method is refused by any route |
 | POS-SET-004 | P0 | Receipt footer / print setup | 1 | BUILDING | Footer prints |
 | POS-SET-005 | P0 | Discount limits | 4 | BUILDING | Column exists, not enforced |
 | POS-SET-006 | P0 | Return window / rules | 6 | BUILDING | Column exists, not enforced |

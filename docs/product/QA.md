@@ -15,8 +15,8 @@ pass today and where the evidence is.
 | QA-SALE-06 | Sale | Two tills complete at the same instant | Different numbers, no gap | **PASS** | `verify-sale`: 8 concurrent |
 | QA-MONEY-07 | Money | GST / discount / rounding edges | Totals invariant; day close balances | **PASS** (money) | `verify-money` 1,45,716 prices; day close not built |
 | QA-MONEY-08 | Money | Failed sale | Burns no invoice number | **PASS** | `verify-sale` |
-| QA-PAY-09 | Payment | Split short or over | Blocked with the exact difference | PARTIAL | Server refuses a mismatch; split UI is Phase 2 |
-| QA-PAY-10 | Payment | Provider debited but timed out | Needs-checking; no blind second charge | **FAIL — not built** | Phase 2, P0. Schema gap: no `Payment.status` |
+| QA-PAY-09 | Payment | Split short or over | Blocked with the exact difference | **PASS** | `verify-payments`; message names the shortfall, and Complete stays disabled |
+| QA-PAY-10 | Payment | Provider debited but timed out | Needs-checking; no blind second charge | **PASS** | `NEEDS_CHECKING`; sale completes, `WF-PAY-02` settles it. Verified end to end in the browser |
 | QA-CUST-11 | Customer | Customer refuses to give a phone | Sale completes normally | **PASS** | No code path requires a customer |
 | QA-CUST-12 | Customer | Concurrent same-phone create | One customer identity | PLANNED | Phase 3 |
 | QA-ORD-13 | Orders | Partial balance collection | Due and history correct | PLANNED | Phase 5 |
@@ -44,10 +44,23 @@ pass today and where the evidence is.
 | | |
 |---|---:|
 | Scenarios required | 31 |
-| PASS | 12 |
-| PARTIAL | 5 |
-| FAIL (named, not hidden) | 1 |
+| PASS | 14 |
+| PARTIAL | 4 |
+| FAIL (named, not hidden) | **0** |
 | PLANNED | 13 |
+
+Added during Phase 2:
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-PAY-37 | Payment | A UPI the shop cannot confirm yet | Sale completes; payment marked for checking; customer never asked again | **PASS** | Browser: split ₹5,000 cash + ₹7,999 unconfirmed UPI, receipt says "(being checked)" |
+| QA-PAY-38 | Payment | Resolve an unconfirmed payment both ways | COLLECTED with a late reference, or VOID and the bill is short | **PASS** | `verify-payments` + browser |
+| QA-PAY-39 | Payment | Try to resolve the same payment twice | Refused | **PASS** | `verify-payments` |
+| QA-PAY-40 | Payment | Cash marked unconfirmed | Refused — cash is in the drawer or it is not | **PASS** | `verify-payments` |
+| QA-PAY-41 | Settings | A method the shop has turned off | Refused by the server, not only hidden in the UI | **PASS** | `verify-payments` |
+| QA-SELL-42 | Sell | Three colours of one saree in search | One row and a picker, not three rows | **PASS** | `verify-variants` + browser |
+| QA-SELL-43 | Sell | Size run S/M/L/XL and 8/10/38/40 | Wearing order and numeric order, not alphabetical | **PASS** | `verify-variants` |
+| QA-MOB-44 | Mobile | Three-way split on a 375px phone | Complete stays reachable without hunting | **PASS** | Measured: sticky actions bar |
 
 Added during Phase 1:
 

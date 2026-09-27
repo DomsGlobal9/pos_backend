@@ -4,7 +4,8 @@ import { Actor } from '../../types/actor';
 import { priceBasket, BasketLine } from '../basket';
 import { forSale } from '../items';
 import { nextNumber } from '../invoice-series';
-import { changeDue, rupees } from '../money';
+import { rupees } from '../money';
+import { planPayments } from '../payments';
 import { CompleteSaleInput } from './sale.schema';
 
 /**
@@ -62,7 +63,7 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
 
       const settings = await tx.shopSettings.findUnique({
         where: { clientId: actor.clientId },
-        select: { invoicePrefix: true }
+        select: { invoicePrefix: true, enabledPaymentMethods: true }
       });
 
       // 2.
@@ -71,22 +72,19 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
         interState: input.interState
       });
 
-      // 3. Against the bill as it was actually priced here, not the figure the screen was showing.
-      // Those differ whenever a price changed underneath an open till.
-      const paid = input.payments.reduce((sum, p) => sum + p.amountPaise, 0);
-      if (paid !== priced.totalPaise) {
-        throw conflict(
-          `This bill comes to ${rupees(priced.totalPaise)} but ${rupees(paid)} was entered. ` +
-          `Check the bill and the payment.`,
-          { code: 'AMOUNT_MISMATCH', totalPaise: priced.totalPaise, paidPaise: paid }
-        );
-      }
-      for (const payment of input.payments) {
-        if (payment.method === 'CASH' && payment.tenderedPaise !== undefined
-            && payment.tenderedPaise < payment.amountPaise) {
-          throw badRequest(`Only ${rupees(payment.tenderedPaise)} was handed over for a ${rupees(payment.amountPaise)} payment.`);
-        }
-      }
+      /*
+       * 3. The payments, against the bill as it was actually priced HERE -- not the figure the
+       * screen was showing. Those differ whenever a price changed underneath an open till.
+       *
+       * All the rules live in services/payments: the split has to add up, a shop's disabled
+       * methods cannot be used, UPI and card need a reference unless they are marked unconfirmed,
+       * and cash can never be unconfirmed.
+       */
+      const planned = planPayments(
+        priced.totalPaise,
+        input.payments,
+        settings?.enabledPaymentMethods ?? []
+      );
 
       // 4. Inside this transaction, deliberately: a sale that fails takes its number with it, so
       // the series never gains a gap.
@@ -131,16 +129,15 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
       });
 
       await tx.payment.createMany({
-        data: input.payments.map((payment, index) => ({
+        data: planned.map((payment, index) => ({
           clientId: actor.clientId,
           saleId: sale.id,
           method: payment.method,
           amountPaise: payment.amountPaise,
-          reference: payment.reference ?? null,
-          tenderedPaise: payment.method === 'CASH' ? payment.tenderedPaise ?? null : null,
-          changePaise: payment.method === 'CASH' && payment.tenderedPaise !== undefined
-            ? changeDue(payment.tenderedPaise, payment.amountPaise)
-            : null,
+          reference: payment.reference,
+          tenderedPaise: payment.tenderedPaise,
+          changePaise: payment.changePaise,
+          status: payment.status,
           // One key per payment, derived from the sale's. A retry writes the same rows or none.
           onceKey: `${input.onceKey}:pay:${index}`
         }))
@@ -218,7 +215,8 @@ export async function getSale(actor: Actor, saleId: string) {
       orderBy: { createdAt: 'asc' },
       select: {
         id: true, method: true, amountPaise: true, reference: true,
-        tenderedPaise: true, changePaise: true
+        tenderedPaise: true, changePaise: true, status: true,
+        checkedAt: true, checkedNote: true
       }
     }),
     prisma.shopSettings.findUnique({

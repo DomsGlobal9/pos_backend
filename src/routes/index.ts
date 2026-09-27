@@ -4,6 +4,7 @@ import salesRoutes from './sales.routes';
 import shopRoutes from './shop.routes';
 import homeRoutes from './home.routes';
 import billsRoutes from './bills.routes';
+import paymentsRoutes from './payments.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -20,5 +21,6 @@ router.use('/sales', salesRoutes);
 router.use('/shop', shopRoutes);
 router.use('/home', homeRoutes);
 router.use('/bills', billsRoutes);
+router.use('/payments', paymentsRoutes);
 
 export default router;

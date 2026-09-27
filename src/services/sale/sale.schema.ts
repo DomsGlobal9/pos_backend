@@ -25,7 +25,16 @@ export const paymentSchema = z.object({
   amountPaise: paise.positive('A payment has to be for something'),
   /** Cash handed over. Only meaningful for CASH, and the change is worked out from it. */
   tenderedPaise: paise.positive().optional(),
-  reference: z.string().trim().max(64).optional()
+  reference: z.string().trim().max(64).optional(),
+  /**
+   * The cashier is not sure this one arrived. POS-PAY-010.
+   *
+   * Set when a UPI transfer has not shown up on the shop's phone yet. The sale still completes --
+   * the customer is walking out with the goods either way -- and the payment is recorded as
+   * NEEDS_CHECKING for someone to settle against the bank. The alternative is asking the customer
+   * to pay again, which is the one thing a till must never do.
+   */
+  unconfirmed: z.boolean().optional()
 });
 
 export const completeSaleSchema = z.object({
@@ -36,7 +45,8 @@ export const completeSaleSchema = z.object({
   onceKey: z.string().min(8).max(100),
   counterId: z.string().min(1, 'Which till is this?'),
   lines: z.array(saleLineSchema).min(1, 'There is nothing on this bill'),
-  payments: z.array(paymentSchema).min(1, 'Nothing has been paid'),
+  /** One row per method. POS-PAY-007/008: a split is simply more than one. */
+  payments: z.array(paymentSchema).min(1, 'Nothing has been paid').max(6, 'That is too many separate payments for one bill'),
   billDiscountPaise: paise.nonnegative().optional(),
   /** A bill to another state: one IGST figure rather than a CGST and SGST pair. */
   interState: z.boolean().optional(),

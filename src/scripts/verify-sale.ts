@@ -78,8 +78,15 @@ async function main() {
   ok('a scanned barcode is answered on its own', scanned.exact && scanned.items.length === 1);
   eq('and it is the right item', scanned.items[0]?.code, 'KAN-001');
 
+  /*
+   * Changed in Phase 2, deliberately: three colours of one saree now collapse to a single row with
+   * a picker behind it (POS-SELL-006). The old expectation here was two separate rows, which is the
+   * behaviour that made a search for "kanchipuram" unreadable. Covered in depth by verify-variants.
+   */
   const byName = await search(actor, 'kanchipuram');
-  ok('a word finds both colours', byName.items.length === 2 && !byName.exact);
+  ok('colours of one saree collapse to a single row', byName.items.length === 1 && !byName.exact,
+    `got ${byName.items.length} rows`);
+  ok('which says how many colours are behind it', byName.items[0]?.variantCount === 3);
 
   const narrowed = await search(actor, 'kanchipuram maroon');
   ok('every word must match, so two words narrow to one', narrowed.items.length === 1,
@@ -209,13 +216,17 @@ async function main() {
   // ------------------------------------------------------------------------------------------
   console.log('\nthings that must be refused');
   // ------------------------------------------------------------------------------------------
-  await refused('a payment that does not match the bill',
+  /*
+   * The message changed in Phase 2 and is better for it: it now names the SHORTFALL rather than
+   * restating both figures and leaving the cashier to subtract them with a queue waiting.
+   */
+  await refused('a payment that does not match the bill, naming what is missing',
     () => completeSale(actor, {
       onceKey: key('mismatch'), counterId,
       lines: [{ itemId: cotton.id, qty: 1 }],
       payments: [{ method: 'CASH', amountPaise: 100000 }]
     }),
-    /comes to .* but .* was entered/i);
+    /₹299 still to pay on a ₹1,299 bill/);
 
   await refused('less cash handed over than the payment claims',
     () => completeSale(actor, {
@@ -263,7 +274,7 @@ async function main() {
       lines: [{ itemId: kanchi.id, qty: 1 }],
       payments: [{ method: 'CASH', amountPaise: 1 }]
     }),
-    /comes to/i);
+    /still to pay/i);
   const seriesAfter = await prisma.invoiceSeries.findFirst({
     where: { clientId: DEV_CLIENT_ID, kind: 'INVOICE' }, select: { lastNumber: true }
   });

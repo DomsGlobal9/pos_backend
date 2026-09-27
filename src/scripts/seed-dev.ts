@@ -13,15 +13,36 @@ import { DEV_CLIENT_ID } from '../middleware/dev-actor.middleware';
  * Idempotent, so running it again after a schema change is safe.
  */
 
+/**
+ * A swatch, as a data URI.
+ *
+ * Real image data, not a placeholder URL: the seed must work with no network and no image host,
+ * and a broken <img> in dev teaches nothing about whether the layout handles pictures. Each is
+ * under 200 bytes, which is also a fair test that the sell screen does not lean on large images.
+ */
+const swatch = (hex: string) =>
+  'data:image/svg+xml;utf8,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">` +
+    `<rect width="64" height="64" fill="${hex}"/>` +
+    `<rect x="4" y="4" width="56" height="56" fill="none" stroke="rgba(0,0,0,.25)" stroke-width="2"/>` +
+    `</svg>`
+  );
+
 const ITEMS = [
   // Real-ish stock for a saree shop, at the two GST rates clothing actually uses.
-  { code: 'KAN-001', barcode: '8901234500011', name: 'Kanchipuram silk saree', colour: 'Maroon', size: 'Free', hsn: '5007', pricePaise: 1299900, taxRate: 12, cachedQty: 4 },
-  { code: 'KAN-002', barcode: '8901234500028', name: 'Kanchipuram silk saree', colour: 'Bottle green', size: 'Free', hsn: '5007', pricePaise: 1499900, taxRate: 12, cachedQty: 1 },
-  { code: 'COT-010', barcode: '8901234500035', name: 'Cotton saree', colour: 'Indigo', size: 'Free', hsn: '5208', pricePaise: 129900, taxRate: 5, cachedQty: 22 },
-  { code: 'COT-011', barcode: '8901234500042', name: 'Cotton saree', colour: 'Mustard', size: 'Free', hsn: '5208', pricePaise: 84900, taxRate: 5, cachedQty: 0 },
-  { code: 'BLO-101', barcode: '8901234500059', name: 'Blouse piece', colour: 'Maroon', size: '38', hsn: '6206', pricePaise: 44900, taxRate: 5, cachedQty: 12 },
-  { code: 'BLO-102', barcode: '8901234500066', name: 'Blouse piece', colour: 'Bottle green', size: '40', hsn: '6206', pricePaise: 44900, taxRate: 5, cachedQty: 7 },
-  { code: 'DUP-201', barcode: '8901234500073', name: 'Banarasi dupatta', colour: 'Gold', size: 'Free', hsn: '6214', pricePaise: 249900, taxRate: 5, cachedQty: 3 },
+  //
+  // `variantGroup` is what turns five near-identical search results into one row and a picker
+  // (POS-SELL-006). Items with no group stand alone, which is the common case for a one-off piece.
+  { code: 'KAN-001', barcode: '8901234500011', name: 'Kanchipuram silk saree', colour: 'Maroon', size: 'Free', hsn: '5007', pricePaise: 1299900, taxRate: 12, cachedQty: 4, variantGroup: 'kanchipuram-silk', imageUrl: swatch('#7f1d1d') },
+  { code: 'KAN-002', barcode: '8901234500028', name: 'Kanchipuram silk saree', colour: 'Bottle green', size: 'Free', hsn: '5007', pricePaise: 1499900, taxRate: 12, cachedQty: 1, variantGroup: 'kanchipuram-silk', imageUrl: swatch('#14532d') },
+  { code: 'KAN-003', barcode: '8901234500097', name: 'Kanchipuram silk saree', colour: 'Peacock blue', size: 'Free', hsn: '5007', pricePaise: 1399900, taxRate: 12, cachedQty: 0, variantGroup: 'kanchipuram-silk', imageUrl: swatch('#155e75') },
+  { code: 'COT-010', barcode: '8901234500035', name: 'Cotton saree', colour: 'Indigo', size: 'Free', hsn: '5208', pricePaise: 129900, taxRate: 5, cachedQty: 22, variantGroup: 'cotton-saree', imageUrl: swatch('#312e81') },
+  { code: 'COT-011', barcode: '8901234500042', name: 'Cotton saree', colour: 'Mustard', size: 'Free', hsn: '5208', pricePaise: 84900, taxRate: 5, cachedQty: 0, variantGroup: 'cotton-saree', imageUrl: swatch('#a16207') },
+  { code: 'BLO-101', barcode: '8901234500059', name: 'Blouse piece', colour: 'Maroon', size: '38', hsn: '6206', pricePaise: 44900, taxRate: 5, cachedQty: 12, variantGroup: 'blouse-piece', imageUrl: swatch('#7f1d1d') },
+  { code: 'BLO-102', barcode: '8901234500066', name: 'Blouse piece', colour: 'Bottle green', size: '40', hsn: '6206', pricePaise: 44900, taxRate: 5, cachedQty: 7, variantGroup: 'blouse-piece', imageUrl: swatch('#14532d') },
+  // No group: a single piece with no siblings, so tapping it must NOT open a picker.
+  { code: 'DUP-201', barcode: '8901234500073', name: 'Banarasi dupatta', colour: 'Gold', size: 'Free', hsn: '6214', pricePaise: 249900, taxRate: 5, cachedQty: 3, imageUrl: swatch('#a16207') },
+  // No image either, so the screen is exercised with a missing picture as well as with one.
   { code: 'RET-900', barcode: '8901234500080', name: 'Discontinued georgette saree', colour: 'Grey', size: 'Free', hsn: '5407', pricePaise: 99900, taxRate: 5, cachedQty: 2, active: false }
 ];
 
@@ -63,7 +84,10 @@ export async function seed() {
   for (const item of ITEMS) {
     await prisma.item.upsert({
       where: { clientId_code: { clientId: DEV_CLIENT_ID, code: item.code } },
-      update: { pricePaise: item.pricePaise, cachedQty: item.cachedQty, active: item.active ?? true },
+      update: {
+        pricePaise: item.pricePaise, cachedQty: item.cachedQty, active: item.active ?? true,
+        variantGroup: (item as any).variantGroup ?? null, imageUrl: (item as any).imageUrl ?? null
+      },
       create: { clientId: DEV_CLIENT_ID, ...item, cachedQtyAt: new Date() }
     });
   }

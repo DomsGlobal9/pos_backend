@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { search } from '../services/items';
+import { search, variantsOf } from '../services/items';
 import { completeSale, getSale, completeSaleSchema } from '../services/sale';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
@@ -23,6 +23,16 @@ router.use(devActor);
 router.get('/items', async (req, res, next) => {
   try {
     res.json({ success: true, data: await search((req as any).actor, req.query.q) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** GET /api/v1/sales/variants/:group -- POS-SELL-006, the data for WF-PRODUCT-01. */
+router.get('/variants/:group', async (req, res, next) => {
+  try {
+    const group = z.string().min(1).max(120).parse(req.params.group);
+    res.json({ success: true, data: await variantsOf((req as any).actor, group) });
   } catch (error) {
     next(error);
   }

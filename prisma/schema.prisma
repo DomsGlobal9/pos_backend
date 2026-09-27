@@ -53,11 +53,12 @@ model User {
   /// Only set when AUTH_MODE=local. Under gateway auth the Gateway holds the credential.
   passwordHash String? @map("password_hash")
 
-  roles     UserRole[]
-  shifts    Shift[]
-  sales     Sale[]
-  returns   Return[]
-  dayCloses DayClose[]
+  roles           UserRole[]
+  shifts          Shift[]
+  sales           Sale[]
+  returns         Return[]
+  dayCloses       DayClose[]
+  paymentsChecked Payment[]  @relation("PaymentCheckedBy")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -488,13 +489,46 @@ model Payment {
   /// Collected later against a KEPT sale, rather than at the moment of sale.
   collectedAt DateTime? @map("collected_at")
 
-  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  /// WHETHER THE MONEY IS ACTUALLY IN. POS-PAY-010.
+  ///
+  /// The rule this column exists to enforce: never treat an ambiguous payment as failed and ask
+  /// the customer to pay again. A UPI transfer the shop's phone has not announced yet, or one day
+  /// a provider call that times out mid-charge, may well have taken the money. Asking for it twice
+  /// is the worst thing a till can do -- worse than a slow sale, worse than a wrong total, because
+  /// the shop looks like it is stealing.
+  ///
+  /// So an uncertain payment is recorded as NEEDS_CHECKING, the sale completes (the customer is
+  /// leaving with the goods either way), and someone resolves it against the bank afterwards.
+  status PaymentStatus @default(COLLECTED)
+
+  /// Set when a NEEDS_CHECKING payment was resolved: when, by whom, and what they found.
+  checkedAt   DateTime? @map("checked_at")
+  checkedById String?   @map("checked_by_id")
+  checkedNote String?   @map("checked_note")
+
+  sale      Sale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  checkedBy User? @relation("PaymentCheckedBy", fields: [checkedById], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now()) @map("created_at")
+  /// Defaulted as well as @updatedAt, so the column can be added to a table that already has rows
+  /// without inventing a NOT NULL with nothing in it. Housekeeping only -- no financial fact is
+  /// reinterpreted by backfilling it.
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@index([clientId, createdAt])
   @@index([saleId])
+  /// Finding everything still waiting to be checked, without scanning the table.
+  @@index([clientId, status])
   @@map("payments")
+}
+
+enum PaymentStatus {
+  /// The money is in. The ordinary case, and the default.
+  COLLECTED
+  /// It MIGHT be in. Never re-charge on the strength of this -- check the bank first.
+  NEEDS_CHECKING
+  /// Checked, and the money never arrived. The bill is short by this much.
+  VOID
 }
 
 enum PaymentMethod {

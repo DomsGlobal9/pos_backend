@@ -12,7 +12,9 @@
     "verify:sale": "ts-node src/scripts/verify-sale.ts",
     "seed:dev": "ts-node src/scripts/seed-dev.ts",
     "db:local": "node src/scripts/local-db.mjs start",
-    "verify:bills": "ts-node src/scripts/verify-bills.ts"
+    "verify:bills": "ts-node src/scripts/verify-bills.ts",
+    "verify:payments": "ts-node src/scripts/verify-payments.ts",
+    "verify:variants": "ts-node src/scripts/verify-variants.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
