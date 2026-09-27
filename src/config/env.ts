@@ -69,7 +69,16 @@ const envSchema = z.object({
    * own item and customer lists, takes no holds, and emits no events to Inventory. A client who has
    * bought both modules has this set.
    */
-  INVENTORY_BASE_URL: optionalStr(z.string().url('INVENTORY_BASE_URL must be a valid URL'))
+  INVENTORY_BASE_URL: optionalStr(z.string().url('INVENTORY_BASE_URL must be a valid URL')),
+
+  /**
+   * Encrypts each shop's Inventory connection key at rest (AES-256-GCM). 32 bytes, hex or base64.
+   *
+   * Required in production once Inventory is configured: without it a shop could not connect, and
+   * finding that out on the day a client connects is the wrong day. MUST NOT CHANGE once keys are
+   * stored -- every stored key would stop decrypting and every shop's link would stop at once.
+   */
+  CREDENTIAL_ENCRYPTION_KEY: optionalStr(z.string().min(32, 'CREDENTIAL_ENCRYPTION_KEY must be 32 bytes, hex or base64'))
 }).superRefine((val, ctx) => {
   const require = (name: string, why: string) =>
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: [name], message: why });
@@ -83,6 +92,10 @@ const envSchema = z.object({
     if (!val.DIRECT_URL) {
       require('DIRECT_URL',
         'required in production -- prisma/schema.prisma declares directUrl, and migrations fail without it');
+    }
+    if (val.INVENTORY_BASE_URL && !val.CREDENTIAL_ENCRYPTION_KEY) {
+      require('CREDENTIAL_ENCRYPTION_KEY',
+        'required in production when INVENTORY_BASE_URL is set -- shops could not store their Inventory key');
     }
     if (val.FRONTEND_URL.includes('localhost')) {
       require('FRONTEND_URL',

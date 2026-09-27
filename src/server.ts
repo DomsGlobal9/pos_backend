@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { env, hasInventory } from './config/env';
 import apiRoutes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
+import { startDeliveryLoop } from './services/inventory-link';
 
 /**
  * ScaleEzy POS -- the till's server.
@@ -56,6 +57,10 @@ const server = app.listen(env.PORT, () => {
 
   if (env.DISABLE_BACKGROUND_JOBS) {
     console.log('   background jobs disabled for this instance (DISABLE_BACKGROUND_JOBS)');
+  } else {
+    // Sends each connected shop's sales, returns and exchanges to Inventory, in order. Off the
+    // path of every sale; a sale only ever writes its event and is done.
+    startDeliveryLoop();
   }
   // The webhook dispatcher starts here once it exists, inside that same switch: two instances
   // against one database must serve requests without both running the clock, or two dispatchers

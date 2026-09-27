@@ -37,7 +37,11 @@ export type AuditAction =
   | 'shift.count_mismatch'
   | 'cash.in'
   | 'cash.out'
-  | 'day.closed';
+  | 'day.closed'
+  | 'inventory.connected'
+  | 'inventory.disconnected'
+  | 'inventory.retried'
+  | 'inventory.catalogue_synced';
 
 export interface AuditEntry {
   action: AuditAction;

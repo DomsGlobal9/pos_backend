@@ -70,7 +70,7 @@ async function loadSale(tx: Tx, saleId: string) {
       subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true, totalPaise: true,
       counter: { select: { name: true } },
       cashier: { select: { name: true } },
-      customer: { select: { phone: true } },
+      customer: { select: { phone: true, name: true } },
       lines: { select: LINE_SELECT },
       payments: { select: { method: true, amountPaise: true, status: true } }
     }
@@ -90,6 +90,9 @@ export async function saleCompleted(tx: Tx, clientId: string, saleId: string) {
     kind: s.kind,
     fulfilment: s.fulfilment,
     customerRef: s.customer?.phone ?? null,
+    // For Inventory's own customer record (contract §4.1, Q6). Its outside-customer rule may drop
+    // a phone it already has on someone else -- that is correct there, not a mismatch here.
+    customer: s.customer ? { name: s.customer.name, phone: s.customer.phone } : null,
     lines: s.lines.map(saleLine),
     totals: {
       subtotalPaise: s.subtotalPaise, discountPaise: s.discountPaise, taxPaise: s.taxPaise,
@@ -161,6 +164,7 @@ export async function saleExchanged(tx: Tx, clientId: string, returnId: string) 
     reason: r.reason,
     counter: s.counter.name,
     customerRef: s.customer?.phone ?? r.customer?.phone ?? null,
+    customer: s.customer ? { name: s.customer.name, phone: s.customer.phone } : null,
     returned: r.lines.map(returnedLine),
     taken: s.lines.map(saleLine),
     creditPaise: r.totalPaise,

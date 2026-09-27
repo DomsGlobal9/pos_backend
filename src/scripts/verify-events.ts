@@ -95,6 +95,10 @@ async function main() {
     });
     eq('two pieces come off the count', await qty(A.id), 8);
     eq('an item with no count stays with no count', await qty(N.id), null);
+    const at = (await prisma.item.findUniqueOrThrow({ where: { id: A.id } })).cachedQtyAt!;
+    // Regression: a bare SQL now() on this database is India time, stored as if it were UTC --
+    // 5.5 hours in the future. The count's time must be the real time.
+    ok('the count is stamped with the real time, not 5.5 hours ahead', Math.abs(at.getTime() - Date.now()) < 60_000, at.toISOString());
     ok('and the till reads the new count', (await forSale(prisma, DEV_CLIENT_ID, [A.id])).get(A.id)?.cachedQty === 8);
 
     const ev1 = await eventsFor(s1.sale.invoiceNo);

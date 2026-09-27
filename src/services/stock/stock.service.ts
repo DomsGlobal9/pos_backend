@@ -42,7 +42,7 @@ export async function adjust(tx: Tx, clientId: string, changes: StockChange[]) {
     const delta = net.get(itemId)!;
     if (delta === 0) continue;
     await tx.$executeRaw`
-      UPDATE items SET cached_qty = cached_qty + ${delta}, cached_qty_at = now(), updated_at = now()
+      UPDATE items SET cached_qty = cached_qty + ${delta}, cached_qty_at = (now() AT TIME ZONE 'UTC'), updated_at = (now() AT TIME ZONE 'UTC')
        WHERE id = ${itemId} AND client_id = ${clientId} AND cached_qty IS NOT NULL`;
   }
 }

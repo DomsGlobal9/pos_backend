@@ -51,7 +51,7 @@ export async function nextNumber(
 
   await tx.$executeRaw`
     INSERT INTO invoice_series (id, client_id, financial_year, kind, prefix, last_number, updated_at)
-    VALUES (gen_random_uuid()::text, ${clientId}, ${financialYear}, ${kind}::"SeriesKind", ${prefix}, 0, NOW())
+    VALUES (gen_random_uuid()::text, ${clientId}, ${financialYear}, ${kind}::"SeriesKind", ${prefix}, 0, (now() AT TIME ZONE 'UTC'))
     ON CONFLICT (client_id, financial_year, kind) DO NOTHING`;
 
   /*
@@ -60,7 +60,7 @@ export async function nextNumber(
    */
   const rows = await tx.$queryRaw<{ last_number: number; prefix: string }[]>`
     UPDATE invoice_series
-       SET last_number = last_number + 1, updated_at = NOW()
+       SET last_number = last_number + 1, updated_at = (now() AT TIME ZONE 'UTC')
      WHERE client_id = ${clientId} AND financial_year = ${financialYear} AND kind = ${kind}::"SeriesKind"
     RETURNING last_number, prefix`;
 

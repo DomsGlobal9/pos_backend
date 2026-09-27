@@ -1146,3 +1146,52 @@ model AuditLog {
   @@index([action])
   @@map("audit_logs")
 }
+
+// ---------------------------------------------------------------------------------------------
+// The link to Inventory. Phase 8. See docs/product/INVENTORY-CONTRACT.md.
+// ---------------------------------------------------------------------------------------------
+
+/// One row per shop that has connected the till to Inventory. No row: standalone.
+///
+/// Delivery is a CURSOR, not a queue of rows: the next event to send is the first stock event after
+/// `deliveredSequence`. Events are sent one at a time, in order, so a return can never overtake the
+/// sale it is against. A failure that needs a person (an unknown item, a bad key) sets `blocked*`
+/// and holds everything behind it -- sending the return of a sale Inventory refused would be wrong.
+model InventoryLink {
+  clientId String @id @map("client_id")
+
+  connected Boolean @default(false)
+  /// Where this shop's Inventory is. Defaults to the deployment's INVENTORY_BASE_URL.
+  baseUrl   String  @map("base_url")
+  /// The connection credential, encrypted (AES-256-GCM, CREDENTIAL_ENCRYPTION_KEY). Never returned.
+  keyCipher String  @map("key_cipher")
+  /// The first characters, so the owner can tell which key is in use without seeing it.
+  keyPrefix String  @map("key_prefix")
+
+  /// SELL: sell anyway when Inventory cannot answer (the default). CHECK_SHELF: ask the cashier.
+  whenDown String @default("SELL") @map("when_down")
+
+  /// The last event Inventory accepted. Events at or below this are never sent (again).
+  deliveredSequence BigInt    @default(0) @map("delivered_sequence")
+  lastDeliveredAt   DateTime? @map("last_delivered_at")
+  attempts          Int       @default(0)
+  nextAttemptAt     DateTime? @map("next_attempt_at")
+  lastError         String?   @map("last_error")
+  /// A lease, so two server instances never send the same event at once.
+  lockedUntil       DateTime? @map("locked_until")
+
+  /// Set when an event needs a person. Everything after it waits.
+  blockedSequence BigInt? @map("blocked_sequence")
+  blockedCode     String? @map("blocked_code")
+  blockedMessage  String? @map("blocked_message")
+
+  catalogueCursor   String?   @map("catalogue_cursor")
+  catalogueSyncedAt DateTime? @map("catalogue_synced_at")
+  /// What the last sync could not take, in words: fractional GST rates, exclusive prices.
+  catalogueProblems Json?     @map("catalogue_problems")
+
+  connectedAt DateTime? @map("connected_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("inventory_links")
+}

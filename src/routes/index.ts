@@ -12,6 +12,7 @@ import heldBillsRoutes from './held-bills.routes';
 import returnsRoutes from './returns.routes';
 import shiftsRoutes from './shifts.routes';
 import dayCloseRoutes from './day-close.routes';
+import inventoryLinkRoutes from './inventory-link.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -36,5 +37,6 @@ router.use('/held-bills', heldBillsRoutes);
 router.use('/returns', returnsRoutes);
 router.use('/shifts', shiftsRoutes);
 router.use('/day-close', dayCloseRoutes);
+router.use('/inventory-link', inventoryLinkRoutes);
 
 export default router;

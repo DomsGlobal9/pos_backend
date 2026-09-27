@@ -43,7 +43,7 @@ export async function addCredit(
 
   const rows = await tx.$queryRaw<{ balance: number }[]>`
     UPDATE customers
-       SET store_credit_paise = store_credit_paise + ${amountPaise}, updated_at = now()
+       SET store_credit_paise = store_credit_paise + ${amountPaise}, updated_at = (now() AT TIME ZONE 'UTC')
      WHERE id = ${customerId} AND client_id = ${actor.clientId} AND deleted_at IS NULL
  RETURNING store_credit_paise AS balance`;
   if (rows.length === 0) throw notFound('That customer was not found.');
@@ -78,7 +78,7 @@ export async function spendCredit(
 
   const rows = await tx.$queryRaw<{ balance: number }[]>`
     UPDATE customers
-       SET store_credit_paise = store_credit_paise - ${amountPaise}, updated_at = now()
+       SET store_credit_paise = store_credit_paise - ${amountPaise}, updated_at = (now() AT TIME ZONE 'UTC')
      WHERE id = ${customerId} AND client_id = ${actor.clientId} AND deleted_at IS NULL
        AND store_credit_paise >= ${amountPaise}
  RETURNING store_credit_paise AS balance`;
