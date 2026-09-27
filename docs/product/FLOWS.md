@@ -30,7 +30,7 @@ what they link to, and which links are live** — the anti-dead-button ledger.
 | `WF-DAY-01` | Day close | **DONE** | yes | yes | yes | Open shifts and payments to check first; closed day frozen, "since closing" apart |
 | `WF-REPORTS-01` | Reports | **DONE** | yes | yes | yes | Period chips; a cashier sees their own day only. Export is Phase 12 (CSV) |
 | `WF-MORE-01` | More | **DONE** | yes | yes | yes | Bills live; the rest disabled with a visible phase |
-| `WF-SYNC-01` | Sync status | PLANNED | | | | Phase 11 |
+| `WF-SYNC-01` | Sync status | **DONE** | yes | yes | yes | `/sync`, from the header chip, More, the day close and the shift close. Waiting, needs a look, sent from this till |
 | `WF-SETTINGS-01` | Settings | PLANNED | | | | Phase 0 stub, Phase 4 real |
 | `WF-DEVICES-01` | Counters/devices | **DONE** | yes | yes | yes | Self-registered; manager names, places, sets paper. Also: `/r/:token` digital receipt (public, outside the shell) and Settings (UPI ID) |
 | `WF-INTEGRATIONS-01` | Integrations | PLANNED | | | | Phase 12 |

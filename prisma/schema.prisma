@@ -1268,6 +1268,10 @@ model Device {
   lastSeenAt    DateTime  @default(now()) @map("last_seen_at")
   lastUserName  String?   @map("last_user_name")
   lastPrintedAt DateTime? @map("last_printed_at")
+  /// Sales saved on this device during an outage and not yet sent. POS-SYNC-004, POS-DAY-004.
+  /// Reported by the device itself -- the server cannot see what has not reached it.
+  pendingCount    Int       @default(0) @map("pending_count")
+  pendingOldestAt DateTime? @map("pending_oldest_at")
 
   counter Counter? @relation(fields: [counterId], references: [id], onDelete: SetNull)
 

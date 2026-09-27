@@ -15,7 +15,7 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | 8 | Inventory seam + standalone | **IN PROGRESS** -- POS side built; Inventory side being built by the Inventory session to `INVENTORY-CONTRACT.md` (catalogue, stock, sale intake done; exchanges, holds to come); real end-to-end run pending |
 | 9 | Operational reports | **COMPLETE** 2026-09-27 |
 | 10 | Digital receipts + devices | **COMPLETE** for what can be built 2026-09-27; SMS, email, card terminal and UPI auto-confirm wait on providers (decision #12), WhatsApp on a module key (#13) |
-| 11 | Offline Stage 1 / sync UX | PLANNED |
+| 11 | Offline Stage 1 / sync UX | **COMPLETE** 2026-09-27; hold reconciliation (SYNC-006) BLOCKED on Inventory holds |
 | 12 | Public API + webhooks + CSV/Excel | PLANNED |
 | 13 | Real-shop pilot + cut-over | PLANNED |
 
@@ -598,6 +598,56 @@ checked by reading it back with pypdf.
 
 ---
 
+# Phase 11 — Offline Stage 1 / sync UX
+
+**Gate:** basket, retry and pending states pass without duplicates. **Passed 2026-09-27.**
+
+```text
+REQUIRED FEATURE IDS:    6 accounted (SYNC-003..006, OFF-002, DAY-004)
+DONE:                    5  (SYNC-003, -004, -005, OFF-002, DAY-004 made real)
+BLOCKED:                 1  (SYNC-006 -- needs Inventory holds, INV-004/005, not built on either side)
+TESTS:                 41 backend (verify-offline) + 38 UI in real Chrome with the line really cut;
+                        sale, shifts, receipts, reports and five earlier UI suites rerun green
+STATUS: COMPLETE
+```
+
+## What Stage 1 is, and is not
+
+When Complete cannot reach the server, the till keeps the sale -- the exact request, with the
+basket's once-key -- and sends it when the line is back. The SERVER still numbers the bill, on
+arrival (MASTER.md §16.9). Searching and building a basket still need the line; selling for hours
+with no connection is POS-OFF-003, deferred on purpose.
+
+## The gate, and how it is held
+
+The once-key does the work: the till may send the same sale any number of times and the server
+answers every copy after the first with the first bill. `verify-offline` fires five copies at once
+and counts one bill, one payment, one piece off the stock count and one `sale.completed`.
+`verify-offline-ui` cuts the line for real (Chrome's offline switch), loses a reply on purpose
+(the server made the bill, the till was told the connection reset), reloads, resends, and reads the
+database to count bills -- the screen saying "sent" is not proof there is exactly one.
+
+## Decisions made while building
+
+| Decision | Why |
+|---|---|
+| An offline sale is dated when the customer paid (the device's time), unless that time is in the future or more than a week back | Otherwise a sale sent the next morning lands on the wrong day in the day close and the reports. A device with a wrong clock is not believed; what it said is still kept in `madeOfflineAt` |
+| Its payments carry the same time | Found while writing the test: the bill was on the right day and its cash on the next |
+| A sale with a manager's PIN in it is never kept on the device | A PIN is never written to storage. It stays on the payment screen as before |
+| Refusals (a price changed, the money no longer adds up) are "needs a look", never retried by themselves | Sending the same thing again gets the same answer forever. The server's own sentence is shown; Open in till re-prices it |
+| The day close counts sales on tills seen in the last day, from what each till reports | The server cannot see what has not reached it. A till quiet for longer shows on the Devices screen instead of being guessed into tonight's figure |
+
+## Found while building
+
+| Found | Was |
+|---|---|
+| **Offline sales' cash on the wrong day** | The bill took the device's time; its payments took the server's. Payments now share the bill's time |
+| **The header could say "All saved" with the line down** | The health check kept its last good answer when a later one failed. It now shows "No connection" and never "All saved" while the till holds a sale |
+| **A closed day hid the waiting-sales warning** | That is exactly when it matters (they arrive "since closing"); now shown on a closed today too |
+| **A test clicked "Open in till" before the basket had saved** | Test timing, not the product; the test now waits for the basket to be written |
+
+---
+
 # Standing evidence
 
 Tests that exist today and must keep passing. **Run one at a time** -- they share the local
@@ -626,6 +676,8 @@ database and the dev server restarts when `src/` changes.
 | frontend `scripts/verify-reports-ui.mjs` | 17 | WF-REPORTS-01 as cashier and manager, three sizes |
 | frontend `scripts/verify-stock-ui.mjs` | 3 | pieces-left moves with a sale and a return |
 | frontend `scripts/verify-phase10-ui.mjs` | 28 | receipt QR/PDF/WhatsApp, public receipt, UPI QR, devices, camera scan with a real barcode |
+| `verify-offline` | 41 | OFF-002, SYNC-005, DAY-004: offline dating, five-at-once replay (bill, payment, stock, event), device pending counts |
+| frontend `scripts/verify-offline-ui.mjs` | 38 | WF-SYNC-01: line cut at Complete, lost reply + reload, price changed while waiting, shift/day close warnings, Remove, three sizes |
 | frontend `scripts/verify-responsive.mjs` | 5 | CORE-001 live reflow |
 
 ```

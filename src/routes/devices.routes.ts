@@ -17,7 +17,8 @@ router.post('/heartbeat', async (req: any, res, next) => {
       appVersion: z.string().max(40).optional(),
       userAgent: z.string().max(300).optional(),
       capabilities: z.object({ camera: z.boolean().optional(), cameraScan: z.boolean().optional(), touch: z.boolean().optional(), screen: z.string().max(20).optional() }).optional(),
-      printed: z.boolean().optional()
+      printed: z.boolean().optional(),
+      pending: z.object({ count: z.number().int().min(0).max(10_000), oldestAt: z.string().nullable().optional() }).optional()
     }).safeParse(req.body);
     if (!body.success) throw badRequest('This device check-in could not be read.');
     res.json({ success: true, data: await heartbeat(req.actor, body.data) });

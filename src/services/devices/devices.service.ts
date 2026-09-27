@@ -25,6 +25,8 @@ export interface Heartbeat {
   userAgent?: string;
   capabilities?: { camera?: boolean; cameraScan?: boolean; touch?: boolean; screen?: string };
   printed?: boolean;
+  /** Sales waiting on this device to be sent. */
+  pending?: { count: number; oldestAt?: string | null };
 }
 
 /** POS-DEV-001, -004. Register on first sight; afterwards, just "still here". */
@@ -41,7 +43,11 @@ export async function heartbeat(actor: Actor, input: Heartbeat) {
     capabilities: input.capabilities ?? undefined,
     lastSeenAt: new Date(),
     lastUserName: actor.name ?? null,
-    ...(input.printed ? { lastPrintedAt: new Date() } : {})
+    ...(input.printed ? { lastPrintedAt: new Date() } : {}),
+    ...(input.pending ? {
+      pendingCount: Math.max(0, Math.floor(input.pending.count || 0)),
+      pendingOldestAt: input.pending.count > 0 && input.pending.oldestAt ? new Date(input.pending.oldestAt) : null
+    } : {})
   };
   const row = await prisma.device.upsert({
     where: { id: input.deviceId },
@@ -103,6 +109,8 @@ function view(row: any) {
     lastSeenAt: row.lastSeenAt,
     lastUserName: row.lastUserName,
     lastPrintedAt: row.lastPrintedAt,
+    pendingCount: row.pendingCount ?? 0,
+    pendingOldestAt: row.pendingOldestAt ?? null,
     online: Date.now() - seen < ONLINE_MS
   };
 }

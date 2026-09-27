@@ -28,8 +28,8 @@ pass today and where the evidence is.
 | QA-CASH-19 | Cash | Petty cash removed | Cash-out explains the drawer expectation | **PASS** | Browser: "The drawer should then hold Rs 200 less"; manager sheet over it; more than the drawer refused with the figure |
 | QA-SHIFT-20 | Shift | Drawer short or over | Difference recorded, never silently corrected | **PASS** | `verify-shifts`: Rs 100 short stored with the note; browser: blind recount to exact |
 | QA-DAY-21 | Day | Shift left open overnight | Explicit warning at day close | **PASS** | Browser: "Counter 1 is still open... since yesterday", then a confirm; the close records 1 shift left open |
-| QA-OFF-22 | Offline | Network blinks mid-basket | Basket safe + human status | **PASS** | Basket safe; header says the work is safe without a status code |
-| QA-RETRY-23 | Retry | Pending sale/event retried | No duplicate financial/stock/customer effect | PARTIAL | Financial side proven; stock and customer effects not built |
+| QA-OFF-22 | Offline | Network blinks mid-basket | Basket safe + human status | **PASS** | Basket safe; header says the work is safe without a status code. Phase 11: line cut AT Complete -- kept on the till, sent by itself when back (`verify-offline-ui`) |
+| QA-RETRY-23 | Retry | Pending sale/event retried | No duplicate financial/stock/customer effect | **PASS** | `verify-offline`: five copies at once -- one bill, one payment, one piece off stock, one `sale.completed`. Browser: reply lost + reload + resend, one bill with the first number |
 | QA-INV-24 | Inventory | Inventory slow or unavailable | UI does not freeze; configured safe behaviour | PLANNED | Phase 8 |
 | QA-CRM-25 | CRM | CRM unavailable | Sale usable; limitation explained | **BLOCKED** | CRM not started (CHG-007). The rule it encodes already holds: no path requires a customer |
 | QA-RCPT-26 | Receipt | Printer unavailable | Sale complete; reprint available | **PASS** | Print never gates the save; reprint from `WF-SALE-02`, marked duplicate |
@@ -44,14 +44,25 @@ pass today and where the evidence is.
 | | |
 |---|---:|
 | Scenarios required | 31 |
-| PASS | 25 |
-| PARTIAL | 3 |
+| PASS | 26 |
+| PARTIAL | 2 |
 | FAIL (named, not hidden) | **0** |
 | BLOCKED | 1 |
 | PLANNED | 2 |
 
-Counted from the rows by script at Phase 7 close. (The Phase 6 figures above said PARTIAL 4 and
+Counted from the rows by script at Phase 11 close (QA-RETRY-23 PARTIAL -> PASS). Earlier: counted at Phase 7 close. (The Phase 6 figures above said PARTIAL 4 and
 PLANNED 4; the rows said 3 and 5. Corrected, nothing lost.)
+
+Added during Phase 11:
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-OFF-111 | Offline | Line down when Complete is pressed | Sale kept on the till, said plainly; nothing on the server until sent; sent by itself when back; one bill | **PASS** | `verify-offline-ui` A |
+| QA-OFF-112 | Offline | Sale arrived, reply lost; till reloaded | Still waiting after reload; resend gets the FIRST bill and number | **PASS** | `verify-offline-ui` B |
+| QA-OFF-113 | Offline | Price changed while the sale waited | "Needs a look" in the server's words; nothing charged; Open in till brings the basket back with its key | **PASS** | `verify-offline-ui` C |
+| QA-OFF-114 | Offline | Waiting sale at shift close / day close | Both say a sale is still on a till | **PASS** | `verify-offline-ui` C; `verify-offline` (tills unseen for a day left out) |
+| QA-OFF-115 | Offline | Device clock wrong | Future or over a week back: dated now, device's time still kept | **PASS** | `verify-offline` |
+| QA-OFF-116 | Offline | Remove a waiting sale | Confirm first; never reaches the server | **PASS** | `verify-offline-ui` D |
 
 Added during Phase 10:
 

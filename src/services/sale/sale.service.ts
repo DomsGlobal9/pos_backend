@@ -375,6 +375,9 @@ export async function writeSale(
       const shiftId = await shiftFor(tx, actor, input.counterId);
 
       // 5.
+      // When it really happened -- the device's time for a sale saved during an outage. The bill
+      // and its payments share it, so the day close puts the cash on the same day as the bill.
+      const when = soldAt(input.madeOfflineAt);
       const sale = await tx.sale.create({
         data: {
           clientId: actor.clientId,
@@ -403,6 +406,7 @@ export async function writeSale(
           // The digital receipt's address, made now so the paper receipt can carry it. POS-RCPT-009.
           receiptToken: newReceiptToken(),
           madeOfflineAt: input.madeOfflineAt ?? null,
+          createdAt: when,
           lines: {
             create: priced.lines.map(line => ({
               itemId: line.ref,
@@ -446,6 +450,7 @@ export async function writeSale(
           changePaise: payment.changePaise,
           status: payment.status,
           shiftId,
+          createdAt: when,
           // One key per payment, derived from the sale's. A retry writes the same rows or none.
           onceKey: `${input.onceKey}:pay:${index}`
         }))
@@ -460,6 +465,7 @@ export async function writeSale(
             amountPaise: applied,
             status: 'COLLECTED',
             shiftId,
+            createdAt: when,
             onceKey: `${input.onceKey}:exchange`
           }
         });
@@ -494,6 +500,28 @@ export async function writeSale(
         stockChanges: exchange ? stockChanges : []
       };
   }
+}
+
+/**
+ * When the sale really happened. POS-OFF-002.
+ *
+ * A sale saved on a device while the line was down is sent later -- sometimes the next morning.
+ * It belongs to the moment the customer paid, not the moment the line came back, or the day close
+ * and the reports put it on the wrong day. So a device's own time is used, within reason:
+ *
+ *   - a clock AHEAD of ours is not believed (a sale cannot be in the future): now is used
+ *   - older than a week is not believed either (a device with a wrong date): now is used, and
+ *     madeOfflineAt keeps what the device said, so nothing is hidden
+ *
+ * The invoice NUMBER is still the server's, taken when the sale arrives -- that is the stage-1
+ * promise (MASTER §16.9): numbering never happens on a device.
+ */
+function soldAt(madeOfflineAt?: Date | null): Date {
+  const now = Date.now();
+  if (!madeOfflineAt) return new Date(now);
+  const t = madeOfflineAt.getTime();
+  if (Number.isNaN(t) || t > now || now - t > 7 * 86_400_000) return new Date(now);
+  return madeOfflineAt;
 }
 
 async function findByOnceKey(clientId: string, onceKey: string) {

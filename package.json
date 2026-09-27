@@ -25,7 +25,8 @@
     "verify:events": "ts-node src/scripts/verify-events.ts",
     "verify:inventory-link": "ts-node src/scripts/verify-inventory-link.ts",
     "verify:reports": "ts-node src/scripts/verify-reports.ts",
-    "verify:receipts": "ts-node src/scripts/verify-receipts.ts"
+    "verify:receipts": "ts-node src/scripts/verify-receipts.ts",
+    "verify:offline": "ts-node src/scripts/verify-offline.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

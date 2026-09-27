@@ -12,15 +12,15 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 153 |
+| DONE | 157 |
 | BUILDING (works, gate not met) | 15 |
-| BLOCKED (dependency named) | 14 |
+| BLOCKED (dependency named) | 15 |
 | DEFERRED (approved) | 2 |
-| PLANNED | 27 |
+| PLANNED | 22 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, Phase 10 close (Phase 8 Inventory side still in progress) -- **counted from the rows by script**, not by adding
+Last reconciled: 2026-09-27, Phase 11 close (Phase 8 Inventory side still in progress) -- **counted from the rows by script**, not by adding
 to the previous figure.
 
 > **The Phase 5 figures above this line were wrong** (they said DONE 92, BUILDING 2, BLOCKED 12,
@@ -244,7 +244,7 @@ in real Chrome as a cashier AND a manager (a second backend with `DEV_ACTOR=dev-
 | POS-DAY-001 | P0 | Day totals by payment method | 7 | **DONE** | Paid in and given back, by method; a UPI still being checked is not counted as in |
 | POS-DAY-002 | P0 | Returns/discount totals | 7 | **DONE** | |
 | POS-DAY-003 | P0 | Cash position | 7 | **DONE** | Floats + cash sales - cash refunds + in - out; cash taken with no shift open on its own line |
-| POS-DAY-004 | P0 | Pending offline/sync count | 7 | **DONE** | Counts `PENDING_SYNC` bills; always 0 until offline selling (Phase 11) creates any |
+| POS-DAY-004 | P0 | Pending offline/sync count | 7 | **DONE** | Phase 11: each till reports what it is holding on check-in (`devices.pending_count`); the day close adds up tills seen in the last day, and says so even after the day is closed. `verify-offline`, browser |
 | POS-DAY-005 | P0 | Closed day immutable | 7 | **DONE** | Snapshot frozen at close; later activity shown as "since closing"; three concurrent closes, one close |
 
 ## 6.12 Inventory seam / standalone
@@ -290,12 +290,12 @@ All PLANNED, Phase 11, except:
 |---|---|---|---|---|---|
 | POS-SYNC-001 | P0 | Online state | 0 | **DONE** | Shell header, every screen |
 | POS-SYNC-002 | P0 | Unstable connection state | 0 | **DONE** | Says the work is safe; never shows a status code |
-| POS-SYNC-003 | P0 | Waiting-to-sync state | 11 | PLANNED | |
-| POS-SYNC-004 | P0 | Pending count / list | 11 | PLANNED | `WF-SYNC-01` |
-| POS-SYNC-005 | P0 | Idempotent retry / outbox | 11 | PLANNED | Server half already safe |
-| POS-SYNC-006 | P0 | Pending hold reconciliation | 11 | PLANNED | Never show the word "hold" to a cashier |
+| POS-SYNC-003 | P0 | Waiting-to-sync state | 11 | **DONE** | Header never says "All saved" while the till holds a sale: "1 sale waiting to send", linked to `WF-SYNC-01`; "No connection. Sales are kept on this till." when the line is down |
+| POS-SYNC-004 | P0 | Pending count / list | 11 | **DONE** | `WF-SYNC-01`: waiting / needs a look (the server's own words) / sent (with the bill number); Send now, Open in till, Remove |
+| POS-SYNC-005 | P0 | Idempotent retry / outbox | 11 | **DONE** | `lib/outbox.js`: same once-key, oldest first, one at a time; on open, every 15 s and on "online". Lost reply, reload, five copies at once: one bill, one payment, one stock move, one event. `verify-offline`, `verify-offline-ui` |
+| POS-SYNC-006 | P0 | Pending hold reconciliation | 11 | BLOCKED | Needs Inventory holds (POS-INV-004/005), not built on either side yet. The word "hold" never reaches a cashier (checked on `WF-SYNC-01`) |
 | POS-OFF-001 | P0 | Basket survives line blink | 0 | **DONE** | Basket and once-key saved together |
-| POS-OFF-002 | P0 | Stage-1 retry of completed work | 11 | PLANNED | |
+| POS-OFF-002 | P0 | Stage-1 retry of completed work | 11 | **DONE** | Complete with the line down keeps the sale on the till ("Sale saved on this till"); the server numbers it on arrival and dates it when the customer paid (device time, not future, not over 7 days). Never with a manager's PIN in it |
 | POS-OFF-003 | P2 | Full offline billing | — | DEFERRED | Approved deferral, `MASTER.md` §16.9 |
 
 ## 6.15 Reports

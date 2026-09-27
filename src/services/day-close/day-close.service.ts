@@ -70,7 +70,7 @@ export interface DayFigures {
   };
   /** Payments made today still waiting to be checked against the bank. */
   paymentsToCheck: number;
-  /** POS-DAY-004. Bills made offline and not accepted yet. Zero until offline selling exists. */
+  /** POS-DAY-004. Sales saved on devices during an outage and not yet sent, as the devices report it. */
   pendingSync: number;
 }
 
@@ -109,7 +109,13 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
       _sum: { countedCashPaise: true, differencePaise: true }
     }),
     prisma.payment.count({ where: { clientId, createdAt: inDay, status: 'NEEDS_CHECKING' } }),
-    prisma.sale.count({ where: { clientId, createdAt: inDay, status: 'PENDING_SYNC' } })
+    // POS-DAY-004. What is still on devices, not on the server: sales saved during an outage and
+    // not yet sent. Counted from devices seen in the last day -- one that has gone quiet for longer
+    // is shown on the Devices screen, not guessed into tonight's figure.
+    prisma.device.aggregate({
+      where: { clientId, lastSeenAt: { gte: new Date(Date.now() - 86_400_000) } },
+      _sum: { pendingCount: true }
+    })
   ]);
 
   const byMethod = (rows: { method: string; _sum: { amountPaise: number | null } }[]) =>
@@ -148,7 +154,7 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
       shiftsClosed: closed._count ?? 0
     },
     paymentsToCheck: toCheck,
-    pendingSync: pending
+    pendingSync: pending._sum.pendingCount ?? 0
   };
 }
 
