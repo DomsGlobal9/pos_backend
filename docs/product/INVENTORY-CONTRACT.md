@@ -73,6 +73,16 @@ decide whether a hold is needed and to show "as of" freshness. Cheap, read-only.
 
 ## 4. Events — `POST /pos/events`
 
+> **AS BUILT (found by the first real end-to-end run, 27 Sep, 17/17 passing).** Inventory reads the
+> event FLAT with `kind` -- not the `{ eventType, payload }` envelope sketched below -- takes tax as
+> `taxRateBps`, names a return's bill `againstInvoiceNo` with each line's worth as `lineTotalPaise`,
+> and answers `{ success, data: { answer, detail?, warnings?, orderNumber? } }`. The POS keeps its own
+> canonical event in the outbox (a shop's software reads it in Phase 12) and translates to this
+> dialect on the way out: `services/inventory-link/wire.ts`. Payments sent are the COLLECTED ones.
+>
+> **Open, both sides:** a `payment.updated` event -- a kept order's balance collected later, a UPI
+> check resolved -- so Inventory's day book sees money that arrives after the sale.
+
 One event per request (a batch endpoint can come later). Body is the POS outbox row as-is:
 
 ```json

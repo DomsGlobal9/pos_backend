@@ -170,6 +170,9 @@ model ShopSettings {
   /// drift apart. A shop that has been burned turns it up.
   holdThresholdQty Int @default(3) @map("hold_threshold_qty")
 
+  /// The shop's UPI ID, for a QR with the amount already in it. POS-PAY-012. Null: no QR offered.
+  upiId String? @map("upi_id")
+
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("shop_settings")
@@ -184,6 +187,7 @@ model Counter {
 
   sales     Sale[]
   heldBills HeldBill[]
+  devices   Device[]
   shifts    Shift[]
 
   createdAt DateTime @default(now()) @map("created_at")
@@ -447,6 +451,9 @@ model Sale {
   /// lose track of which copy the accountant has. The first print is the original; every one
   /// after it says so.
   printCount    Int       @default(0) @map("print_count")
+  /// The digital receipt's address: /r/<token>. POS-RCPT-009. Random and unguessable -- it is the
+  /// only thing standing between a stranger and the bill -- and made the first time it is needed.
+  receiptToken  String?   @unique @map("receipt_token")
   lastPrintedAt DateTime? @map("last_printed_at")
 
   shift     Shift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
@@ -1199,4 +1206,73 @@ model InventoryLink {
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@map("inventory_links")
+}
+
+// ---------------------------------------------------------------------------------------------
+// Receipts sent, and the devices the till runs on. Phase 10.
+// ---------------------------------------------------------------------------------------------
+
+/// One press of "Send on WhatsApp" (or, later, email/SMS). POS-RCPT-006..008.
+///
+/// Its own table, written in its own request, AFTER the sale: a receipt that fails to send can
+/// never touch the bill (the Phase 10 gate). The recipient is the bill's own customer, decided by
+/// the server -- never a number typed into the browser.
+model ReceiptSend {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+  saleId   String @map("sale_id")
+
+  /// WHATSAPP today. EMAIL and SMS when a provider is chosen.
+  channel String
+  /// Last four digits only -- the full number stays on the customer record.
+  toLast4 String @map("to_last4")
+
+  /// QUEUED (the service took it), SENT, DELIVERED, READ, FAILED.
+  status     String
+  providerId String? @map("provider_id")
+  failReason String? @map("fail_reason")
+
+  byId    String? @map("by_id")
+  /// One per press. A double tap sends one message.
+  onceKey String  @unique @map("once_key")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([saleId])
+  @@index([clientId, createdAt])
+  @@map("receipt_sends")
+}
+
+/// A browser the till runs in -- a counter PC, a tablet, a salesperson's phone. POS-DEV-001..004.
+///
+/// Registered by the device itself on first open (an id it keeps in local storage) and kept fresh
+/// by a heartbeat, so the owner can see what is in use, where, on which version, and when each was
+/// last seen. A browser cannot see a printer's paper or ink, so "printer" here is what the till
+/// prints to (paper width) and when it last printed -- said as that, not dressed up as status.
+model Device {
+  id       String @id
+  clientId String @map("client_id")
+
+  /// "Counter 1 PC", "Ravi's phone". Starts as a guess from the browser; the owner can rename it.
+  name      String
+  counterId String? @map("counter_id")
+
+  appVersion   String?  @map("app_version")
+  userAgent    String?  @map("user_agent")
+  /// { camera, cameraScan, touch, screen: "1366x768" }, as the browser reported it.
+  capabilities Json?
+  /// 80 or 58 (mm). The receipt prints at this width on this device.
+  paperWidthMm Int      @default(80) @map("paper_width_mm")
+
+  lastSeenAt    DateTime  @default(now()) @map("last_seen_at")
+  lastUserName  String?   @map("last_user_name")
+  lastPrintedAt DateTime? @map("last_printed_at")
+
+  counter Counter? @relation(fields: [counterId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId, lastSeenAt])
+  @@map("devices")
 }

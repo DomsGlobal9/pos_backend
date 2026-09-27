@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { call } from './client';
+import { toInventory, readAnswer } from './wire';
 
 /**
  * Sending the outbox to Inventory. POS-INV-006, -007, -008. Contract §4.
@@ -30,24 +31,27 @@ import { call } from './client';
 
 export const STOCK_EVENTS = ['sale.completed', 'sale.returned', 'sale.exchanged'];
 
-const LEASE_MS = 30_000;
+// Longer than the slowest answer Inventory gives (below), or a second instance could take the shop
+// while the first is still waiting and send the same bill again -- harmless (ALREADY_APPLIED) but noisy.
+const LEASE_MS = 150_000;
 const BACKOFF_MS = [30_000, 2 * 60_000, 10 * 60_000, 60 * 60_000];
 export const backoffFor = (attempts: number) => BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length) - 1] ?? 60 * 60_000;
 
 /** Why the queue stopped, as the owner will read it. Never a status code on its own. */
 function refusal(status: number, body: any): { code: string; message: string } | null {
-  const code = body?.details?.code as string | undefined;
+  const { answer: code, detail } = readAnswer(body);
   if (status === 401 || status === 403) {
     return { code: 'KEY_REFUSED', message: 'Inventory no longer accepts this till\'s key. Connect again with a new key from Inventory.' };
   }
   if (status === 400 || status === 404 || status === 409 || status === 422) {
-    const said = typeof body?.message === 'string' ? ` Inventory said: "${body.message}"` : '';
+    // Inventory's own sentence names the item and the figures -- that is what a person needs.
+    const said = detail ? ` Inventory said: "${detail}"` : '';
     const known: Record<string, string> = {
-      UNKNOWN_ITEM: `An item on this bill (${body?.details?.itemCode ?? 'unknown code'}) is not in Inventory.`,
-      UNKNOWN_ORDER: `Inventory has no record of the original bill ${body?.details?.invoiceNo ?? ''}.`,
+      UNKNOWN_ITEM: 'An item on this bill is not in Inventory.',
+      UNKNOWN_ORDER: 'Inventory has no record of the original bill.',
       QTY_EXCEEDS_SOLD: 'Inventory thinks more is being returned than was sold.',
-      AMOUNT_MISMATCH: `Inventory worked out a different refund for ${body?.details?.itemCode ?? 'a line'}.`,
-      BAD_PAYLOAD: 'Inventory could not read this bill.'
+      AMOUNT_MISMATCH: 'Inventory worked out a different refund.',
+      BAD_PAYLOAD: 'Inventory could not take this bill.'
     };
     return { code: code ?? `HTTP_${status}`, message: `${(code && known[code]) || 'Inventory refused this bill.'}${said}` };
   }
@@ -91,22 +95,22 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   const reply = await call(
     { baseUrl: link.base_url, keyCipher: link.key_cipher },
     'POST', '/events',
-    { eventType: event.eventType, eventVersion: event.eventVersion, sequence: Number(event.sequence), payload: event.payload },
-    // Inventory's write is a dozen round trips to Singapore and may take several seconds. Giving
-    // up early is safe -- a timeout is retried and Inventory answers ALREADY_APPLIED if it had in
-    // fact committed -- but 30 s keeps that from being the normal case.
-    30_000
+    toInventory(event.eventType, event.payload),
+    // Inventory's write is a dozen sequential statements to Singapore: 12 to 56 SECONDS measured on
+    // 27 Sep. Giving up early is safe -- a timeout is retried and Inventory answers ALREADY_APPLIED if
+    // it had committed -- but 90 s keeps that from being the normal case.
+    90_000
   );
 
-  if (reply.kind === 'ANSWERED' && reply.status >= 200 && reply.status < 300) {
+  const answer = reply.kind === 'ANSWERED' ? readAnswer(reply.body) : null;
+  if (reply.kind === 'ANSWERED' && reply.status >= 200 && reply.status < 300 && (!answer?.answer || ['APPLIED', 'ALREADY_APPLIED'].includes(answer.answer))) {
     /*
      * Accepted -- but Inventory may have noted something a person should settle: the till charged a
      * different GST rate than the product carries, or sold stock Inventory thought it did not have
      * (contract §4.4). Nothing stops for these; they are kept for the owner's Inventory link screen.
      */
-    const said: unknown[] = Array.isArray(reply.body?.data?.warnings) ? reply.body.data.warnings : [];
-    const fresh = said
-      .filter((w): w is string => typeof w === 'string' && w.trim().length > 0)
+    const fresh = (answer?.warnings ?? [])
+      .filter(w => w.trim().length > 0)
       .map(text => ({ at: new Date().toISOString(), document: event.invoiceNo, text: text.trim() }));
     let recentWarnings: any = undefined;
     if (fresh.length > 0) {

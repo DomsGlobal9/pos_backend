@@ -13,6 +13,7 @@ import { spendCredit } from '../store-credit';
 import { shiftFor } from '../shifts';
 import { adjust, sold, StockChange } from '../stock';
 import { saleCompleted } from '../events';
+import { newReceiptToken, receiptUrl } from '../../utils/receiptLink';
 import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
 
@@ -399,6 +400,8 @@ export async function writeSale(
           totalPaise: priced.totalPaise,
           savedPaise: priced.savedPaise,
           onceKey: input.onceKey,
+          // The digital receipt's address, made now so the paper receipt can carry it. POS-RCPT-009.
+          receiptToken: newReceiptToken(),
           madeOfflineAt: input.madeOfflineAt ?? null,
           lines: {
             create: priced.lines.map(line => ({
@@ -531,7 +534,7 @@ export async function getSale(actor: Actor, saleId: string) {
         id: true, invoiceNo: true, financialYear: true, kind: true, status: true, createdAt: true,
         subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true,
         totalPaise: true, savedPaise: true, madeOfflineAt: true,
-        printCount: true, lastPrintedAt: true,
+        printCount: true, lastPrintedAt: true, receiptToken: true,
         fulfilment: true, promisedAt: true, note: true, readyAt: true,
         handedOverAt: true, handoverDuePaise: true,
         counter: { select: { id: true, name: true } },
@@ -585,8 +588,12 @@ export async function getSale(actor: Actor, saleId: string) {
   }
 
   const phone = sale.customer?.phone ?? null;
+  const { receiptToken, ...saleRest } = sale;
   return {
-    ...sale,
+    ...saleRest,
+    // The address the paper receipt prints as a QR code. Null for a bill made before Phase 10
+    // until someone asks for its link.
+    receiptUrl: receiptToken ? receiptUrl(receiptToken) : null,
     // POS-ORD-003. Derived from the payments every time, by the one function that defines it.
     owedPaise: owedPaise(sale.totalPaise, payments),
     customer: sale.customer && {

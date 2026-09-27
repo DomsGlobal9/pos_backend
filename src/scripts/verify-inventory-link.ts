@@ -40,7 +40,7 @@ async function refused(name: string, run: () => Promise<unknown>, expect: RegExp
 // ------------------------------------------------------------------------------------------------
 const KEY = `pos_live_${randomUUID().replace(/-/g, '')}`;
 const stand = {
-  seen: [] as { sequence: number; eventType: string; payload: any }[],
+  seen: [] as any[],
   applied: new Set<number>(),
   answer: null as null | ((body: any) => { status: number; body: any } | null),
   catalogue: [] as any[][],
@@ -64,12 +64,17 @@ function serve(port = 0): Promise<http.Server> {
       }
       if (req.method === 'POST' && url.pathname === '/events') {
         const body = JSON.parse(raw || '{}');
+        // As Inventory's real endpoint does (found by the real end-to-end run): read `kind`.
+        if (!['sale.completed', 'sale.returned', 'sale.exchanged'].includes(body.kind)) {
+          return send(400, { success: false, data: { answer: 'BAD_PAYLOAD', detail: `Unknown event kind "${body.kind ?? ''}".` } });
+        }
         const forced = stand.answer?.(body);
         if (forced) return send(forced.status, forced.body);
         stand.seen.push(body);
-        const again = stand.applied.has(body.sequence);
-        stand.applied.add(body.sequence);
-        return send(200, { success: true, data: { status: again ? 'ALREADY_APPLIED' : 'APPLIED' } });
+        const doc = body.invoiceNo ?? body.creditNoteNo;
+        const again = stand.applied.has(doc);
+        stand.applied.add(doc);
+        return send(200, { success: true, data: { answer: again ? 'ALREADY_APPLIED' : 'APPLIED' } });
       }
       send(404, { success: false, message: 'Not found' });
     });
@@ -92,10 +97,10 @@ async function main() {
   // An event as a real sale writes it -- copied from the till's own outbox if it has one.
   const sample = await prisma.webhookEvent.findFirst({ where: { clientId: DEV_CLIENT_ID, eventType: 'sale.completed' }, orderBy: { sequence: 'desc' } });
   const emit = (invoiceNo: string, eventType = 'sale.completed') => prisma.webhookEvent.create({
-    data: { clientId, eventType, eventVersion: 1, invoiceNo, payload: { ...((sample?.payload as any) ?? {}), invoiceNo } }
+    data: { clientId, eventType, eventVersion: 1, invoiceNo, payload: { ...((sample?.payload as any) ?? {}), invoiceNo, ...(eventType === 'sale.returned' ? { creditNoteNo: invoiceNo } : {}) } }
   });
   const link = () => prisma.inventoryLink.findUniqueOrThrow({ where: { clientId } });
-  const invoicesSeen = () => stand.seen.map(e => e.payload.invoiceNo);
+  const invoicesSeen = () => stand.seen.map(e => e.invoiceNo ?? e.creditNoteNo);
 
   try {
     // ==========================================================================================
@@ -132,10 +137,8 @@ async function main() {
     await drain(clientId);
     eq('all four delivered, oldest first', invoicesSeen(), [1, 2, 3, 4].map(i => `INV/${run}/${i}`));
     ok('the old ones never were', !invoicesSeen().some(n => n.startsWith('OLD/')));
-    ok('events that are not about stock are not sent to Inventory', !stand.seen.some(e => e.eventType === 'day.closed'));
-    const seqs = stand.seen.map(e => e.sequence);
-    ok('each carries its sequence, strictly rising', seqs.every((s, i) => i === 0 || s > seqs[i - 1]));
-    eq('the event goes as the outbox wrote it', stand.seen[0].payload.invoiceNo, `INV/${run}/1`);
+    ok('events that are not about stock are not sent to Inventory', !stand.seen.some(e => e.kind === 'day.closed'));
+    eq('each goes in Inventory\'s own shape: flat, with its kind', [stand.seen[0].kind, stand.seen[0].invoiceNo], ['sale.completed', `INV/${run}/1`]);
     eq('nothing left waiting', (await status(owner) as any).waiting, 0);
 
     // Two server instances draining at once: every event once.
@@ -176,13 +179,13 @@ async function main() {
     stand.seen = [];
     await emit(`INV/${run}/bad`);
     await emit(`CN/${run}/after`, 'sale.returned');
-    stand.answer = (b) => b.payload.invoiceNo === `INV/${run}/bad`
-      ? { status: 422, body: { success: false, message: 'No variant GHOST-1', details: { code: 'UNKNOWN_ITEM', itemCode: 'GHOST-1' } } }
+    stand.answer = (b) => b.invoiceNo === `INV/${run}/bad`
+      ? { status: 422, body: { success: false, data: { answer: 'UNKNOWN_ITEM', detail: "Not in this shop's catalogue: GHOST-1." } } }
       : null;
     await drain(clientId);
     const s1 = await status(owner) as any;
     eq('the queue stops at the refused bill', s1.blocked?.document, `INV/${run}/bad`);
-    eq('and says why, in words', s1.blocked?.message, 'An item on this bill (GHOST-1) is not in Inventory. Inventory said: "No variant GHOST-1"');
+    eq('and says why, in words', s1.blocked?.message, 'An item on this bill is not in Inventory. Inventory said: "Not in this shop\'s catalogue: GHOST-1."');
     eq('nothing behind it is sent -- a return of a refused sale would be wrong', stand.seen.length, 0);
     eq('the timer leaves it alone too', (await deliverNext(clientId)).outcome, 'BLOCKED');
 
@@ -214,8 +217,8 @@ async function main() {
       [`INV/${run}/tax`]: ['SILK-1: the till charged 12% GST, the product here says 5%. The bill was recorded as the till sent it.'],
       [`INV/${run}/short`]: ['SILK-2: sold 1 more than Inventory had at Counter; stock is now -1. Count it at the next stock check.']
     };
-    stand.answer = (b) => notes[b.payload.invoiceNo]
-      ? { status: 200, body: { success: true, data: { status: 'APPLIED', warnings: notes[b.payload.invoiceNo] } } }
+    stand.answer = (b) => notes[b.invoiceNo]
+      ? { status: 200, body: { success: true, data: { answer: 'APPLIED', warnings: notes[b.invoiceNo] } } }
       : null;
     await drain(clientId);
     stand.answer = null;
@@ -226,7 +229,7 @@ async function main() {
     for (let i = 0; i < 35; i++) {
       await emit(`INV/${run}/n${i}`);
     }
-    stand.answer = (b) => ({ status: 200, body: { success: true, data: { status: 'APPLIED', warnings: [`X-${b.payload.invoiceNo}: note`] } } });
+    stand.answer = (b) => ({ status: 200, body: { success: true, data: { answer: 'APPLIED', warnings: [`X-${b.invoiceNo}: note`] } } });
     await drain(clientId);
     stand.answer = null;
     eq('only the last 30 are kept', (await status(owner) as any).warnings.length, 30);

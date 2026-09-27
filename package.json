@@ -43,10 +43,12 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "prisma": "^5.22.0",
+    "qrcode": "^1.5.4",
     "typescript": "^5.6.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.6",
     "embedded-postgres": "^18.4.0-beta.17",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0"

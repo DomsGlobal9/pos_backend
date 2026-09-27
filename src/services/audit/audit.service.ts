@@ -41,7 +41,10 @@ export type AuditAction =
   | 'inventory.connected'
   | 'inventory.disconnected'
   | 'inventory.retried'
-  | 'inventory.catalogue_synced';
+  | 'inventory.catalogue_synced'
+  | 'receipt.sent'
+  | 'shop.upi_set'
+  | 'device.updated';
 
 export interface AuditEntry {
   action: AuditAction;
