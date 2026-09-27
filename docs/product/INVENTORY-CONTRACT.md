@@ -80,6 +80,13 @@ decide whether a hold is needed and to show "as of" freshness. Cheap, read-only.
 > canonical event in the outbox (a shop's software reads it in Phase 12) and translates to this
 > dialect on the way out: `services/inventory-link/wire.ts`. Payments sent are the COLLECTED ones.
 >
+> **Coming, not yet verified (Inventory, 27 Sep):** `sale.completed` will answer `202 ACCEPTED` with a
+> `reference` in under a second and apply in the background; `GET /events/status?invoiceNo=` gives
+> QUEUED / RUNNING / APPLIED / REJECTED with the orderNumber, warnings and UNKNOWN_ITEM that used to come
+> inline. The POS will treat ACCEPTED as delivered and poll for the outcome -- switched only when
+> Inventory confirms it green. Open question: the answer for a return whose sale is still QUEUED (must
+> be retryable, not UNKNOWN_ORDER).
+>
 > **Open, both sides:** a `payment.updated` event -- a kept order's balance collected later, a UPI
 > check resolved -- so Inventory's day book sees money that arrives after the sale.
 
