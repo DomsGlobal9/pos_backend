@@ -17,7 +17,17 @@ const paise = z.number().int('Amounts are in paise, as whole numbers');
 export const saleLineSchema = z.object({
   itemId: z.string().min(1),
   qty: z.number().int().positive('A line needs at least one of something'),
-  lineDiscountPaise: paise.nonnegative().optional()
+  lineDiscountPaise: paise.nonnegative().optional(),
+  /**
+   * SELLING AT A PRICE OTHER THAN THE TAG. POS-SELL-017.
+   *
+   * This is the one field that lets a price come from the browser, and it is the most abused
+   * feature in any POS -- which is why it needs a permission, a reason, AND a manager's approval,
+   * and why the tag price is stored beside it so a margin report can show what was given away.
+   *
+   * Without it, everything is still priced from the database.
+   */
+  overridePricePaise: paise.positive().optional()
 });
 
 export const paymentSchema = z.object({
@@ -55,6 +65,17 @@ export const completeSaleSchema = z.object({
    */
   customerId: z.string().min(1).optional(),
   billDiscountPaise: paise.nonnegative().optional(),
+  /**
+   * A manager's yes, typed at the till. POS-APR-001.
+   *
+   * Sent WITH the sale rather than exchanged for a token first: a token that outlives the request
+   * is a token that can be reused on a different basket, and the whole point of an approval is
+   * that it authorised one specific thing.
+   */
+  approval: z.object({
+    pin: z.string().min(1),
+    reason: z.string().trim().min(1)
+  }).optional(),
   /** A bill to another state: one IGST figure rather than a CGST and SGST pair. */
   interState: z.boolean().optional(),
   /** Set by the till when the bill was made with no connection and is being flushed now. */

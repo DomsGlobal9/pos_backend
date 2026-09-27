@@ -8,7 +8,7 @@ Phase order is `MASTER.md` §10. Each phase must leave the product usable.
 | 1 | Sell + cash + receipt + bill history | **COMPLETE**, except POS-RCPT-002 (BLOCKED, reason recorded) |
 | 2 | UPI/card/split + payment safety | **COMPLETE** 2026-09-27 |
 | 3 | Customer + CRM seam | **COMPLETE** for the customer; CRM half BLOCKED (CHG-007) |
-| 4 | Discounts/overrides + approvals | PLANNED |
+| 4 | Discounts/overrides + approvals | **COMPLETE** 2026-09-27; 2 return approvals BLOCKED on Phase 6 |
 | 5 | Orders/keep/dues | PLANNED |
 | 6 | Returns + exchange | PLANNED |
 | 7 | Shift + cash movements + day close | PLANNED |
@@ -285,6 +285,65 @@ is usually nobody having asked. Tested: a later sale with the box unticked does 
 `services/customers` is written as a lookup whose source nothing outside the folder knows about —
 the same shape as `services/items`. When CRM arrives, the swap is that one folder plus the outbox.
 No screen changes, because no screen knows where a customer came from.
+
+---
+
+# Phase 4 — Discounts, price overrides, in-place approval
+
+**Gate:** manager-in-place approval and audit pass. **Passed 2026-09-27.**
+
+```text
+REQUIRED FEATURE IDS:   13 accounted
+DONE:                   10
+BUILDING:                1   (POS-SET-008 — PIN setting is owner-only; no settings screen yet)
+BLOCKED:                 2   (POS-APR-004/-005 — return approvals, Phase 6)
+TESTS:                 300/300 passing   (verify-approvals adds 42)
+UNAPPROVED REMOVALS:     0
+UNACCOUNTED FEATURES:    0
+
+STATUS: COMPLETE
+```
+
+## How "no cashier logout" actually works
+
+A manager walks to the till, types a 4-digit PIN over the open sale, and walks away. The cashier
+keeps their session, their basket, their entered payments and the customer at the counter. Verified
+in the browser: the approval sheet opens ON TOP of the payment sheet, which is still there
+underneath, and the finished receipt still names the cashier.
+
+A PIN authorises one action and proves nothing else — it cannot sign in, open settings or read a
+report. That is why four digits is enough, and why it is safer than the alternative: a manager
+signing in properly logs the cashier out mid-sale, and in a real shop ends with the manager's
+password on a sticky note by the till.
+
+## What still says no
+
+| Case | Answer |
+|---|---|
+| A real PIN, typed correctly, by someone without the right | "Ravi (senior cashier) is not allowed to approve a discount above the limit." |
+| No reason, or "na" | "Say why a discount above the limit is being allowed." |
+| Five wrong PINs | Locked for 60 seconds — even the right PIN is refused in that window |
+| Two managers sharing a PIN | Refused. Recording it against whichever row came back first would put a name against something that person never did |
+| A manager typing their own PIN for their own request | Refused. Two names on an approval must be two people |
+| A PIN from another shop | Not recognised — managers belong to their own shop |
+
+## Two bugs found by testing, both in the audit trail
+
+| Found | Was |
+|---|---|
+| **The audit trail recorded things that never happened** | Audit rows were written from inside the sale's transaction using the global database client — which is not part of the transaction. A sale that failed on its payment rolled back while its "discount over the limit" row stayed. Caught by a test written to check exactly that. Entries are now collected during the transaction and written only after it commits |
+| **Manager approvals were missing from the audit screen** | The owner's own discounts were audited but the ones their managers approved were not — exactly backwards, since those are what an owner is checking up on. Now every granted approval writes an `approval.granted` entry naming both people |
+
+And one test that passed for the wrong reason: the "PIN from another shop" case went through
+`completeSale`, which fails on the item lookup before the PIN is ever checked. It passed without
+proving anything about PINs. Rewritten to call `grant()` directly.
+
+## An honest limitation
+
+**The PIN lockout is in memory, per process.** A second server instance has its own counter and a
+restart clears it. Right-sized for a shop's own till, where the realistic attacker is a cashier with
+a minute alone rather than a script. A deployment behind a load balancer needs it in the database or
+Redis, and that is a real limitation, not a detail.
 
 ---
 

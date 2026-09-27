@@ -1,4 +1,6 @@
+import bcrypt from 'bcryptjs';
 import { prisma } from '../lib/prisma';
+import { PERMISSIONS } from '../types/actor';
 import { DEV_CLIENT_ID } from '../middleware/dev-actor.middleware';
 
 /**
@@ -46,6 +48,84 @@ const ITEMS = [
   { code: 'RET-900', barcode: '8901234500080', name: 'Discontinued georgette saree', colour: 'Grey', size: 'Free', hsn: '5407', pricePaise: 99900, taxRate: 5, cachedQty: 2, active: false }
 ];
 
+/**
+ * The people in the shop, with real roles and real permissions.
+ *
+ * Phase 4 needs someone to ASK and someone to APPROVE, and they have to be different people with
+ * genuinely different rights -- a stand-in that holds every permission can never see an approval
+ * screen, because it never needs one.
+ *
+ * PINS ARE DEV-ONLY AND WRITTEN DOWN HERE ON PURPOSE. They exist so the approval flow can be
+ * driven by hand and by the suites. This file refuses to run in production (see seed()), so these
+ * never become anyone's real PIN.
+ *
+ *   dev-cashier    CASHIER    no PIN      sells; must ask for anything over the limit
+ *   dev-manager    MANAGER    2468        approves discounts, overrides, refunds
+ *   dev-manager-2  MANAGER    9753        a second manager, for "cannot approve your own"
+ *   dev-owner      OWNER      1357        holds everything
+ *   dev-senior     CASHIER    4455        HAS a PIN but no right to approve -- the case where a
+ *                                         PIN is real and the answer must still be no
+ */
+const ROLE_PERMISSIONS: Record<string, string[]> = {
+  OWNER: Object.values(PERMISSIONS),
+  MANAGER: [
+    PERMISSIONS.SELL, PERMISSIONS.DISCOUNT_OVER_LIMIT, PERMISSIONS.PRICE_OVERRIDE,
+    PERMISSIONS.REFUND, PERMISSIONS.REFUND_OUTSIDE_WINDOW, PERMISSIONS.CLOSE_DAY
+  ],
+  CASHIER: [PERMISSIONS.SELL]
+};
+
+const STAFF = [
+  { id: 'dev-cashier', name: 'Dev cashier', email: 'cashier@example.test', role: 'CASHIER', pin: null },
+  { id: 'dev-manager', name: 'Meena (manager)', email: 'manager@example.test', role: 'MANAGER', pin: '2468' },
+  { id: 'dev-manager-2', name: 'Suresh (manager)', email: 'manager2@example.test', role: 'MANAGER', pin: '9753' },
+  { id: 'dev-owner', name: 'Lakshmi (owner)', email: 'owner@example.test', role: 'OWNER', pin: '1357' },
+  { id: 'dev-senior', name: 'Ravi (senior cashier)', email: 'senior@example.test', role: 'CASHIER', pin: '4455' }
+];
+
+async function seedStaff() {
+  // Permission keys are ROWS, not an enum -- adding one never needs a migration.
+  for (const key of Object.values(PERMISSIONS)) {
+    await prisma.permission.upsert({ where: { key }, update: {}, create: { key } });
+  }
+
+  const roleIds: Record<string, string> = {};
+  for (const [name, keys] of Object.entries(ROLE_PERMISSIONS)) {
+    const role = await prisma.role.upsert({
+      where: { clientId_name: { clientId: DEV_CLIENT_ID, name } },
+      update: {},
+      create: { clientId: DEV_CLIENT_ID, name, isSystem: true }
+    });
+    roleIds[name] = role.id;
+
+    const perms = await prisma.permission.findMany({ where: { key: { in: keys } }, select: { id: true } });
+    for (const perm of perms) {
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: role.id, permissionId: perm.id } },
+        update: {},
+        create: { roleId: role.id, permissionId: perm.id }
+      });
+    }
+  }
+
+  for (const person of STAFF) {
+    const pinHash = person.pin ? await bcrypt.hash(person.pin, 10) : null;
+    await prisma.user.upsert({
+      where: { id: person.id },
+      update: { name: person.name, approvalPinHash: pinHash, status: 'ACTIVE' },
+      create: {
+        id: person.id, clientId: DEV_CLIENT_ID, name: person.name, email: person.email,
+        approvalPinHash: pinHash
+      }
+    });
+    await prisma.userRole.upsert({
+      where: { userId_roleId: { userId: person.id, roleId: roleIds[person.role] } },
+      update: {},
+      create: { userId: person.id, roleId: roleIds[person.role] }
+    });
+  }
+}
+
 export async function seed() {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('seed-dev refuses to run in production');
@@ -75,11 +155,7 @@ export async function seed() {
     create: { clientId: DEV_CLIENT_ID, name: 'Counter 1' }
   });
 
-  await prisma.user.upsert({
-    where: { clientId_email: { clientId: DEV_CLIENT_ID, email: 'cashier@example.test' } },
-    update: {},
-    create: { id: 'dev-cashier', clientId: DEV_CLIENT_ID, name: 'Dev cashier', email: 'cashier@example.test' }
-  });
+  await seedStaff();
 
   for (const item of ITEMS) {
     await prisma.item.upsert({

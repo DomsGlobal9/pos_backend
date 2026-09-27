@@ -1,11 +1,14 @@
 import { prisma } from '../../lib/prisma';
-import { badRequest, conflict, notFound } from '../../utils/httpError';
+import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { Actor } from '../../types/actor';
 import { priceBasket, BasketLine } from '../basket';
 import { forSale } from '../items';
 import { nextNumber } from '../invoice-series';
-import { rupees } from '../money';
+import { rupees, applyPercent } from '../money';
 import { planPayments } from '../payments';
+import { grant, attachToSale } from '../approvals';
+import { record, AuditEntry } from '../audit';
+import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
 
 /**
@@ -38,9 +41,22 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
   if (existing) return replay(actor, existing, input);
 
   try {
+    /*
+     * AUDIT ENTRIES ARE COLLECTED HERE AND WRITTEN ONLY AFTER THE SALE COMMITS.
+     *
+     * The first version wrote them from inside the transaction using the global client -- which
+     * is NOT part of the transaction -- so a sale that failed on its payment rolled back while its
+     * audit row stayed, recording a discount that was never given on a sale that does not exist.
+     * Caught by a test written to check exactly that. An audit trail that records things which did
+     * not happen is worse than none, because people believe it.
+     */
+    const pendingAudit: AuditEntry[] = [];
+
     const saleId = await prisma.$transaction(async (tx) => {
       // 1. Prices from the database. The browser sent ids and quantities and nothing else.
       const items = await forSale(tx, actor.clientId, input.lines.map(l => l.itemId));
+
+      const overridden: { code: string; wasPaise: number; nowPaise: number }[] = [];
 
       const basket: BasketLine[] = input.lines.map(line => {
         const item = items.get(line.itemId);
@@ -50,12 +66,26 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
         if (!item.active) {
           throw conflict(`${item.name} is no longer sold. Take it off the bill.`);
         }
+
+        /*
+         * The tag price wins unless somebody deliberately overrode it. That default is the whole
+         * defence: a browser can only change a price by saying so out loud, in a field that
+         * demands a permission, a reason and a manager.
+         */
+        let unitPricePaise = item.pricePaise;
+        if (line.overridePricePaise !== undefined && line.overridePricePaise !== item.pricePaise) {
+          overridden.push({
+            code: item.code, wasPaise: item.pricePaise, nowPaise: line.overridePricePaise
+          });
+          unitPricePaise = line.overridePricePaise;
+        }
+
         return {
           ref: item.id,
           description: [item.name, item.colour, item.size].filter(Boolean).join(', '),
           hsn: item.hsn,
           qty: line.qty,
-          unitPricePaise: item.pricePaise,
+          unitPricePaise,
           taxRate: item.taxRate,
           lineDiscountPaise: line.lineDiscountPaise
         };
@@ -63,7 +93,9 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
 
       const settings = await tx.shopSettings.findUnique({
         where: { clientId: actor.clientId },
-        select: { invoicePrefix: true, enabledPaymentMethods: true }
+        select: {
+          invoicePrefix: true, enabledPaymentMethods: true, manualDiscountMaxPercent: true
+        }
       });
 
       // 2.
@@ -71,6 +103,98 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
         billDiscountPaise: input.billDiscountPaise,
         interState: input.interState
       });
+
+      /*
+       * WHAT NEEDS A MANAGER. POS-SELL-015, -016, -017.
+       *
+       * Two separate things, and a bill can need both:
+       *
+       *   - a discount larger than the shop's cashier limit (POS-SET-005)
+       *   - any price override at all
+       *
+       * The limit is a percentage of what the tags come to, because that is how a shop owner
+       * thinks about it -- "nobody gives away more than a tenth" -- and it is checked against the
+       * bill as priced here, never against the figure the screen was showing.
+       */
+      const limitPercent = settings?.manualDiscountMaxPercent ?? 0;
+      const allowedDiscount = applyPercent(priced.subtotalPaise, limitPercent);
+      const discountOverLimit = priced.discountPaise > allowedDiscount;
+
+      const needs: { kind: 'DISCOUNT_OVER_LIMIT' | 'PRICE_OVERRIDE'; detail: any }[] = [];
+
+      if (discountOverLimit) {
+        needs.push({
+          kind: 'DISCOUNT_OVER_LIMIT',
+          detail: {
+            discountPaise: priced.discountPaise,
+            allowedPaise: allowedDiscount,
+            limitPercent,
+            subtotalPaise: priced.subtotalPaise
+          }
+        });
+      }
+      if (overridden.length > 0) {
+        needs.push({ kind: 'PRICE_OVERRIDE', detail: { lines: overridden } });
+      }
+
+      const approvalIds: string[] = [];
+      for (const need of needs) {
+        const permission = need.kind === 'DISCOUNT_OVER_LIMIT'
+          ? PERMISSIONS.DISCOUNT_OVER_LIMIT
+          : PERMISSIONS.PRICE_OVERRIDE;
+
+        /*
+         * Someone who is allowed to do it themselves does not need to ask. A manager selling at
+         * the counter should not have to find a second manager -- but it is still audited, so the
+         * record is the same either way.
+         */
+        if (may(actor, permission)) {
+          pendingAudit.push({
+            action: need.kind === 'DISCOUNT_OVER_LIMIT' ? 'sale.discount_over_limit' : 'sale.price_override',
+            detail: { ...need.detail, byOwnAuthority: true }
+          });
+          continue;
+        }
+
+        if (!input.approval) {
+          throw forbidden(
+            need.kind === 'DISCOUNT_OVER_LIMIT'
+              ? `A manager needs to approve a discount over ${limitPercent}%.`
+              : 'A manager needs to approve a price change.',
+            {
+              code: 'APPROVAL_REQUIRED',
+              kind: need.kind,
+              ...need.detail
+            }
+          );
+        }
+
+        const granted = await grant(actor, {
+          kind: need.kind,
+          pin: input.approval.pin,
+          reason: input.approval.reason,
+          detail: need.detail
+        }, tx);
+        approvalIds.push(granted.id);
+
+        /*
+         * A manager's yes goes in the audit trail too, not only in the approvals table.
+         *
+         * The owner reads the AUDIT screen. The first version audited their own discounts but not
+         * the ones their managers approved -- which is exactly backwards, since the approved ones
+         * are what an owner is checking up on. Caught by a test.
+         */
+        pendingAudit.push({
+          action: 'approval.granted',
+          detail: {
+            kind: need.kind,
+            reason: granted.reason,
+            approvedBy: granted.approvedBy.name,
+            approvedById: granted.approvedBy.id,
+            ...need.detail
+          }
+        });
+      }
 
       /*
        * 3. The payments, against the bill as it was actually priced HERE -- not the figure the
@@ -131,6 +255,14 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
               hsn: line.hsn,
               qty: line.qty,
               unitPricePaise: line.unitPricePaise,
+              // What the tag said, when it differed. Null on an ordinary line, so an override is
+              // visible on the bill forever rather than looking like a normal price.
+              listPricePaise: items.get(line.ref)?.pricePaise !== line.unitPricePaise
+                ? items.get(line.ref)?.pricePaise ?? null
+                : null,
+              priceOverrideReason: items.get(line.ref)?.pricePaise !== line.unitPricePaise
+                ? input.approval?.reason ?? 'Allowed by own authority'
+                : null,
               discountPaise: line.discountPaise,
               taxRate: line.taxRate,
               taxPaise: line.taxPaise,
@@ -143,6 +275,10 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
         },
         select: { id: true }
       });
+
+      // The approvals that authorised this sale now point at it. An approval with no sale is a
+      // manager's yes for something that never happened, and being able to see those matters.
+      await attachToSale(tx, approvalIds, sale.id);
 
       await tx.payment.createMany({
         data: planned.map((payment, index) => ({
@@ -162,7 +298,14 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
       return sale.id;
     }, { timeout: 30_000, maxWait: 15_000 });
 
-    return { replayed: false, sale: await getSale(actor, saleId) };
+    const made = await getSale(actor, saleId);
+
+    // Committed. Now, and only now, the audit trail may say it happened.
+    for (const entry of pendingAudit) {
+      await record(actor, { ...entry, subject: made.invoiceNo });
+    }
+
+    return { replayed: false, sale: made };
   } catch (error: any) {
     /*
      * Lost a race with the same onceKey: the other request made the sale, and that IS the answer.

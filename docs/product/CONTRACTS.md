@@ -202,9 +202,9 @@ Found in the 2026-09-27 preflight. Each belongs to its phase; none is silently d
 
 | Gap | Needed by | Phase |
 |---|---|---|
-| `Payment.status` for ambiguous/needs-checking | POS-PAY-010, -011 | 2 |
+| ~~`Payment.status` for ambiguous/needs-checking~~ | POS-PAY-010, -011 | 2 — **closed** |
 | Cash movement model (in/out, reason, actor) | POS-SHIFT-003, -004 | 7 |
-| Approval record (requester, approver, reason) | POS-APR-001..005 | 4 |
+| ~~Approval record (requester, approver, reason)~~ | POS-APR-001..005 | 4 — **closed** |
 | Order collection date, notes, user-facing status | POS-ORD-004, -005, -006..009 | 5 |
-| Reprint / duplicate marking | POS-RCPT-004 | 1 |
-| `Item.imageUrl` | POS-SELL-007 | 1 |
+| ~~Reprint / duplicate marking~~ | POS-RCPT-004 | 1 — **closed** |
+| ~~`Item.imageUrl`~~ | POS-SELL-007 | 1 — **closed** |

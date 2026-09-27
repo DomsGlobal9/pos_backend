@@ -12,14 +12,14 @@ behaviour and passing tests. A feature that works on one device is `BUILDING`, n
 | | Count |
 |---|---:|
 | Approved feature IDs | 211 |
-| DONE | 62 |
-| BUILDING (works, gate not met) | 1 |
-| BLOCKED (dependency named) | 12 |
-| PLANNED | 136 |
+| DONE | 72 |
+| BUILDING (works, gate not met) | 2 |
+| BLOCKED (dependency named) | 14 |
+| PLANNED | 123 |
 | REMOVED without approval | **0** |
 | Unaccounted | **0** |
 
-Last reconciled: 2026-09-27, at Phase 3 close.
+Last reconciled: 2026-09-27, at Phase 4 close.
 
 ---
 
@@ -29,14 +29,14 @@ Last reconciled: 2026-09-27, at Phase 3 close.
 |---|---|---|---|---|---|
 | POS-CORE-001 | P0 | Responsive phone/tablet/desktop shell | 0 | **DONE** | `verify:responsive` — 5 sizes reflow live in real Chrome; a full sale completed at 375px |
 | POS-CORE-002 | P0 | Gateway auth + tenant/module entitlement | 0 | BUILDING | `middleware/gateway.middleware.ts` written, audience `pos`, **not yet mounted** — `devActor` stands in |
-| POS-CORE-003 | P0 | Local POS roles/permissions | 0 | BUILDING | `types/actor.ts` + User/Role/Permission models exist; nothing enforces them yet |
+| POS-CORE-003 | P0 | Local POS roles/permissions | 4 | **DONE** | Enforced on discounts, overrides, audit and PINs. `devActor` now loads a real seeded user with real roles |
 | POS-CORE-004 | P0 | Counter identity | 0 | BUILDING | `Counter` model + seed; no picker UI |
 | POS-CORE-005 | P0 | Human connection/service health | 0 | **DONE** | In the shell header on all three sizes, in words not codes |
 | POS-CORE-006 | P0 | Active basket crash/refresh recovery | 0 | **DONE** | QA-BASKET-02 and QA-BASKET-03 both pass |
 | POS-CORE-007 | P0 | Integer-paise money everywhere | 0 | **DONE** | `services/money`, 47 checks incl. 1,45,716 GST splits |
 | POS-CORE-008 | P0 | Server-authoritative invoice/credit-note series | 0 | **DONE** | `services/invoice-series`; 8 concurrent sales, no gaps |
 | POS-CORE-009 | P0 | Idempotent writes/retries | 0 | **DONE** | `onceKey` unique; replay + race tested |
-| POS-CORE-010 | P0 | Audit trail for sensitive actions | 4 | PLANNED | `AuditLog` model exists, nothing writes to it |
+| POS-CORE-010 | P0 | Audit trail for sensitive actions | 4 | **DONE** | Written only AFTER the sale commits. Names the approver and the reason |
 
 ## 6.2 Home
 
@@ -68,9 +68,9 @@ Last reconciled: 2026-09-27, at Phase 3 close.
 | POS-SELL-012 | P0 | Shelf price includes GST | 1 | **DONE** | `splitInclusiveTax`; tax is a subtraction |
 | POS-SELL-013 | P0 | Shared automatic offers/pricing | 4 | PLANNED | Requires shared package — see CHANGELOG pending #4 |
 | POS-SELL-014 | P0 | Show savings | 1 | **DONE** | |
-| POS-SELL-015 | P0 | Manual discount within limit | 4 | PLANNED | `priceBasket` accepts it; no UI, no permission check |
-| POS-SELL-016 | P0 | Discount above limit approval | 4 | PLANNED | |
-| POS-SELL-017 | P0 | Price override approval | 4 | PLANNED | `SaleLine.priceOverrideReason` exists, unused |
+| POS-SELL-015 | P0 | Manual discount within limit | 4 | **DONE** | Rupees or percent; a cashier gives it alone up to the shop's limit |
+| POS-SELL-016 | P0 | Discount above limit approval | 4 | **DONE** | Checked against the bill as priced on the server, never the screen's figure |
+| POS-SELL-017 | P0 | Price override approval | 4 | **DONE** | Tag price kept beside the charged one (`listPricePaise`) so an override is visible forever |
 | POS-SELL-018 | P0 | Add/select optional customer inline | 3 | **DONE** | `WF-CUST-01`, without leaving the sale. Skip is as prominent as Use |
 | POS-SELL-019 | P0 | Park/hold active basket | 5 | PLANNED | `HeldBill` model exists |
 | POS-SELL-020 | P0 | Recall parked basket | 5 | PLANNED | |
@@ -187,11 +187,14 @@ All PLANNED, Phase 6. `Return`, `ReturnLine`, credit-note series all exist in sc
 
 ## 6.10 Manager approval / permissions
 
-All PLANNED, Phase 4. **Schema gap** — no approval record (requester, approver, reason).
-
-`POS-APR-001` in-place approval, no cashier logout · `-002` exceptional discount ·
-`-003` price override · `-004` cashier return/refund · `-005` outside-window return ·
-`-006` permission-denied human state.
+| ID | P | Feature | Phase | Status | Evidence / note |
+|---|---|---|---|---|---|
+| POS-APR-001 | P0 | In-place approval, no cashier logout | 4 | **DONE** | A manager's PIN over the open sale; the receipt still names the cashier |
+| POS-APR-002 | P0 | Approve exceptional discount | 4 | **DONE** | Requester, approver and typed reason on every row |
+| POS-APR-003 | P0 | Approve price override | 4 | **DONE** | |
+| POS-APR-004 | P0 | Approve cashier return/refund | 6 | **BLOCKED** | `ApprovalKind.RETURN` exists; returns do not until Phase 6 |
+| POS-APR-005 | P0 | Approve outside-window return | 6 | **BLOCKED** | `ApprovalKind.RETURN_OUTSIDE_WINDOW` exists; same |
+| POS-APR-006 | P0 | Permission denied, in words | 4 | **DONE** | "Ravi (senior cashier) is not allowed to approve a discount above the limit." — seen in the browser |
 
 ## 6.11 Shift / drawer / day close
 
@@ -269,10 +272,10 @@ All PLANNED, Phase 9.
 | POS-SET-002 | P0 | Invoice format / FY / rounding | 0 | BUILDING | `invoicePrefix` used; rounding fixed at NEAREST_RUPEE |
 | POS-SET-003 | P0 | Payment methods enabled | 2 | **DONE** | Enforced server-side; a disabled method is refused by any route |
 | POS-SET-004 | P0 | Receipt footer / print setup | 1 | BUILDING | Footer prints |
-| POS-SET-005 | P0 | Discount limits | 4 | BUILDING | Column exists, not enforced |
+| POS-SET-005 | P0 | Discount limits | 4 | **DONE** | Enforced server-side |
 | POS-SET-006 | P0 | Return window / rules | 6 | BUILDING | Column exists, not enforced |
 | POS-SET-007 | P0 | Hold threshold | 8 | BUILDING | Column exists, default 3, not enforced |
-| POS-SET-008 | P0 | Role-gated settings | 4 | PLANNED | |
+| POS-SET-008 | P0 | Role-gated settings | 4 | BUILDING | Setting a PIN is owner-only; a settings SCREEN does not exist yet |
 | POS-DEV-001..004 | P1 | Counter/printer/scanner/health | 10 | PLANNED | |
 
 ## 6.17 External integrations

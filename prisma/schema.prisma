@@ -53,12 +53,27 @@ model User {
   /// Only set when AUTH_MODE=local. Under gateway auth the Gateway holds the credential.
   passwordHash String? @map("password_hash")
 
+  /// A MANAGER'S OVERRIDE PIN, hashed. POS-APR-001.
+  ///
+  /// Separate from the password on purpose, and it is the whole mechanism behind "no cashier
+  /// logout": the manager walks to the till, types four digits, and walks away. The cashier keeps
+  /// their session, their basket and the customer standing in front of them.
+  ///
+  /// Making them sign in properly instead would mean logging the cashier out mid-sale, which is
+  /// exactly what MASTER.md forbids -- and in a real shop it means the manager's password gets
+  /// written on a sticky note by the till within a week.
+  ///
+  /// Null for anyone who cannot approve anything, which is most people.
+  approvalPinHash String? @map("approval_pin_hash")
+
   roles           UserRole[]
   shifts          Shift[]
   sales           Sale[]
   returns         Return[]
   dayCloses       DayClose[]
-  paymentsChecked Payment[]  @relation("PaymentCheckedBy")
+  paymentsChecked   Payment[]  @relation("PaymentCheckedBy")
+  approvalsRequested Approval[] @relation("ApprovalRequestedBy")
+  approvalsGiven     Approval[] @relation("ApprovalApprovedBy")
 
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
@@ -404,9 +419,10 @@ model Sale {
   printCount    Int       @default(0) @map("print_count")
   lastPrintedAt DateTime? @map("last_printed_at")
 
-  lines    SaleLine[]
-  payments Payment[]
-  returns  Return[]
+  lines     SaleLine[]
+  payments  Payment[]
+  returns   Return[]
+  approvals Approval[]
 
   counter  Counter   @relation(fields: [counterId], references: [id])
   cashier  User?     @relation(fields: [cashierId], references: [id], onDelete: SetNull)
@@ -474,9 +490,16 @@ model SaleLine {
   /// rules may change tomorrow, but this bill was priced under today's.
   appliedOffers Json? @map("applied_offers")
 
-  /// Set with a reason when someone overrode the shelf price. Permission-gated, and audited --
-  /// the single most abused feature in any POS.
+  /// Set with a reason when someone overrode the shelf price. Permission-gated, approved, and
+  /// audited -- the single most abused feature in any POS.
   priceOverrideReason String? @map("price_override_reason")
+
+  /// What the tag actually said, kept beside what was charged.
+  ///
+  /// Without this, an override is invisible after the fact: the line simply shows a price, and
+  /// nobody can tell it was not the shelf price. With it, a margin report can show exactly how
+  /// much was given away and by whom.
+  listPricePaise Int? @map("list_price_paise")
 
   sale        Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
   item        Item?        @relation(fields: [itemId], references: [id], onDelete: SetNull)
@@ -842,6 +865,64 @@ enum DeliveryStatus {
   DELIVERED
   /// Retries exhausted. Kept, and re-sendable by hand from the delivery log.
   FAILED
+}
+
+// ---------------------------------------------------------------------------------------------
+// Someone said yes
+// ---------------------------------------------------------------------------------------------
+
+/// A manager allowing something a cashier may not do alone. POS-APR-001..005.
+///
+/// Three facts, and the record is worthless without all three: WHO ASKED, WHO AGREED, and WHY. A
+/// shop owner reading this back a month later is not asking whether a discount was approved --
+/// they can see that it was. They are asking who kept approving them, and what reason kept being
+/// given.
+///
+/// Kept as its own row rather than folded into AuditLog because it is referenced: a sale points at
+/// the approval that let it happen, so a bill can show the authority it was written under.
+model Approval {
+  id       String @id @default(uuid())
+  clientId String @map("client_id")
+
+  kind   ApprovalKind
+  /// Typed by the person asking, not chosen from a list. A dropdown of reasons becomes one reason
+  /// selected every time, which tells an owner nothing.
+  reason String
+
+  /// What exactly was allowed -- the percentage, the old and new price, the line it applied to.
+  /// Frozen here, because the sale it belongs to may be re-priced before it is saved.
+  detail Json?
+
+  /// The cashier who asked. Null only if a manager did it themselves.
+  requestedById String? @map("requested_by_id")
+  /// The manager who typed their PIN. Never null: an approval with no approver is not an approval.
+  approvedById  String  @map("approved_by_id")
+
+  /// Set once the sale it authorised is written. Null means the sale was abandoned after the
+  /// approval was given -- which is worth being able to see.
+  saleId String? @map("sale_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  requestedBy User? @relation("ApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: SetNull)
+  approvedBy  User  @relation("ApprovalApprovedBy", fields: [approvedById], references: [id])
+  sale        Sale? @relation(fields: [saleId], references: [id], onDelete: SetNull)
+
+  @@index([clientId, createdAt])
+  @@index([saleId])
+  @@index([approvedById])
+  @@map("approvals")
+}
+
+enum ApprovalKind {
+  /// A discount larger than the cashier's limit.
+  DISCOUNT_OVER_LIMIT
+  /// Selling at a price other than the one on the tag.
+  PRICE_OVERRIDE
+  /// A refund a cashier may not give alone.
+  RETURN
+  /// A return after the shop's window has closed.
+  RETURN_OUTSIDE_WINDOW
 }
 
 // ---------------------------------------------------------------------------------------------

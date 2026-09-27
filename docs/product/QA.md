@@ -24,7 +24,7 @@ pass today and where the evidence is.
 | QA-RET-15 | Return | Partial previous return | Cannot exceed remaining eligible qty | PLANNED | Phase 6 |
 | QA-RET-16 | Return | Outside the return window | Correct approval path | PLANNED | Phase 6 |
 | QA-EXC-17 | Exchange | Replacement dearer or cheaper | Only the difference moves | PLANNED | Phase 6 |
-| QA-APR-18 | Approval | Cashier exceeds the discount limit | In-place approval, cashier context kept | PLANNED | Phase 4 |
+| QA-APR-18 | Approval | Cashier exceeds the discount limit | In-place approval, cashier context kept | **PASS** | Browser: sheet over the open payment; receipt still names the cashier |
 | QA-CASH-19 | Cash | Petty cash removed | Cash-out explains the drawer expectation | PLANNED | Phase 7 |
 | QA-SHIFT-20 | Shift | Drawer short or over | Difference recorded, never silently corrected | PLANNED | Phase 7 |
 | QA-DAY-21 | Day | Shift left open overnight | Explicit warning at day close | PLANNED | Phase 7 |
@@ -34,7 +34,7 @@ pass today and where the evidence is.
 | QA-CRM-25 | CRM | CRM unavailable | Sale usable; limitation explained | **BLOCKED** | CRM not started (CHG-007). The rule it encodes already holds: no path requires a customer |
 | QA-RCPT-26 | Receipt | Printer unavailable | Sale complete; reprint available | **PASS** | Print never gates the save; reprint from `WF-SALE-02`, marked duplicate |
 | QA-HIST-27 | History | Product renamed after the sale | Old bill shows the original description, price and tax | **PASS** | Frozen onto the line; reprint split test in `verify-sale` |
-| QA-PERM-28 | Permissions | Cashier tries a restricted action | Human denial or approval path, no data leak | PLANNED | Phase 4 |
+| QA-PERM-28 | Permissions | Cashier tries a restricted action | Human denial or approval path, no data leak | **PASS** | Audit read refused in words; senior-cashier PIN refused by name |
 | QA-MOB-29 | Mobile | Portrait phone | No critical horizontal scroll; primary CTA reachable | **PASS** | 375px: scrollWidth == innerWidth on Home and Sell; CTA 56px; full sale completed |
 | QA-DESK-30 | Desktop | Scanner + keyboard sale | Mouse not required for a normal fast sale | PARTIAL | Focus returns to the search box; full keyboard map is Phase 1 |
 | QA-CUT-31 | Cut-over | A historical old sale | Readable, reprintable, returnable | PLANNED | Phase 13 |
@@ -44,11 +44,23 @@ pass today and where the evidence is.
 | | |
 |---|---:|
 | Scenarios required | 31 |
-| PASS | 15 |
+| PASS | 17 |
 | PARTIAL | 4 |
 | FAIL (named, not hidden) | **0** |
 | BLOCKED | 1 |
-| PLANNED | 11 |
+| PLANNED | 9 |
+
+Added during Phase 4:
+
+| ID | Area | Scenario | Pass condition | Status | Evidence |
+|---|---|---|---|---|---|
+| QA-APR-52 | Approval | A real PIN from someone without the right | Refused, naming them | **PASS** | Browser + `verify-approvals` |
+| QA-APR-53 | Approval | Approved sale fails afterwards | No approval AND no audit row survives | **PASS** | Was a bug; fixed and covered |
+| QA-APR-54 | Approval | Five wrong PINs, then the right one | Locked out; right PIN refused until it clears | **PASS** | `verify-approvals` |
+| QA-APR-55 | Approval | Two managers share a PIN | Refused, not guessed | **PASS** | `verify-approvals` |
+| QA-APR-56 | Approval | Manager approves their own request | Refused | **PASS** | `verify-approvals` |
+| QA-APR-57 | Audit | Manager-approved override | Appears in the owner's audit trail, naming both people | **PASS** | Was a gap; fixed and covered |
+| QA-APR-58 | Override | Sell below the tag | Tag price kept beside the charged price | **PASS** | Browser: "was ₹2,499" |
 
 Added during Phase 3:
 
