@@ -91,7 +91,11 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   const reply = await call(
     { baseUrl: link.base_url, keyCipher: link.key_cipher },
     'POST', '/events',
-    { eventType: event.eventType, eventVersion: event.eventVersion, sequence: Number(event.sequence), payload: event.payload }
+    { eventType: event.eventType, eventVersion: event.eventVersion, sequence: Number(event.sequence), payload: event.payload },
+    // Inventory's write is a dozen round trips to Singapore and may take several seconds. Giving
+    // up early is safe -- a timeout is retried and Inventory answers ALREADY_APPLIED if it had in
+    // fact committed -- but 30 s keeps that from being the normal case.
+    30_000
   );
 
   if (reply.kind === 'ANSWERED' && reply.status >= 200 && reply.status < 300) {
