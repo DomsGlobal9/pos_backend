@@ -1347,3 +1347,21 @@ model ApiRequestOnce {
   @@unique([clientId, idempotencyKey])
   @@map("api_request_once")
 }
+
+/// A device where an owner or manager opened the till. POS-CORE-002.
+///
+/// Staff then take turns on it with their own PIN; every bill carries the person who made it.
+/// Closing the till ends it for everyone on that device at once -- a lost tablet is closed from
+/// another device, not waited out.
+model TillSession {
+  id         String    @id @default(uuid())
+  clientId   String    @map("client_id")
+  openedById String    @map("opened_by_id")
+  deviceId   String?   @map("device_id")
+  openedAt   DateTime  @default(now()) @map("opened_at")
+  closedAt   DateTime? @map("closed_at")
+  closedById String?   @map("closed_by_id")
+
+  @@index([clientId])
+  @@map("till_sessions")
+}

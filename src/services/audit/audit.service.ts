@@ -51,7 +51,11 @@ export type AuditAction =
   | 'webhook.updated'
   | 'webhook.deleted'
   | 'webhook.resent'
-  | 'items.imported';
+  | 'items.imported'
+  | 'staff.added'
+  | 'staff.changed'
+  | 'till.opened'
+  | 'till.closed';
 
 export interface AuditEntry {
   action: AuditAction;

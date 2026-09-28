@@ -59,6 +59,16 @@ const envSchema = z.object({
   FRONTEND_URL: z.string().default('http://localhost:5175'),
 
   AUTH_MODE: z.enum(['local', 'gateway']).default('local'),
+  /**
+   * Development only: refuse requests without a sign-in instead of acting as the seeded dev user.
+   * Always on in production (there is no dev user there). Used to test the sign-in screens.
+   */
+  REQUIRE_SIGN_IN: z.preprocess((v) => v === 'true' || v === true, z.boolean().default(false)),
+  /**
+   * Lets ScaleEzy set up a new shop in the POS (POST /api/v1/platform/shops, header x-platform-key).
+   * Absent: that endpoint does not exist. A long random value, kept by ScaleEzy, never by a shop.
+   */
+  PLATFORM_SETUP_KEY: optionalStr(z.string().min(24, 'PLATFORM_SETUP_KEY must be at least 24 characters')),
   GATEWAY_PUBLIC_KEY_PATH: z.string().optional(),
   POS_PRIVATE_KEY_PATH: z.string().optional(),
 
@@ -89,6 +99,9 @@ const envSchema = z.object({
   }
 
   if (isProd) {
+    if (val.JWT_SECRET.length < 32) {
+      require('JWT_SECRET', 'must be at least 32 random characters in production -- it signs every staff sign-in');
+    }
     if (!val.DIRECT_URL) {
       require('DIRECT_URL',
         'required in production -- prisma/schema.prisma declares directUrl, and migrations fail without it');

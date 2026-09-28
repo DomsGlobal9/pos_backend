@@ -27,7 +27,8 @@
     "verify:reports": "ts-node src/scripts/verify-reports.ts",
     "verify:receipts": "ts-node src/scripts/verify-receipts.ts",
     "verify:offline": "ts-node src/scripts/verify-offline.ts",
-    "verify:integrations": "ts-node src/scripts/verify-integrations.ts"
+    "verify:integrations": "ts-node src/scripts/verify-integrations.ts",
+    "verify:signin": "ts-node src/scripts/verify-signin.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

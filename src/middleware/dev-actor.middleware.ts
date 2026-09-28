@@ -2,40 +2,39 @@ import { Request, Response, NextFunction } from 'express';
 import { env } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { Actor } from '../types/actor';
+import { actorFromStaffToken } from '../services/auth';
 
 /**
- * A development stand-in for sign-in, which is not built yet.
+ * Who is making this request. Every till route goes through here.
  *
- * It exists so the screens can be exercised against the REAL service paths -- the real
- * transaction, the real invoice series, the real permission checks -- rather than against mocks.
- * The thing being built is never stubbed; only the question "who is signed in" is.
+ *   1. A staff sign-in (Authorization: Bearer <staff token>) -- the person at the till, with the
+ *      roles and permissions this database gives them. POS-CORE-002, local mode.
+ *   2. Development only, and only when no sign-in was sent: a seeded dev user, so the screens can
+ *      be exercised against the REAL service paths without signing in each time. It loads a real
+ *      user with real roles (DEV_ACTOR=dev-cashier by default, dev-owner, dev-manager).
  *
- * IT LOADS A REAL USER, WITH REAL ROLES. The first version handed every request a hardcoded OWNER
- * holding every permission, which meant no screen could ever show an approval prompt: an owner
- * never needs one. From Phase 4 it reads a seeded user from the database, so the browser sees
- * exactly what that person would see.
+ * IN PRODUCTION THERE IS NO SECOND BRANCH. No token, no request -- the check is here, in the
+ * middleware itself, rather than left to whoever wires up the routes. REQUIRE_SIGN_IN=true turns
+ * the dev fallback off locally too, which is how the sign-in screens are tested.
  *
- *     DEV_ACTOR=dev-cashier   (default) -- has to ask for anything over the limit
- *     DEV_ACTOR=dev-owner               -- can do everything
- *
- * IT REFUSES TO RUN IN PRODUCTION. That check is here, in the middleware itself, rather than left
- * to whoever wires up the routes: a development-only auth bypass that depends on being mounted
- * correctly is one careless import away from being a way into every shop's till.
+ * The export keeps its old name so no route had to change when sign-in arrived.
  */
 export const DEV_CLIENT_ID = 'dev-shop';
 
 const DEFAULT_USER = 'dev-cashier';
 
 export async function devActor(req: Request, res: Response, next: NextFunction) {
-  if (env.NODE_ENV === 'production') {
-    console.error('[auth] devActor reached in production. Refusing the request.');
-    return res.status(500).json({
-      success: false,
-      message: 'This till is not configured for signing in yet. Contact support.'
-    });
-  }
-
   try {
+    const header = String(req.headers.authorization ?? '');
+    if (header.toLowerCase().startsWith('bearer ')) {
+      (req as any).actor = await actorFromStaffToken(header.slice(7).trim());
+      return next();
+    }
+
+    if (env.NODE_ENV === 'production' || env.REQUIRE_SIGN_IN) {
+      return res.status(401).json({ success: false, message: 'Please sign in.', details: { code: 'NO_STAFF' } });
+    }
+
     const userId = process.env.DEV_ACTOR || DEFAULT_USER;
     const user = await prisma.user.findFirst({
       where: { id: userId, clientId: DEV_CLIENT_ID, status: 'ACTIVE', deletedAt: null },

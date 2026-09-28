@@ -18,6 +18,9 @@ import publicRoutes from './public.routes';
 import devicesRoutes from './devices.routes';
 import integrationRoutes from './integration.routes';
 import connectionsRoutes from './connections.routes';
+import authRoutes from './auth.routes';
+import staffRoutes from './staff.routes';
+import platformRoutes from './platform.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -49,6 +52,10 @@ router.use('/devices', devicesRoutes);
 router.use('/connections', connectionsRoutes);
 // A shop's own software, with an API key. POS-API-001..007.
 router.use('/integration', integrationRoutes);
+// Signing in at the till, the owner's staff list, and ScaleEzy's shop setup. Phase 13.
+router.use('/auth', authRoutes);
+router.use('/staff', staffRoutes);
+router.use('/platform', platformRoutes);
 // No sign-in: the digital receipt, reached by its token. POS-RCPT-009.
 router.use('/public', publicRoutes);
 
