@@ -34,8 +34,13 @@ async function tryKey(baseUrl: string, keyCipher: string) {
   if (reply.kind === 'UNREACHABLE') {
     throw conflict(`Inventory could not be reached at ${baseUrl} (${reply.reason}). Check the address, then try again.`, { code: 'UNREACHABLE' });
   }
+  // Since 30 Sep Inventory has till keys of their own; a website's key is refused on the till link.
+  const said = String(reply.body?.message ?? '');
+  if (reply.status === 403 && /website/i.test(said)) {
+    throw badRequest('That is a website key, not a till key. In Inventory, open Settings → Money → POS (billing counter) and create a till key.', { code: 'WEBSITE_KEY' });
+  }
   if (reply.status === 401 || reply.status === 403) {
-    throw badRequest('Inventory did not accept that key. Copy it again from Inventory\'s connection page.', { code: 'KEY_REFUSED' });
+    throw badRequest('Inventory did not accept that key. It may have been replaced or disconnected -- make a new one in Inventory: Settings → Money → POS (billing counter).', { code: 'KEY_REFUSED' });
   }
   if (reply.status === 404) {
     throw conflict('That Inventory does not have the POS link yet. It needs the update that adds it.', { code: 'NO_POS_LINK' });

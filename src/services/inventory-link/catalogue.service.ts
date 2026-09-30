@@ -52,7 +52,7 @@ export async function syncCatalogue(actor: Actor, opts: { full?: boolean } = {})
       throw conflict(`Inventory could not be reached (${reply.reason}). The item list is unchanged; try again shortly.`, { code: 'UNREACHABLE' });
     }
     if (reply.status === 401 || reply.status === 403) {
-      throw conflict('Inventory no longer accepts this till\'s key. Connect again with a new key.', { code: 'KEY_REFUSED' });
+      throw conflict('Inventory no longer accepts this till\'s key -- it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again.', { code: 'KEY_REFUSED' });
     }
     if (reply.status >= 400) {
       throw conflict(`Inventory answered with an error (${reply.status}). The item list is unchanged.`, { code: 'INVENTORY_ERROR' });

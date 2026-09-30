@@ -65,7 +65,7 @@ function describe(code: string | null, detail: string | null) {
 function refusal(status: number, body: any): { code: string; message: string } | null {
   const { answer: code, detail } = readAnswer(body);
   if (status === 401 || status === 403) {
-    return { code: 'KEY_REFUSED', message: 'Inventory no longer accepts this till\'s key. Connect again with a new key from Inventory.' };
+    return { code: 'KEY_REFUSED', message: 'Inventory no longer accepts this till\'s key -- it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again below.' };
   }
   // "Not now, try again" (contract §4, Inventory 27 Sep): a return that overtook its own sale while
   // Inventory is still applying the sale. A race, not a fault -- retried with the normal backoff.
