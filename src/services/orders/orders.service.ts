@@ -2,7 +2,7 @@ import { Fulfilment, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
 import { badRequest, conflict, notFound } from '../../utils/httpError';
-import { literal } from '../../utils/likeText';
+import { literal, phoneDigits } from '../../utils/likeText';
 import { rupees } from '../money';
 import { planPayments, owedPaise, refreshMoneyStatus } from '../payments';
 import { PaymentInput } from '../sale/sale.schema';
@@ -97,7 +97,7 @@ export async function list(actor: Actor, tab: OrderTab = 'ALL', rawQuery?: unkno
 
   const q = typeof rawQuery === 'string' ? rawQuery.trim().slice(0, 60) : '';
   if (q) {
-    const digits = q.replace(/[^0-9]/g, '');
+    const digits = phoneDigits(q);
     where.OR = [
       { invoiceNo: { contains: literal(q), mode: 'insensitive' } },
       { customer: { name: { contains: literal(q), mode: 'insensitive' } } },

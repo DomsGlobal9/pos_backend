@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
 import { badRequest, notFound } from '../../utils/httpError';
-import { literal } from '../../utils/likeText';
+import { literal, phoneDigits } from '../../utils/likeText';
 import { normalisePhone, displayPhone, maskPhone, PhoneError } from '../../utils/phone';
 import { owedByCustomer } from '../orders';
 import { history as creditHistory, CreditEntry } from '../store-credit';
@@ -199,9 +199,10 @@ export async function search(actor: Actor, rawQuery: unknown): Promise<CustomerC
      * `invalid byte sequence for encoding "UTF8": 0x00`. Found by searching for a name that does
      * not exist, which is the most ordinary thing a cashier can type.
      *
-     * Digits only, so "98765 43210" and "9876543210" both find the stored +919876543210.
+     * Digits only, so "98765 43210" and "9876543210" both find the stored +919876543210 -- and
+     * only when what was typed IS a number (see phoneDigits).
      */
-    const digits = q.replace(/[^0-9]/g, '');
+    const digits = phoneDigits(q);
     if (digits) conditions.push({ phone: { contains: digits } });
 
     where.OR = conditions;

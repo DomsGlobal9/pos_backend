@@ -12,3 +12,17 @@
 export function literal(text: string): string {
   return text.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
 }
+
+/**
+ * The digits to look for in a phone number -- or null when what was typed is not a phone number.
+ *
+ * Only a search made of digits (with spaces, +, - or brackets) is a phone search. The first version
+ * pulled the digits out of ANY search, so "Kavya 2" also listed every customer whose number has a 2
+ * in it -- found by a test searching for a name that does not exist. Three digits at least, so a
+ * stray "9" does not list the whole shop.
+ */
+export function phoneDigits(text: string): string | null {
+  if (!/^[\d\s+()-]+$/.test(text)) return null;
+  const digits = text.replace(/\D/g, '');
+  return digits.length >= 3 ? digits : null;
+}

@@ -2,7 +2,7 @@ import { Prisma, PaymentMethod, SaleStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
 import { notFound } from '../../utils/httpError';
-import { literal } from '../../utils/likeText';
+import { literal, phoneDigits } from '../../utils/likeText';
 
 /**
  * Finding a bill that has already been made. POS-SALE-001..011, POS-RCPT-003, -004.
@@ -76,7 +76,7 @@ export async function list(actor: Actor, filters: BillFilters = {}): Promise<Bil
     where.OR = [
       { invoiceNo: { contains: literal(q), mode: 'insensitive' } },
       // POS-SALE-003. Customers arrive in Phase 3; the path is real and returns nothing until then.
-      { customer: { phone: { contains: literal(q) } } },
+      ...(phoneDigits(q) ? [{ customer: { phone: { contains: phoneDigits(q)! } } }] : []),
       { customer: { name: { contains: literal(q), mode: 'insensitive' } } }
     ];
   }
