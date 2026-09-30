@@ -83,6 +83,18 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
       ...refundOf(payload.refunds)
     };
   }
+  if (eventType === 'payment.updated') {
+    // Inventory takes CASH, UPI, CARD, POINTS and CREDIT. A line in anything else is not money it
+    // counts (BALANCE and EXCHANGE are bookkeeping) and is left out.
+    const methods = ['CASH', 'UPI', 'CARD', 'POINTS', 'CREDIT'];
+    return {
+      kind: 'payment.updated',
+      invoiceNo: payload.invoiceNo,
+      idempotencyKey: payload.idempotencyKey,
+      occurredAt: payload.occurredAt,
+      payments: (payload.payments ?? []).filter((p: any) => methods.includes(p.method))
+    };
+  }
   return { kind: eventType, ...payload };
 }
 

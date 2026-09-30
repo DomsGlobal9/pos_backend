@@ -19,7 +19,7 @@ import { record } from '../audit';
  *
  * The events a shop can choose. `ping` is the Test button and is never subscribed to.
  */
-export const EVENT_TYPES = ['sale.completed', 'sale.returned', 'sale.exchanged', 'day.closed'] as const;
+export const EVENT_TYPES = ['sale.completed', 'sale.returned', 'sale.exchanged', 'payment.updated', 'day.closed'] as const;
 
 type Tx = Prisma.TransactionClient;
 

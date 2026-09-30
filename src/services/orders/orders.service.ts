@@ -9,6 +9,7 @@ import { PaymentInput } from '../sale/sale.schema';
 import { record } from '../audit';
 import { spendCredit } from '../store-credit';
 import { shiftFor } from '../shifts';
+import { paymentUpdated } from '../events';
 
 /**
  * Orders: goods kept for a customer, money still owed, things to hand over. POS-ORD-001..014.
@@ -219,6 +220,8 @@ export async function collect(
     }
 
     await refreshMoneyStatus(tx, saleId);
+    // The balance, as takings for Inventory's day book. One key per collection (the once-key).
+    await paymentUpdated(tx, actor.clientId, saleId, input.onceKey, planned);
   });
 
   return { replayed: false, ...(await summary(actor, saleId)) };

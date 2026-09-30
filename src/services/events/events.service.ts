@@ -29,7 +29,7 @@ type Tx = Prisma.TransactionClient;
 
 export const EVENT_VERSION = 1;
 
-export type EventType = 'sale.completed' | 'sale.returned' | 'sale.exchanged' | 'day.closed';
+export type EventType = 'sale.completed' | 'sale.returned' | 'sale.exchanged' | 'payment.updated' | 'day.closed';
 
 /**
  * One event, and a notice queued for each of the shop's own webhooks that wants it (POS-WEB-001) --
@@ -47,6 +47,30 @@ async function write(tx: Tx, clientId: string, eventType: EventType, payload: Re
     select: { id: true }
   });
   await fanOut(tx, clientId, event.id, eventType);
+}
+
+/**
+ * Money that arrived after the bill: a UPI confirmed on "Payments to check", a kept order's balance.
+ * Only money actually in (COLLECTED) -- a payment still being checked is not takings until it is,
+ * and one that never arrives was never counted, so there is nothing to take back.
+ *
+ * Each line is the money that moved NOW, not a new total (Inventory's shape, commit a265668). The
+ * key is one per collection and never reused: Inventory answers a reused key ALREADY_APPLIED, which
+ * would lose the second collection.
+ */
+export async function paymentUpdated(
+  tx: Tx, clientId: string, saleId: string, key: string,
+  payments: { method: string; amountPaise: number; reference?: string | null; status?: string }[]
+) {
+  const money = payments.filter(p => (!p.status || p.status === 'COLLECTED') && p.amountPaise !== 0);
+  if (money.length === 0) return;
+  const sale = await tx.sale.findUniqueOrThrow({ where: { id: saleId }, select: { invoiceNo: true } });
+  await write(tx, clientId, 'payment.updated', {
+    invoiceNo: sale.invoiceNo,
+    idempotencyKey: `${sale.invoiceNo}:pay:${key}`,
+    occurredAt: new Date().toISOString(),
+    payments: money.map(p => ({ method: p.method, amountPaise: p.amountPaise, ...(p.reference ? { reference: p.reference } : {}) }))
+  }, sale.invoiceNo);
 }
 
 /**

@@ -4,6 +4,7 @@ import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { grant, REASON_MIN } from '../approvals';
 import { record } from '../audit';
+import { paymentUpdated } from '../events';
 import { rupees, changeDue } from '../money';
 import { PaymentInput } from '../sale/sale.schema';
 
@@ -322,8 +323,10 @@ export async function resolve(
       // would be a manager's name against something they did not agree to.
       approvedBy = (await grant(actor, { kind: 'PAYMENT_VOID', pin: input.approval!.pin, reason: why, detail: voidDetail }, tx)).approvedBy;
     }
-    await tx.payment.update({ where: { id: paymentId }, data });
+    const saved = await tx.payment.update({ where: { id: paymentId }, data, select: { method: true, amountPaise: true, reference: true, status: true } });
     await refreshMoneyStatus(tx, payment.saleId);
+    // Arrived after the bill: now it is takings, and Inventory's day book should count it.
+    if (input.arrived) await paymentUpdated(tx, actor.clientId, payment.saleId, payment.id, [saved]);
   });
 
   await record(actor, {

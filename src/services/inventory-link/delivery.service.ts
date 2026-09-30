@@ -36,7 +36,11 @@ import { toInventory, readAnswer } from './wire';
  * again after 30 seconds instead of holding it forever.
  */
 
-export const STOCK_EVENTS = ['sale.completed', 'sale.returned', 'sale.exchanged'];
+// Everything Inventory is sent, in order. (The name is older than payment.updated.)
+export const STOCK_EVENTS = ['sale.completed', 'sale.returned', 'sale.exchanged', 'payment.updated'];
+
+/** How long a payment waits for its bill to be applied at Inventory before it is looked at again. */
+const BILL_FIRST_MS = 5_000;
 
 // Longer than the slowest answer Inventory gives (below), or a second instance could take the shop
 // while the first is still waiting and send the same bill again -- harmless (ALREADY_APPLIED) but noisy.
@@ -109,6 +113,27 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
     return { outcome: 'EMPTY' };
   }
 
+  /*
+   * Money after the bill goes only once Inventory has APPLIED the bill. Accepted is not enough:
+   * Inventory's worker settles a payment for a bill it has not recorded yet as UNKNOWN_ORDER and
+   * does not wait (Inventory, 30 Sep). A UPI confirmed seconds after the sale would stop the queue.
+   * Waiting here is not a failure -- no attempt is counted.
+   */
+  if (event.eventType === 'payment.updated' && event.invoiceNo) {
+    const billPending = await prisma.inventorySettlement.findFirst({
+      where: { clientId, invoiceNo: event.invoiceNo, settledAt: null }, select: { id: true }
+    });
+    // Ask about that one bill now, rather than wait for the next round of checks: after an outage a
+    // queue can hold many bills each followed by its money, and each would otherwise wait a round.
+    if (billPending && !(await billApplied(clientId, link, billPending.id, event.invoiceNo))) {
+      await release({ nextAttemptAt: new Date(Date.now() + BILL_FIRST_MS) });
+      return { outcome: 'RETRY_LATER', sequence: event.sequence };
+    }
+  }
+  const payload = event.payload as Record<string, any>;
+  // Inventory's status lookup for a payment is by its key, not by the bill number.
+  const lookup = event.eventType === 'payment.updated' ? String(payload?.idempotencyKey ?? event.invoiceNo ?? '') : (event.invoiceNo ?? '');
+
   const reply = await call(
     { baseUrl: link.base_url, keyCipher: link.key_cipher },
     'POST', '/events',
@@ -126,7 +151,7 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
       await prisma.inventorySettlement.upsert({
         where: { clientId_sequence: { clientId, sequence: event.sequence } },
         create: {
-          clientId, sequence: event.sequence, invoiceNo: event.invoiceNo ?? '', reference: answer.reference,
+          clientId, sequence: event.sequence, invoiceNo: lookup, reference: answer.reference,
           acceptedAt: new Date(), nextCheckAt: new Date(Date.now() + CHECK_MS[0])
         },
         update: { reference: answer.reference ?? undefined, settledAt: null, status: 'QUEUED', detail: null, checks: 0, nextCheckAt: new Date(Date.now() + CHECK_MS[0]) }
@@ -153,6 +178,23 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   const why = reply.kind === 'UNREACHABLE' ? `Inventory could not be reached (${reply.reason}).` : `Inventory was busy (${reply.status}).`;
   await release({ attempts, nextAttemptAt: new Date(Date.now() + backoffFor(attempts)), lastError: why });
   return { outcome: 'RETRY_LATER', sequence: event.sequence };
+}
+
+/**
+ * Has Inventory applied this bill yet? One status question, asked while the caller holds the lease.
+ * APPLIED settles the row here. Anything else -- still queued, rejected, unreachable -- is left to
+ * checkSettlements, which owns the rollback when a bill is rejected.
+ */
+async function billApplied(clientId: string, link: { base_url: string; key_cipher: string }, settlementId: string, invoiceNo: string) {
+  const reply = await call(
+    { baseUrl: link.base_url, keyCipher: link.key_cipher },
+    'GET', `/events/status?invoiceNo=${encodeURIComponent(invoiceNo)}`, undefined, 15_000
+  );
+  if (reply.kind !== 'ANSWERED' || reply.status !== 200) return false;
+  if (String(reply.body?.data?.status ?? '').toUpperCase() !== 'APPLIED') return false;
+  await prisma.inventorySettlement.update({ where: { id: settlementId }, data: { status: 'APPLIED', detail: null, settledAt: new Date() } });
+  await noteWarnings(clientId, invoiceNo, readAnswer(reply.body).warnings);
+  return true;
 }
 
 /**

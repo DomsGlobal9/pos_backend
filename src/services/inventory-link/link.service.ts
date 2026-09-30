@@ -203,7 +203,8 @@ export async function status(actor: Actor) {
   });
   // A return or exchange against a bill that was itself left out: Inventory has never heard of the
   // original, and will not. Say that, rather than the bare "no record of the original bill".
-  const against = (blockedEvent?.payload as { originalInvoiceNo?: string } | null)?.originalInvoiceNo ?? null;
+  const blockedPayload = blockedEvent?.payload as { originalInvoiceNo?: string; invoiceNo?: string } | null;
+  const against = blockedPayload?.originalInvoiceNo ?? (blockedEvent?.eventType === 'payment.updated' ? blockedPayload?.invoiceNo ?? null : null);
   const originalLeftOut = against
     ? Boolean(await prisma.inventorySkip.findFirst({ where: { clientId: actor.clientId, document: against }, select: { id: true } }))
     : false;
