@@ -23,20 +23,20 @@ function mustManage(actor: Actor) {
   if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change who works the till.', { code: 'NOT_PERMITTED' });
 }
 
-const cleanPhone = (raw?: string | null) => {
+export const cleanPhone = (raw?: string | null) => {
   if (!raw) return null;
   const d = raw.replace(/\D/g, '');
   if (d.length === 10) return `+91${d}`;
   if (d.length === 12 && d.startsWith('91')) return `+${d}`;
   throw badRequest('Enter a 10-digit mobile number.');
 };
-const cleanEmail = (raw?: string | null) => {
+export const cleanEmail = (raw?: string | null) => {
   const e = (raw ?? '').trim().toLowerCase();
   if (!e) return null;
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw badRequest('That email does not look right.');
   return e;
 };
-const cleanPin = (pin: string) => {
+export const cleanPin = (pin: string) => {
   if (!/^\d{4}$/.test(pin ?? '')) throw badRequest('The PIN is 4 digits.');
   if (/^(\d)\1{3}$/.test(pin) || ['1234', '4321', '0123', '9876'].includes(pin)) throw badRequest('Choose a PIN that is harder to guess than ' + pin + '.');
   return pin;

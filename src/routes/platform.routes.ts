@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 import { env } from '../config/env';
 import { createShop } from '../services/shop-setup';
 
@@ -9,13 +10,23 @@ import { createShop } from '../services/shop-setup';
  */
 const router = Router();
 
+// The setup key is long and random, but this door now has a web page in front of it: a tight
+// limit makes guessing it hopeless, and ScaleEzy never sets up ten shops in a minute.
+router.use(rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many tries in one minute. Wait a minute and try again.' }
+}));
+
 router.use((req, res, next) => {
   const expected = env.PLATFORM_SETUP_KEY;
   if (!expected) return res.status(404).json({ success: false, message: 'Not found.' });
   const given = Buffer.from(String(req.headers['x-platform-key'] ?? ''));
   const want = Buffer.from(expected);
   if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
-    return res.status(401).json({ success: false, message: 'Not allowed.' });
+    return res.status(401).json({ success: false, message: 'That setup key is not right.' });
   }
   next();
 });

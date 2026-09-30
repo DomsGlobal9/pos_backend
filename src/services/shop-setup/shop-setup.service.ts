@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { prisma } from '../../lib/prisma';
 import { PERMISSIONS } from '../../types/actor';
 import { badRequest, conflict } from '../../utils/httpError';
+import { cleanPin, cleanEmail, cleanPhone } from '../staff/staff.service';
 import { hashPassword } from '../auth';
 
 /**
@@ -54,6 +55,47 @@ export interface NewShop {
   address?: string | null;
   counterName?: string;
   owner: { name: string; email?: string | null; phone?: string | null; password: string; pin: string };
+  /** Managers and cashiers, added in the same go (optional). The owner can add more later on Staff. */
+  staff?: NewPerson[];
+}
+
+export interface NewPerson { name: string; role: string; pin: string; email?: string | null; phone?: string | null; password?: string | null }
+
+const STAFF_ROLES = ['OWNER', 'MANAGER', 'CASHIER'];
+
+/**
+ * Everyone checked before anything is written: a shop half set up -- the owner made, the third
+ * cashier refused -- would have to be cleaned up by hand. Same rules as the Staff screen (weak PINs,
+ * a password needs a login), plus two that only matter when several people arrive at once: no two
+ * with the same PIN (a PIN approves as ONE person), and no two with the same email or phone.
+ */
+function checkPeople(owner: NewShop['owner'], staff: NewPerson[]) {
+  const people = [
+    { who: 'The owner', name: owner.name, role: 'OWNER', pin: owner.pin, email: owner.email, phone: owner.phone, password: owner.password },
+    ...staff.map((p, i) => ({ who: (p.name ?? '').trim() || `Person ${i + 1}`, ...p, role: (p.role ?? 'CASHIER').toUpperCase() }))
+  ];
+  const pins = new Map<string, string>();
+  const logins = new Map<string, string>();
+  return people.map((p, i) => {
+    const name = (p.name ?? '').trim();
+    if (name.length < 2) throw badRequest(`${i === 0 ? 'The owner' : `Person ${i}`} needs a name.`);
+    if (!STAFF_ROLES.includes(p.role)) throw badRequest(`${p.who}: choose Owner, Manager or Cashier.`);
+    let pin: string;
+    try { pin = cleanPin(p.pin ?? ''); } catch (e) { throw badRequest(`${p.who}: ${(e as Error).message}`); }
+    if (pins.has(pin)) throw badRequest(`${p.who} and ${pins.get(pin)} have the same PIN. Each person needs their own -- a PIN approves as one person.`);
+    pins.set(pin, p.who);
+    let email: string | null; let phone: string | null;
+    try { email = cleanEmail(p.email); phone = cleanPhone(p.phone); } catch (e) { throw badRequest(`${p.who}: ${(e as Error).message}`); }
+    for (const login of [email, phone].filter(Boolean) as string[]) {
+      if (logins.has(login)) throw badRequest(`${p.who} and ${logins.get(login)} have the same ${login.includes('@') ? 'email' : 'phone'}.`);
+      logins.set(login, p.who);
+    }
+    if (i === 0 && !email && !phone) throw badRequest('The owner needs an email or a 10-digit phone to open the till with.');
+    if (i === 0 && !p.password) throw badRequest('The owner needs a password to open the till with.');
+    if (p.password && !email && !phone) throw badRequest(`${p.who}: a password needs an email or phone to sign in with.`);
+    if (p.password && p.password.length < 8) throw badRequest(`${p.who}: use a password of at least 8 characters.`);
+    return { name: name.slice(0, 60), role: p.role, pin, email, phone, password: p.password || null };
+  });
 }
 
 export async function createShop(input: NewShop) {
@@ -62,14 +104,14 @@ export async function createShop(input: NewShop) {
   const shopName = (input.shopName ?? '').trim();
   if (shopName.length < 2) throw badRequest('shopName is required.');
   if (input.gstin && !/^[0-9]{2}[A-Z0-9]{13}$/.test(input.gstin.trim().toUpperCase())) throw badRequest('That GSTIN is not 15 characters in the usual form.');
-  const o = input.owner ?? ({} as NewShop['owner']);
-  if ((o.name ?? '').trim().length < 2) throw badRequest('owner.name is required.');
-  const email = (o.email ?? '').trim().toLowerCase() || null;
-  const digits = (o.phone ?? '').replace(/\D/g, '');
-  const phone = digits.length === 10 ? `+91${digits}` : digits.length === 12 && digits.startsWith('91') ? `+${digits}` : null;
-  if (!email && !phone) throw badRequest('The owner needs an email or a 10-digit phone to sign in with.');
-  if (!/^\d{4}$/.test(o.pin ?? '')) throw badRequest('owner.pin is 4 digits.');
-  const passwordHash = await hashPassword(o.password);
+  const staff = Array.isArray(input.staff) ? input.staff.slice(0, 30) : [];
+  const people = checkPeople(input.owner ?? ({} as NewShop['owner']), staff);
+  // Hashed before the transaction: bcrypt is slow, and a transaction should not wait on it.
+  const hashed = await Promise.all(people.map(async p => ({
+    ...p,
+    passwordHash: p.password ? await hashPassword(p.password) : null,
+    pinHash: await bcrypt.hash(p.pin, 10)
+  })));
 
   if (await prisma.shopSettings.findUnique({ where: { clientId }, select: { clientId: true } })) {
     throw conflict('That shop is already set up in the POS.', { code: 'SHOP_EXISTS' });
@@ -85,14 +127,22 @@ export async function createShop(input: NewShop) {
       }
     });
     const counter = await tx.counter.create({ data: { clientId, name: (input.counterName ?? 'Counter 1').slice(0, 40) }, select: { id: true, name: true } });
-    const owner = await tx.user.create({
-      data: {
-        clientId, name: o.name.trim().slice(0, 60), email, phone, passwordHash, approvalPinHash: await bcrypt.hash(o.pin, 10),
-        roles: { create: { roleId: roleIds.OWNER } }
-      },
-      select: { id: true, name: true }
-    });
-    return { counter, owner };
+    const made = [];
+    for (const p of hashed) {
+      made.push(await tx.user.create({
+        data: {
+          clientId, name: p.name, email: p.email, phone: p.phone, passwordHash: p.passwordHash, approvalPinHash: p.pinHash,
+          roles: { create: { roleId: roleIds[p.role] } }
+        },
+        select: { id: true, name: true }
+      }));
+    }
+    return { counter, made };
   });
-  return { clientId, shopName, counter: result.counter.name, owner: result.owner.name, signInWith: email ?? phone };
+  const [owner] = hashed;
+  return {
+    clientId, shopName, counter: result.counter.name, owner: result.made[0].name, signInWith: owner.email ?? owner.phone,
+    /** Everyone made, and how each gets in. Never a PIN or a password. */
+    people: hashed.map(p => ({ name: p.name, role: p.role, opensTillWith: p.passwordHash ? (p.email ?? p.phone) : null }))
+  };
 }
