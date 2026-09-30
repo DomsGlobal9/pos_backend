@@ -1131,6 +1131,8 @@ enum ApprovalKind {
   RETURN_OUTSIDE_WINDOW
   /// A cashier taking cash out of the drawer.
   CASH_OUT
+  /// Marking a payment that was being checked as never arrived: the customer owes it again.
+  PAYMENT_VOID
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1209,6 +1211,34 @@ model InventoryLink {
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@map("inventory_links")
+}
+
+/// A bill the owner left out of Inventory, because Inventory could never take it (an item deleted
+/// there for good, say). The queue had stopped at it; leaving it out lets every bill behind it go.
+///
+/// Never silent: the owner types why, it is in the activity log, and Inventory is told the bill,
+/// the reason and who agreed -- so its stock and day book show a known gap, not an unexplained one.
+/// `reportedAt` stays empty until Inventory has been told.
+model InventorySkip {
+  id           String    @id @default(uuid())
+  clientId     String    @map("client_id")
+  /// The event's sequence in `webhook_events`.
+  sequence     BigInt
+  /// The bill or credit note number, as the owner saw it.
+  document     String
+  eventType    String    @map("event_type")
+  /// Why Inventory refused it, as it was shown.
+  refusedCode  String?   @map("refused_code")
+  refusedText  String?   @map("refused_text")
+  reason       String
+  skippedById  String?   @map("skipped_by_id")
+  skippedBy    String?   @map("skipped_by")
+  skippedAt    DateTime  @default(now()) @map("skipped_at")
+  reportedAt   DateTime? @map("reported_at")
+
+  @@unique([clientId, sequence])
+  @@index([clientId, skippedAt])
+  @@map("inventory_skips")
 }
 
 /// A bill Inventory has taken in (202 ACCEPTED) but may not have applied yet. POS-INV-006.

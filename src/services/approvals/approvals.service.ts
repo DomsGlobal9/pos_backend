@@ -25,7 +25,8 @@ const REQUIRED_PERMISSION: Record<ApprovalKind, string> = {
   PRICE_OVERRIDE: PERMISSIONS.PRICE_OVERRIDE,
   RETURN: PERMISSIONS.REFUND,
   RETURN_OUTSIDE_WINDOW: PERMISSIONS.REFUND_OUTSIDE_WINDOW,
-  CASH_OUT: PERMISSIONS.CASH_OUT
+  CASH_OUT: PERMISSIONS.CASH_OUT,
+  PAYMENT_VOID: PERMISSIONS.PAYMENT_VOID
 };
 
 const HUMAN_KIND: Record<ApprovalKind, string> = {
@@ -33,7 +34,8 @@ const HUMAN_KIND: Record<ApprovalKind, string> = {
   PRICE_OVERRIDE: 'a price change',
   RETURN: 'a refund',
   RETURN_OUTSIDE_WINDOW: 'a return after the return window',
-  CASH_OUT: 'taking cash out of the drawer'
+  CASH_OUT: 'taking cash out of the drawer',
+  PAYMENT_VOID: 'marking a payment as never arrived'
 };
 
 /**

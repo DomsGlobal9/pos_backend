@@ -58,6 +58,8 @@ export const PERMISSIONS = {
   CLOSE_DAY: 'day:close',
   /** Taking cash out of the drawer. A cashier without it needs a manager's PIN. POS-SHIFT-004. */
   CASH_OUT: 'cash:out',
+  /** Saying a payment that was being checked never arrived. A cashier needs a manager's PIN. */
+  PAYMENT_VOID: 'payment:void',
   /** The full reports: any period, every cashier and counter. Without it: your own sales today. POS-RPT. */
   REPORTS: 'report:view',
   SEE_COST: 'report:cost',

@@ -41,6 +41,7 @@ export type AuditAction =
   | 'inventory.connected'
   | 'inventory.disconnected'
   | 'inventory.retried'
+  | 'inventory.skipped'
   | 'inventory.catalogue_synced'
   | 'receipt.sent'
   | 'shop.upi_set'

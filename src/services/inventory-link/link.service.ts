@@ -109,6 +109,73 @@ export async function retry(actor: Actor) {
   return status(actor);
 }
 
+/** Refusals that are about the link itself, not a bill: leaving a bill out would not help. */
+const NOT_A_BILL_PROBLEM = ['KEY_REFUSED'];
+export const SKIP_REASON_MIN = 10;
+
+/**
+ * The owner leaves the bill the queue stopped at out of Inventory, so every bill behind it can go.
+ *
+ * For a bill Inventory can never take -- an item deleted there for good. "Fix it in Inventory,
+ * then try again" is still the first answer, and the screen says so; this is the way out when there
+ * is nothing left to fix. Owner only, a typed reason (the only thing that will make sense of it in
+ * three months), in the activity log, and kept on the screen as "left out".
+ *
+ * The owner names the bill they read. If the queue has meanwhile stopped somewhere else, nothing is
+ * left out: skipping a bill nobody looked at is exactly the silent gap this is meant to prevent.
+ *
+ * What Inventory then holds: the stock on that bill never left its books, and its day book is short
+ * by that bill. Telling Inventory (a marker event) waits until Inventory accepts one -- until then
+ * `reportedAt` stays empty and the screen says Inventory has not been told.
+ */
+export async function leaveOut(actor: Actor, input: { document: string; reason: string }) {
+  mustManage(actor);
+  const reason = (input.reason ?? '').trim();
+  if (reason.length < SKIP_REASON_MIN) {
+    throw badRequest('Write why this bill is being left out of Inventory, in a sentence. You will want it when the stock is counted.', { code: 'REASON_REQUIRED' });
+  }
+  const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId } });
+  if (!link?.blockedSequence) throw conflict('Sending to Inventory is not stopped -- there is nothing to leave out.', { code: 'NOT_BLOCKED' });
+  if (NOT_A_BILL_PROBLEM.includes(link.blockedCode ?? '')) {
+    throw conflict('This stop is about the connection key, not a bill. Connect again with a new key from Inventory.', { code: 'NOT_A_BILL' });
+  }
+  const event = await prisma.webhookEvent.findFirst({
+    where: { clientId: actor.clientId, sequence: link.blockedSequence },
+    select: { sequence: true, invoiceNo: true, eventType: true }
+  });
+  if (!event || (event.invoiceNo ?? '') !== (input.document ?? '').trim()) {
+    throw conflict('The stop has changed since this screen was opened. Look at it again before leaving anything out.', { code: 'STOP_CHANGED' });
+  }
+
+  const sequence = event.sequence;
+  await prisma.$transaction(async (tx) => {
+    // Guarded: only if the queue is still stopped at this very bill.
+    const moved = await tx.$executeRaw`
+      UPDATE inventory_links
+         SET delivered_sequence = GREATEST(delivered_sequence, ${sequence}),
+             blocked_sequence = NULL, blocked_code = NULL, blocked_message = NULL,
+             attempts = 0, next_attempt_at = NULL, last_error = NULL, locked_until = NULL
+       WHERE client_id = ${actor.clientId} AND blocked_sequence = ${sequence}`;
+    if (moved !== 1) throw conflict('The stop has changed since this screen was opened. Look at it again before leaving anything out.', { code: 'STOP_CHANGED' });
+    await tx.inventorySkip.create({
+      data: {
+        clientId: actor.clientId, sequence, document: event.invoiceNo ?? '', eventType: event.eventType,
+        refusedCode: link.blockedCode, refusedText: link.blockedMessage, reason,
+        skippedById: actor.id, skippedBy: actor.name ?? null
+      }
+    });
+    // Its ending is known now: left out. Nothing more to ask Inventory about it.
+    await tx.inventorySettlement.updateMany({ where: { clientId: actor.clientId, sequence, settledAt: null }, data: { settledAt: new Date(), status: 'REJECTED' } });
+  });
+
+  await record(actor, {
+    action: 'inventory.skipped',
+    subject: event.invoiceNo,
+    detail: { eventType: event.eventType, refusedCode: link.blockedCode, refused: link.blockedMessage, reason }
+  });
+  return status(actor);
+}
+
 /** The owner's view. Never includes the key. */
 export async function status(actor: Actor) {
   const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId } });
@@ -125,9 +192,21 @@ export async function status(actor: Actor) {
   const blockedEvent = link.blockedSequence
     ? await prisma.webhookEvent.findFirst({
         where: { clientId: actor.clientId, sequence: link.blockedSequence },
-        select: { invoiceNo: true, eventType: true, createdAt: true }
+        select: { invoiceNo: true, eventType: true, createdAt: true, payload: true }
       })
     : null;
+  const leftOut = await prisma.inventorySkip.findMany({
+    where: { clientId: actor.clientId },
+    orderBy: { skippedAt: 'desc' },
+    take: 50,
+    select: { document: true, eventType: true, refusedText: true, reason: true, skippedBy: true, skippedAt: true, reportedAt: true }
+  });
+  // A return or exchange against a bill that was itself left out: Inventory has never heard of the
+  // original, and will not. Say that, rather than the bare "no record of the original bill".
+  const against = (blockedEvent?.payload as { originalInvoiceNo?: string } | null)?.originalInvoiceNo ?? null;
+  const originalLeftOut = against
+    ? Boolean(await prisma.inventorySkip.findFirst({ where: { clientId: actor.clientId, document: against }, select: { id: true } }))
+    : false;
 
   return {
     mode: link.connected ? ('CONNECTED' as const) : ('DISCONNECTED' as const),
@@ -142,8 +221,19 @@ export async function status(actor: Actor) {
     nextAttemptAt: link.nextAttemptAt,
     lastError: link.lastError,
     blocked: link.blockedSequence
-      ? { code: link.blockedCode, message: link.blockedMessage, document: blockedEvent?.invoiceNo ?? null, at: blockedEvent?.createdAt ?? null }
+      ? {
+          code: link.blockedCode,
+          message: originalLeftOut
+            ? `This is against ${against}, which was left out of Inventory, so Inventory has no record of it.`
+            : link.blockedMessage,
+          document: blockedEvent?.invoiceNo ?? null,
+          at: blockedEvent?.createdAt ?? null,
+          /** Whether "leave this bill out" applies: a bill problem, not the key. */
+          mayLeaveOut: !NOT_A_BILL_PROBLEM.includes(link.blockedCode ?? '')
+        }
       : null,
+    /** Bills the owner left out of Inventory, newest first. */
+    leftOut,
     catalogueSyncedAt: link.catalogueSyncedAt,
     catalogueProblems: (link.catalogueProblems as string[] | null) ?? [],
     /** Notes on bills Inventory accepted. Newest first. */

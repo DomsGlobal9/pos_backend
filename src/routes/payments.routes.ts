@@ -20,7 +20,9 @@ const resolution = z.object({
   /** What the bank actually said. Not a guess. */
   arrived: z.boolean(),
   reference: z.string().trim().max(64).optional(),
-  note: z.string().trim().max(280).optional()
+  note: z.string().trim().max(280).optional(),
+  /** A cashier saying "never arrived" needs a manager: their PIN and why. */
+  approval: z.object({ pin: z.string().max(12), reason: z.string().max(280) }).optional()
 });
 
 /** POST /api/v1/payments/:id/resolve -- settle one unconfirmed payment. */

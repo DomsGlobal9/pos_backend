@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { connect, disconnect, setWhenDown, retry, status, syncCatalogue, drain } from '../services/inventory-link';
+import { connect, disconnect, setWhenDown, retry, status, syncCatalogue, drain, leaveOut } from '../services/inventory-link';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
 
@@ -37,6 +37,18 @@ router.post('/when-down', handle(req => {
 /** POST /api/v1/inventory-link/retry -- a person fixed what stopped the queue; send now. */
 router.post('/retry', handle(async req => {
   await retry(req.actor);
+  const sent = await drain(req.actor.clientId);
+  return { ...(await status(req.actor)), sent };
+}));
+
+/**
+ * POST /api/v1/inventory-link/leave-out -- the owner leaves the bill the queue stopped at out of
+ * Inventory, with a reason, so the bills behind it can go. Then sends what was waiting.
+ */
+router.post('/leave-out', handle(async req => {
+  const body = z.object({ document: z.string().trim().min(1), reason: z.string().max(500) }).safeParse(req.body);
+  if (!body.success) throw badRequest('Say which bill, and why it is being left out.');
+  await leaveOut(req.actor, body.data);
   const sent = await drain(req.actor.clientId);
   return { ...(await status(req.actor)), sent };
 }));

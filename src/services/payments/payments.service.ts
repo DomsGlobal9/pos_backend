@@ -1,7 +1,9 @@
 import { PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { Actor } from '../../types/actor';
-import { badRequest, conflict, notFound } from '../../utils/httpError';
+import { Actor, may, PERMISSIONS } from '../../types/actor';
+import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
+import { grant, REASON_MIN } from '../approvals';
+import { record } from '../audit';
 import { rupees, changeDue } from '../money';
 import { PaymentInput } from '../sale/sale.schema';
 
@@ -257,15 +259,23 @@ export async function awaitingCheck(actor: Actor): Promise<UncheckedPayment[]> {
  * Only a NEEDS_CHECKING payment can be resolved. A COLLECTED one cannot be quietly turned into a
  * VOID from this path -- that would be a way to make money disappear from a closed bill without an
  * audit trail, which is a different feature (POS-SALE-012, Phase 6) with different rules.
+ *
+ * NEVER ARRIVED NEEDS A MANAGER, AND A REASON (decided 30 Sep). It turns money taken into money
+ * owed on a bill that is already closed -- the same kind of act as a big discount -- and a cashier
+ * who is short at close has an obvious reason to press it. So: `payment:void` (managers, the
+ * owner) or a manager's PIN, and always a few words on why. Both answers go in the activity log.
+ *
+ * Inventory is not told: it only ever hears of COLLECTED payments (inventory-link/wire.ts), so a
+ * payment still being checked was never in its day book to begin with.
  */
 export async function resolve(
   actor: Actor,
   paymentId: string,
-  input: { arrived: boolean; reference?: string; note?: string }
+  input: { arrived: boolean; reference?: string; note?: string; approval?: { pin: string; reason: string } }
 ) {
   const payment = await prisma.payment.findFirst({
     where: { id: paymentId, clientId: actor.clientId },
-    select: { id: true, status: true, method: true, amountPaise: true, saleId: true }
+    select: { id: true, status: true, method: true, amountPaise: true, saleId: true, sale: { select: { invoiceNo: true } } }
   });
   if (!payment) throw notFound('That payment was not found.');
 
@@ -278,10 +288,24 @@ export async function resolve(
     );
   }
 
+  const invoiceNo = payment.sale?.invoiceNo ?? null;
+  const voidDetail = { invoiceNo, amountPaise: payment.amountPaise, method: payment.method };
+  const needsManager = !input.arrived && !may(actor, PERMISSIONS.PAYMENT_VOID);
+  if (needsManager && !input.approval) {
+    throw forbidden(
+      `A manager needs to agree that this ${rupees(payment.amountPaise)} ${pretty(payment.method)} payment never arrived.`,
+      { code: 'APPROVAL_REQUIRED', kind: 'PAYMENT_VOID', ...voidDetail }
+    );
+  }
+  const why = (input.approval?.reason ?? input.note ?? '').trim();
+  if (!input.arrived && why.length < REASON_MIN) {
+    throw badRequest('Say why the money never arrived -- for example "not in the bank statement". A few words is enough.', { code: 'REASON_REQUIRED' });
+  }
+
   const data: Prisma.PaymentUpdateInput = {
     status: input.arrived ? 'COLLECTED' : 'VOID',
     checkedAt: new Date(),
-    checkedNote: input.note?.trim() || null,
+    checkedNote: (input.arrived ? input.note?.trim() : why) || null,
     ...(actor.id ? { checkedBy: { connect: { id: actor.id } } } : {})
   };
   if (input.arrived && input.reference?.trim()) data.reference = input.reference.trim();
@@ -291,9 +315,26 @@ export async function resolve(
    * arrived means the customer owes that money again, and the bill has to say so -- otherwise the
    * Orders screen shows nothing due on a bill that is short.
    */
+  let approvedBy: { id: string; name: string | null } | null = null;
   await prisma.$transaction(async (tx) => {
+    if (needsManager) {
+      // The PIN is checked inside the same transaction: an approval for a void that never happened
+      // would be a manager's name against something they did not agree to.
+      approvedBy = (await grant(actor, { kind: 'PAYMENT_VOID', pin: input.approval!.pin, reason: why, detail: voidDetail }, tx)).approvedBy;
+    }
     await tx.payment.update({ where: { id: paymentId }, data });
     await refreshMoneyStatus(tx, payment.saleId);
+  });
+
+  await record(actor, {
+    action: 'payment.resolved',
+    subject: invoiceNo,
+    detail: {
+      outcome: input.arrived ? 'ARRIVED' : 'NEVER_ARRIVED',
+      ...voidDetail,
+      ...(input.arrived ? (input.reference?.trim() ? { reference: input.reference.trim() } : {}) : { reason: why }),
+      ...(approvedBy ? { approvedBy: (approvedBy as { name: string | null }).name, approvedById: (approvedBy as { id: string }).id } : {})
+    }
   });
 
   return {
