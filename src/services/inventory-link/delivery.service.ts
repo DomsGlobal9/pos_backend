@@ -342,7 +342,15 @@ export function startDeliveryLoop(everyMs = 15_000) {
   timer = setInterval(async () => {
     if (running) return;
     running = true;
-    try { await runOnce(); } finally { running = false; }
+    /*
+     * Caught, always. runOnce's first read (the list of connected shops) sits outside its per-shop
+     * catch, and the database connection does drop now and then (Supabase's pooler closes idle ones).
+     * Uncaught, that one rejection took the whole server down -- till and all -- seen 30 Sep. The next
+     * pass, 15 seconds later, simply tries again.
+     */
+    try { await runOnce(); }
+    catch (error) { console.error('[inventory-link] pass failed:', (error as Error).message); }
+    finally { running = false; }
   }, everyMs);
   timer.unref();
 }
