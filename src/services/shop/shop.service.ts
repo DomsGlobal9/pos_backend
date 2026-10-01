@@ -12,7 +12,7 @@ import { record } from '../audit';
  * the till and being able to scan.
  */
 export async function forTill(actor: Actor) {
-  const [settings, counters] = await Promise.all([
+  const [settings, counters, link] = await Promise.all([
     prisma.shopSettings.findUnique({
       where: { clientId: actor.clientId },
       select: {
@@ -25,13 +25,20 @@ export async function forTill(actor: Actor) {
       where: { clientId: actor.clientId, active: true },
       orderBy: { name: 'asc' },
       select: { id: true, name: true }
-    })
+    }),
+    prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { connected: true } })
   ]);
 
   if (!settings) throw notFound('This shop is not set up yet.');
 
   return {
     shop: settings,
+    /*
+     * Whether THIS shop is connected to Inventory -- its own link, not whether the server knows an
+     * Inventory address. The header used to say "Inventory connected" from the server's setting
+     * alone, so a shop that had never connected was told it was (sphl, 1 Oct).
+     */
+    inventoryConnected: link?.connected === true,
     counters,
     cashier: { id: actor.id, name: actor.name ?? null },
     permissions: actor.permissions
