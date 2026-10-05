@@ -48,6 +48,22 @@ const LEASE_MS = 150_000;
 const BACKOFF_MS = [30_000, 2 * 60_000, 10 * 60_000, 60 * 60_000];
 export const backoffFor = (attempts: number) => BACKOFF_MS[Math.min(attempts, BACKOFF_MS.length) - 1] ?? 60 * 60_000;
 
+/**
+ * The number Inventory filed this event under -- which is what GET /events/status must be asked
+ * for. Not always the outbox row's own invoiceNo:
+ *
+ *   payment.updated   its idempotencyKey. A kept order collects money more than once, so the bill
+ *                     number cannot tell a repeat from a second instalment.
+ *   sale.exchanged    the NEW bill. The outbox row is filed under the credit note (it is one act
+ *                     to the POS), but Inventory keys the exchange on `exchangeNo`, which wire.ts
+ *                     sends as newInvoiceNo. Asking for the credit note would 404 forever.
+ */
+function lookupKey(eventType: string, invoiceNo: string | null, payload: any): string {
+  if (eventType === 'payment.updated') return String(payload?.idempotencyKey ?? invoiceNo ?? '');
+  if (eventType === 'sale.exchanged') return String(payload?.newInvoiceNo ?? invoiceNo ?? '');
+  return invoiceNo ?? '';
+}
+
 /** A refusal, in words: Inventory's own sentence names the item and the figures. */
 function describe(code: string | null, detail: string | null) {
   const said = detail ? ` Inventory said: "${detail}"` : '';
@@ -131,8 +147,7 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
     }
   }
   const payload = event.payload as Record<string, any>;
-  // Inventory's status lookup for a payment is by its key, not by the bill number.
-  const lookup = event.eventType === 'payment.updated' ? String(payload?.idempotencyKey ?? event.invoiceNo ?? '') : (event.invoiceNo ?? '');
+  const lookup = lookupKey(event.eventType, event.invoiceNo, payload);
 
   const reply = await call(
     { baseUrl: link.base_url, keyCipher: link.key_cipher },
