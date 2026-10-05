@@ -4,6 +4,6 @@
  */
 export { connect, disconnect, setWhenDown, retry, status, leaveOut, SKIP_REASON_MIN } from './link.service';
 export { deliverNext, drain, runOnce, checkSettlements, startDeliveryLoop, backoffFor, STOCK_EVENTS } from './delivery.service';
-export { syncCatalogue } from './catalogue.service';
+export { syncCatalogue, startCatalogueLoop } from './catalogue.service';
 export { toInventory, readAnswer } from './wire';
 export type { Outcome } from './delivery.service';

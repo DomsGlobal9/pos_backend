@@ -36,7 +36,18 @@ export async function syncCatalogue(actor: Actor, opts: { full?: boolean } = {})
   if (!may(actor, PERMISSIONS.SETTINGS) && !may(actor, PERMISSIONS.CLOSE_DAY)) {
     throw forbidden('Only a manager or the owner can refresh the item list from Inventory.', { code: 'NOT_PERMITTED' });
   }
-  const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId } });
+  return syncFor(actor.clientId, opts, actor);
+}
+
+/**
+ * The sync itself, without the permission check, so the timer below can run it too.
+ *
+ * `actor` is only there to put a name against the audit line. The background pass has no person
+ * behind it and records nothing -- an owner opening Activity should see the refreshes someone
+ * chose to do, not one line every few minutes.
+ */
+async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: Actor) {
+  const link = await prisma.inventoryLink.findUnique({ where: { clientId } });
   if (!link || !link.connected) throw conflict('This till is not connected to Inventory.', { code: 'NOT_CONNECTED' });
 
   let cursor = opts.full ? null : link.catalogueCursor;
@@ -61,18 +72,56 @@ export async function syncCatalogue(actor: Actor, opts: { full?: boolean } = {})
     const data = reply.body?.data ?? {};
     const products: any[] = Array.isArray(data.products) ? data.products : [];
     for (const product of products) {
-      await applyProduct(actor.clientId, product, counts, problems);
+      await applyProduct(clientId, product, counts, problems);
     }
     cursor = data.nextCursor ?? cursor;
     if (!data.hasMore) break;
   }
 
   await prisma.inventoryLink.update({
-    where: { clientId: actor.clientId },
+    where: { clientId },
     data: { catalogueCursor: cursor, catalogueSyncedAt: new Date(), catalogueProblems: problems }
   });
-  await record(actor, { action: 'inventory.catalogue_synced', detail: { ...counts, problems: problems.length } });
+  if (actor) await record(actor, { action: 'inventory.catalogue_synced', detail: { ...counts, problems: problems.length } });
   return { ...counts, problems };
+}
+
+/*
+ * KEEPING STOCK IN STEP WITHOUT ANYONE PRESSING ANYTHING.
+ *
+ * The till sells from its own copy of the item list, which is what keeps a scan fast. Until now
+ * that copy only moved when a manager pressed "Refresh items from Inventory" -- so if the online
+ * shop or a second till sold the last piece, this one went on offering it until somebody thought
+ * to press the button. The sale is still recorded and Inventory still takes it (stock simply goes
+ * negative, with a warning), but the customer has been promised something that is not there.
+ *
+ * The cursor makes this cheap: each pass asks only for what changed since the last one, which is
+ * usually nothing and costs one request per shop. The button stays -- a manager who has just
+ * corrected a count in Inventory wants it now, not in three minutes.
+ */
+const EVERY_MS = 3 * 60_000;
+let timer: NodeJS.Timeout | null = null;
+let running = false;
+
+export function startCatalogueLoop(everyMs = EVERY_MS) {
+  if (timer) return;
+  timer = setInterval(async () => {
+    if (running) return;
+    running = true;
+    try {
+      const links = await prisma.inventoryLink.findMany({ where: { connected: true }, select: { clientId: true } });
+      for (const l of links) {
+        // Per shop, so one shop's bad key or slow answer never stops the others.
+        try { await syncFor(l.clientId); }
+        catch (error) { console.error(`[inventory-link] catalogue refresh for ${l.clientId} failed:`, (error as Error).message); }
+      }
+    } catch (error) {
+      // The list of shops is one query outside the per-shop catch, and a dropped pooler connection
+      // here took the whole server down once before (30 Sep). The next pass simply tries again.
+      console.error('[inventory-link] catalogue pass failed:', (error as Error).message);
+    } finally { running = false; }
+  }, everyMs);
+  timer.unref();
 }
 
 async function applyProduct(clientId: string, product: any, counts: Record<string, number>, problems: string[]) {

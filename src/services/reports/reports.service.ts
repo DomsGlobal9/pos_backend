@@ -56,7 +56,7 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
   const mine = full ? {} : { cashierId: actor.id ?? '__nobody__' };
   const saleWhere: Prisma.SaleWhereInput = { clientId, createdAt: inRange, status: { in: COUNTED }, ...mine };
 
-  const [totals, payments, refunds, byCashier, byCounter, returns, returnLines, taxLines, overrides, approvals] = await Promise.all([
+  const [totals, payments, unsettled, refunds, byCashier, byCounter, returns, returnLines, taxLines, overrides, approvals] = await Promise.all([
     // POS-RPT-001
     prisma.sale.aggregate({
       where: saleWhere,
@@ -67,6 +67,22 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
     prisma.payment.groupBy({
       by: ['method'],
       where: { clientId, createdAt: inRange, status: 'COLLECTED', ...(full ? {} : { sale: { cashierId: actor.id ?? '__nobody__' } }) },
+      _sum: { amountPaise: true },
+      _count: true
+    }),
+    /*
+     * Money that is neither in the drawer nor written off: a UPI still being checked, and one
+     * checked and found never to have arrived. "How it was paid" counts only COLLECTED, which is
+     * right, but on its own it reads as a fault -- an owner sees "Net sales Rs 24,499" beside
+     * "Nothing taken" and reasonably thinks the day's takings have gone (seen on the live till,
+     * 5 Oct). Said out loud it is just a bill waiting on the bank.
+     */
+    prisma.payment.groupBy({
+      by: ['status'],
+      where: {
+        clientId, createdAt: inRange, status: { in: ['NEEDS_CHECKING', 'VOID'] },
+        ...(full ? {} : { sale: { cashierId: actor.id ?? '__nobody__' } })
+      },
       _sum: { amountPaise: true },
       _count: true
     }),
@@ -160,6 +176,14 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
     paidIn: payments.map(r => ({ method: r.method, amountPaise: r._sum.amountPaise ?? 0, count: r._count }))
       .sort((a, b) => b.amountPaise - a.amountPaise),
     paidOut: refunds.map(r => ({ method: r.method, amountPaise: r._sum.amountPaise ?? 0 })).sort((a, b) => b.amountPaise - a.amountPaise),
+    beingChecked: {
+      amountPaise: unsettled.find(r => r.status === 'NEEDS_CHECKING')?._sum.amountPaise ?? 0,
+      count: unsettled.find(r => r.status === 'NEEDS_CHECKING')?._count ?? 0
+    },
+    neverArrived: {
+      amountPaise: unsettled.find(r => r.status === 'VOID')?._sum.amountPaise ?? 0,
+      count: unsettled.find(r => r.status === 'VOID')?._count ?? 0
+    },
     byCashier: byCashier.map(r => ({ name: r.cashierId ? cashierNames.get(r.cashierId) || 'Unknown' : 'Not recorded', bills: r._count, netPaise: r._sum.totalPaise ?? 0 }))
       .sort((a, b) => b.netPaise - a.netPaise),
     byCounter: byCounter.map(r => ({ name: counterNames.get(r.counterId) || 'Unknown', bills: r._count, netPaise: r._sum.totalPaise ?? 0 }))
