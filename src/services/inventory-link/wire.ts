@@ -9,6 +9,8 @@
  *   - tax as basis points (`taxRateBps`, 500 = 5%) -- the POS line carries a percent
  *   - a return names the bill it reverses as `againstInvoiceNo`, and each line's worth as
  *     `lineTotalPaise`
+ *   - an exchange is keyed `exchangeNo` (the new bill) and its outgoing lines are `sold`, not
+ *     `taken`
  *
  * Payments: only money actually in (COLLECTED). A UPI still being checked is not takings until it
  * is -- and a payment's later life (a balance collected, a check resolved) is a `payment.updated`
@@ -75,8 +77,21 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
       newInvoiceNo: payload.newInvoiceNo,
       occurredAt: payload.occurredAt,
       customer: payload.customer ?? null,
+      /*
+       * `exchangeNo` and `sold` are Inventory's names, and neither is in the contract (§4.3 says
+       * `taken`, idempotent on creditNoteNo). Found 5 Oct by reading Inventory's own code: without
+       * exchangeNo it answers BAD_PAYLOAD, which stops the shop's queue at the first exchange and
+       * every sale behind it. Both suites missed it -- the POS's stand-in waved any `kind` through
+       * and Inventory's suite sends its own names.
+       *
+       * The NEW bill is the number sent, not the credit note: Inventory files the order it creates
+       * under `externalOrderId = exchangeNo`, so newInvoiceNo keeps a payment.updated collected
+       * later against that bill able to find its order. delivery.service asks /events/status for
+       * the same number.
+       */
+      exchangeNo: payload.newInvoiceNo,
       returned: (payload.returned ?? []).map(line),
-      taken: (payload.taken ?? []).map(line),
+      sold: (payload.taken ?? []).map(line),
       differencePaise: payload.differencePaise,
       payments: collected(payload.payments),
       // New goods cheaper than what came back: the rest was given back, and how.
