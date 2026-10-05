@@ -7,7 +7,7 @@ import rateLimit from 'express-rate-limit';
 import { env, hasInventory } from './config/env';
 import apiRoutes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
-import { startDeliveryLoop } from './services/inventory-link';
+import { startDeliveryLoop, startCatalogueLoop } from './services/inventory-link';
 import { startWebhookLoop } from './services/webhooks';
 
 /**
@@ -67,6 +67,9 @@ const server = app.listen(env.PORT, () => {
     // Sends each connected shop's sales, returns and exchanges to Inventory, in order. Off the
     // path of every sale; a sale only ever writes its event and is done.
     startDeliveryLoop();
+    // Pulls what changed in Inventory into each connected till's own item list, so the shelf count
+    // the sell screen shows does not drift until a manager thinks to press Refresh.
+    startCatalogueLoop();
     // A shop's own software, told about each sale, return, exchange and day close. Leased rows, so
     // even two instances with jobs on never send one notice twice at once.
     startWebhookLoop();
