@@ -1,3 +1,5 @@
+// The shop's time zone, before anything reads the clock. Keep this import first.
+import './config/timezone';
 import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
