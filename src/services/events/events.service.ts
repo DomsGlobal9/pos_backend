@@ -83,7 +83,7 @@ export async function dayClosed(tx: Tx, clientId: string, date: string, figures:
 
 const LINE_SELECT = {
   qty: true, description: true, hsn: true, unitPricePaise: true, discountPaise: true,
-  taxRate: true, taxPaise: true, lineTotalPaise: true,
+  taxRate: true, taxPaise: true, lineTotalPaise: true, appliedOffers: true,
   item: { select: { code: true } }
 } as const;
 
@@ -98,7 +98,9 @@ const saleLine = (l: SaleLineRow) => ({
   discountPaise: l.discountPaise,
   taxRate: l.taxRate,
   taxPaise: l.taxPaise,
-  lineTotalPaise: l.lineTotalPaise
+  lineTotalPaise: l.lineTotalPaise,
+  // The offers that made this line's price, as the quote gave them (contract §4.1). Absent on a plain line.
+  ...(Array.isArray(l.appliedOffers) && l.appliedOffers.length ? { offers: l.appliedOffers } : {})
 });
 
 async function loadSale(tx: Tx, saleId: string) {
@@ -117,10 +119,13 @@ async function loadSale(tx: Tx, saleId: string) {
 }
 
 /** sale.completed -- a bill. Written by writeSale, except for the new bill of an exchange. */
-export async function saleCompleted(tx: Tx, clientId: string, saleId: string) {
+export async function saleCompleted(tx: Tx, clientId: string, saleId: string, priced: { quoteId?: string | null; couponCode?: string | null } = {}) {
   const s = await loadSale(tx, saleId);
   await write(tx, clientId, 'sale.completed', {
     invoiceNo: s.invoiceNo,
+    // The Inventory quote this bill was built from, and the code used, when there was one. §9.
+    ...(priced.quoteId ? { quoteId: priced.quoteId } : {}),
+    ...(priced.couponCode ? { couponCode: priced.couponCode } : {}),
     financialYear: s.financialYear,
     occurredAt: s.createdAt.toISOString(),
     counter: s.counter.name,

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { search, variantsOf } from '../services/items';
 import { completeSale, getSale, completeSaleSchema } from '../services/sale';
+import { quoteBasket } from '../services/inventory-link';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
 
@@ -33,6 +34,26 @@ router.get('/variants/:group', async (req, res, next) => {
   try {
     const group = z.string().min(1).max(120).parse(req.params.group);
     res.json({ success: true, data: await variantsOf((req as any).actor, group) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/v1/sales/quote -- what this basket comes to with the shop's offers on it. Contract §9.
+ *
+ * Always 200: a quote that could not be had is `{ ok: false, reason }`, which the till shows as one
+ * plain line and sells on. The till sends ids and quantities; the answer is held here by its id.
+ */
+router.post('/quote', async (req, res, next) => {
+  try {
+    const body = z.object({
+      lines: z.array(z.object({ itemId: z.string().min(1), qty: z.number().int().positive() })).min(1).max(100),
+      customerId: z.string().min(1).optional(),
+      couponCode: z.string().trim().min(1).max(40).optional()
+    }).safeParse(req.body);
+    if (!body.success) throw badRequest(body.error.issues[0].message);
+    res.json({ success: true, data: await quoteBasket((req as any).actor, body.data) });
   } catch (error) {
     next(error);
   }

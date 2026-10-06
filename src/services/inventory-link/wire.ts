@@ -24,7 +24,8 @@ const line = (l: any) => ({
   ...(l.unitPricePaise !== undefined ? { unitPricePaise: l.unitPricePaise } : {}),
   ...(l.discountPaise !== undefined ? { discountPaise: l.discountPaise } : {}),
   ...(l.taxRate !== undefined && l.taxRate !== null ? { taxRateBps: Math.round(Number(l.taxRate) * 100) } : {}),
-  ...(l.taxPaise !== undefined ? { taxPaise: l.taxPaise } : {})
+  ...(l.taxPaise !== undefined ? { taxPaise: l.taxPaise } : {}),
+  ...(Array.isArray(l.offers) && l.offers.length ? { offers: l.offers.map((o: any) => ({ offerId: o.offerId, discountPaise: o.discountPaise })) } : {})
 });
 
 /**
@@ -51,6 +52,8 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
     return {
       kind: 'sale.completed',
       invoiceNo: payload.invoiceNo,
+      ...(payload.quoteId ? { quoteId: payload.quoteId } : {}),
+      ...(payload.couponCode ? { couponCode: payload.couponCode } : {}),
       occurredAt: payload.occurredAt,
       customer: payload.customer ?? null,
       lines: (payload.lines ?? []).map(line),
