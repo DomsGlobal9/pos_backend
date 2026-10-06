@@ -46,6 +46,7 @@ export type AuditAction =
   | 'receipt.sent'
   | 'shop.upi_set'
   | 'shop.logo_set'
+  | 'sale.offers_applied'
   | 'device.updated'
   | 'api_key.created'
   | 'api_key.revoked'

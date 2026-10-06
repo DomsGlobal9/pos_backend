@@ -16,6 +16,7 @@ import { saleCompleted } from '../events';
 import { newReceiptToken, receiptUrl } from '../../utils/receiptLink';
 import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
+import { heldQuote, COULD_NOT_CHECK } from '../inventory-link/quote.service';
 
 /**
  * Completing a sale.
@@ -84,19 +85,19 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
      */
     const pendingAudit: AuditEntry[] = [];
 
-    const saleId = await prisma.$transaction(
-      async (tx) => (await writeSale(tx, actor, input, pendingAudit)).saleId,
+    const written = await prisma.$transaction(
+      async (tx) => writeSale(tx, actor, input, pendingAudit),
       { timeout: 30_000, maxWait: 15_000 }
     );
 
-    const made = await getSale(actor, saleId);
+    const made = await getSale(actor, written.saleId);
 
     // Committed. Now, and only now, the audit trail may say it happened.
     for (const entry of pendingAudit) {
       await record(actor, { ...entry, subject: made.invoiceNo });
     }
 
-    return { replayed: false, sale: made };
+    return { replayed: false, sale: made, ...(written.notes.length ? { notes: written.notes } : {}) };
   } catch (error: any) {
     /*
      * Lost a race with the same onceKey: the other request made the sale, and that IS the answer.
@@ -130,6 +131,8 @@ export interface WrittenSale {
    * `sale.exchanged` event instead of a `sale.completed`.
    */
   stockChanges: StockChange[];
+  /** Plain lines for the cashier that are not errors: offers that could not be checked, mostly. */
+  notes: string[];
 }
 
 /**
@@ -212,6 +215,12 @@ export async function writeSale(
         }
       });
 
+      // 2a. The offers, from Inventory's quote -- the one pricing engine. Contract §9.
+      const offered = applyQuote(actor.clientId, input, basket, items, new Set(overridden.map(o => o.code)));
+      if (offered.quoteId) {
+        pendingAudit.push({ action: 'sale.offers_applied', detail: { quoteId: offered.quoteId, offersPaise: offered.offersPaise, couponCode: offered.couponCode } });
+      }
+
       // 2.
       const priced = priceBasket(basket, {
         billDiscountPaise: input.billDiscountPaise,
@@ -232,7 +241,13 @@ export async function writeSale(
        */
       const limitPercent = settings?.manualDiscountMaxPercent ?? 0;
       const allowedDiscount = applyPercent(priced.subtotalPaise, limitPercent);
-      const discountOverLimit = priced.discountPaise > allowedDiscount;
+      /*
+       * MEASURED ON THE MANUAL PART ONLY (contract §9). An automatic offer is not a cashier giving
+       * money away: a shop with a 10% limit running "10% off" must never ask for a manager's PIN.
+       * priced.discountPaise holds both, so the offers' share comes out before the comparison.
+       */
+      const manualDiscountPaise = priced.discountPaise - offered.offersPaise;
+      const discountOverLimit = manualDiscountPaise > allowedDiscount;
 
       const needs: { kind: 'DISCOUNT_OVER_LIMIT' | 'PRICE_OVERRIDE'; detail: any }[] = [];
 
@@ -240,7 +255,8 @@ export async function writeSale(
         needs.push({
           kind: 'DISCOUNT_OVER_LIMIT',
           detail: {
-            discountPaise: priced.discountPaise,
+            discountPaise: manualDiscountPaise,
+            offersPaise: offered.offersPaise,
             allowedPaise: allowedDiscount,
             limitPercent,
             subtotalPaise: priced.subtotalPaise
@@ -423,6 +439,8 @@ export async function writeSale(
                 ? input.approval?.reason ?? 'Allowed by own authority'
                 : null,
               discountPaise: line.discountPaise,
+              // Which offers made this line's price, as the quote gave them. Null on a plain line.
+              ...(offered.offersByRef.has(line.ref) ? { appliedOffers: offered.offersByRef.get(line.ref) } : {}),
               taxRate: line.taxRate,
               taxPaise: line.taxPaise,
               cgstPaise: line.cgstPaise,
@@ -489,7 +507,7 @@ export async function writeSale(
       const stockChanges = sold(priced.lines.map(l => ({ itemId: l.ref, qty: l.qty })));
       if (!exchange) {
         await adjust(tx, actor.clientId, stockChanges);
-        await saleCompleted(tx, actor.clientId, sale.id);
+        await saleCompleted(tx, actor.clientId, sale.id, { quoteId: offered.quoteId, couponCode: offered.couponCode });
       }
 
       return {
@@ -497,9 +515,65 @@ export async function writeSale(
         invoiceNo: allocated.number,
         totalPaise: priced.totalPaise,
         appliedCreditPaise: applied,
-        stockChanges: exchange ? stockChanges : []
+        stockChanges: exchange ? stockChanges : [],
+        notes: offered.notes
       };
   }
+}
+
+/**
+ * THE QUOTE, APPLIED. Contract §9.
+ *
+ * Each quoted line's total is used VERBATIM: the line is given a discount of exactly (what the
+ * tags come to) minus (what Inventory said), so priceBasket lands on Inventory's figure and our
+ * GST follows from it -- one spread, theirs. Nothing is recomputed or re-spread here.
+ *
+ * A line is taken from the quote only when it is the SAME line: same code, same quantity, same tag
+ * price. A quantity changed since the quote, a price override typed by a person, a tag price that
+ * moved under the quote, or a line Inventory could not price -- each of those sells at our own
+ * price with no offers, and the OTHER lines keep theirs. Inventory counts per line, so this is
+ * exactly what it expects (§4.1 rule 2).
+ *
+ * No quote, or one that expired or was lost: the shop's own prices, one plain line for the
+ * cashier, no quoteId on the event. Never a refusal.
+ */
+function applyQuote(
+  clientId: string,
+  input: CompleteSaleInput,
+  basket: BasketLine[],
+  items: Map<string, { code: string; pricePaise: number }>,
+  overriddenCodes: Set<string>
+): { quoteId: string | null; couponCode: string | null; offersPaise: number; offersByRef: Map<string, { offerId: string; discountPaise: number }[]>; notes: string[] } {
+  const none = { quoteId: null, couponCode: null, offersPaise: 0, offersByRef: new Map<string, { offerId: string; discountPaise: number }[]>(), notes: [] as string[] };
+  if (!input.quoteId) return none;
+  const q = heldQuote(clientId, input.quoteId);
+  if (!q) return { ...none, notes: [COULD_NOT_CHECK] };
+
+  const offersByRef = new Map<string, { offerId: string; discountPaise: number }[]>();
+  let offersPaise = 0;
+  const notes: string[] = [];
+  for (const line of basket) {
+    const item = items.get(line.ref);
+    if (!item) continue;
+    const quoted = q.lines.find(l => l.itemCode === item.code);
+    if (!quoted || quoted.unpriced || overriddenCodes.has(item.code)) continue;
+    if (quoted.qty !== line.qty || quoted.listUnitPaise !== item.pricePaise || typeof quoted.lineTotalPaise !== 'number') {
+      notes.push(`${line.description}: changed since the offers were checked, so none were applied to it.`);
+      continue;
+    }
+    const off = line.unitPricePaise * line.qty - quoted.lineTotalPaise;
+    if (off <= 0) continue;
+    line.lineDiscountPaise = (line.lineDiscountPaise ?? 0) + off;
+    offersPaise += off;
+    offersByRef.set(line.ref, (quoted.offers ?? []).map(o => ({ offerId: o.offerId, discountPaise: o.discountPaise })));
+  }
+  return {
+    quoteId: q.quoteId,
+    couponCode: q.coupon?.accepted ? q.coupon.code : null,
+    offersPaise,
+    offersByRef,
+    notes
+  };
 }
 
 /**
@@ -573,7 +647,7 @@ export async function getSale(actor: Actor, saleId: string) {
     prisma.saleLine.findMany({
       where: { saleId, sale: { clientId: actor.clientId } },
       select: {
-        id: true, description: true, hsn: true, qty: true, unitPricePaise: true,
+        id: true, itemId: true, description: true, hsn: true, qty: true, unitPricePaise: true,
         discountPaise: true, taxRate: true, taxPaise: true, lineTotalPaise: true,
         cgstPaise: true, sgstPaise: true, igstPaise: true
       }

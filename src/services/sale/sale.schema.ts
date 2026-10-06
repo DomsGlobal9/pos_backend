@@ -106,6 +106,13 @@ export const completeSaleSchema = z.object({
   }).optional(),
   /** A bill to another state: one IGST figure rather than a CGST and SGST pair. */
   interState: z.boolean().optional(),
+  /**
+   * The Inventory quote this basket was priced under (contract §9). AN ID, NEVER A PRICE: the sale
+   * re-reads the quote the server itself fetched and held. Absent, lost or expired means the shop's
+   * own prices and one plain line to the cashier -- never a refusal.
+   */
+  quoteId: z.string().trim().min(1).max(80).optional(),
+  couponCode: z.string().trim().min(1).max(40).optional(),
   /** Set by the till when the bill was made with no connection and is being flushed now. */
   madeOfflineAt: z.coerce.date().optional()
 });

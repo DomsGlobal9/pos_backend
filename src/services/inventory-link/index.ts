@@ -6,4 +6,6 @@ export { connect, disconnect, setWhenDown, retry, status, leaveOut, SKIP_REASON_
 export { deliverNext, drain, runOnce, checkSettlements, reportSkips, startDeliveryLoop, backoffFor, STOCK_EVENTS } from './delivery.service';
 export { syncCatalogue, startCatalogueLoop } from './catalogue.service';
 export { toInventory, readAnswer } from './wire';
+export { quoteBasket, heldQuote, __forgetQuote, COULD_NOT_CHECK } from './quote.service';
+export type { Quote, QuoteLine, QuoteResult } from './quote.service';
 export type { Outcome } from './delivery.service';

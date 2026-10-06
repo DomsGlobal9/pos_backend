@@ -66,6 +66,13 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
    * and the cautious reading of silence is the one that keeps holding items back.
    */
   let gstCharged = true;
+  /*
+   * THE SHOP'S DISCOUNT LIMIT, from Inventory, as an explicit shape -- never a bare null. Inventory's
+   * null means NO limit; our manualDiscountMaxPercent of 0 means nothing may be discounted without a
+   * manager. They are opposites, and a null read into our Int column would silently invert the
+   * owner's choice (contract §9). { unlimited: true } becomes 100; { maxPercent } is taken as is.
+   */
+  let manualDiscount: { maxPercent?: number; unlimited?: boolean } | null = null;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     // The cursor means "everything changed after this point" -- the same mechanism for the next page
@@ -84,6 +91,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
 
     const data = reply.body?.data ?? {};
     if (data.gst?.registration) gstCharged = data.gst.registration === 'REGULAR';
+    if (data.manualDiscount && typeof data.manualDiscount === 'object') manualDiscount = data.manualDiscount;
     const products: any[] = Array.isArray(data.products) ? data.products : [];
     for (const product of products) {
       await applyProduct(clientId, product, counts, problems, gstCharged);
@@ -108,6 +116,12 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
    * next manual refresh to be listed. Fixing that properly means tracking problems per item code
    * rather than as sentences; worth it only if owners start missing things.
    */
+  if (manualDiscount) {
+    const percent = manualDiscount.unlimited === true ? 100 : Number(manualDiscount.maxPercent);
+    if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {
+      await prisma.shopSettings.updateMany({ where: { clientId }, data: { manualDiscountMaxPercent: Math.round(percent) } });
+    }
+  }
   await prisma.inventoryLink.update({
     where: { clientId },
     data: {
