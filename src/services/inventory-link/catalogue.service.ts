@@ -78,9 +78,29 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
     if (!data.hasMore) break;
   }
 
+  /*
+   * THE PROBLEM LIST IS ONLY WRITTEN BY A PERSON'S REFRESH.
+   *
+   * These are the items an owner has to go and fix in Inventory -- priced before GST, a rate that
+   * needs the accountant -- and they are the whole reason the list exists. The background pass is
+   * INCREMENTAL: it asks only for what changed, so on a quiet shop it sees nothing and finds no
+   * problems. Writing that empty list back wiped the owner's list three minutes after it appeared,
+   * before anyone could read it (seen on sphl, 6 Oct, within 38 seconds of connecting).
+   *
+   * So a timed pass moves the cursor and the time, and leaves the list as the last deliberate look
+   * found it -- which is what the screen says it is.
+   *
+   * ponytail: a problem that appears on an item changed between refreshes therefore waits for the
+   * next manual refresh to be listed. Fixing that properly means tracking problems per item code
+   * rather than as sentences; worth it only if owners start missing things.
+   */
   await prisma.inventoryLink.update({
     where: { clientId },
-    data: { catalogueCursor: cursor, catalogueSyncedAt: new Date(), catalogueProblems: problems }
+    data: {
+      catalogueCursor: cursor,
+      catalogueSyncedAt: new Date(),
+      ...(actor ? { catalogueProblems: problems } : {})
+    }
   });
   if (actor) await record(actor, { action: 'inventory.catalogue_synced', detail: { ...counts, problems: problems.length } });
   return { ...counts, problems };
@@ -144,6 +164,23 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
       continue;
     }
 
+    /*
+     * NO RATE AT ALL is not a rate of nothing.
+     *
+     * Number(null) is 0, and 0 passes every check below -- a whole number, not negative, a whole
+     * percent -- so a variant with no GST rate set in Inventory was taken at 0% and sold at 0% in a
+     * GST-registered shop, silently, with nothing on the owner's list to say so (found on sphl by
+     * the Inventory session, 6 Oct: two sarees, one at Rs 29,500).
+     *
+     * A deliberate 0 still sells: zero-rated goods are real. It is the ABSENCE that is a data gap,
+     * and the contract already says so -- "a null taxRateBps is a data gap for the owner to fill in
+     * Inventory, not something to guess".
+     */
+    if (v.taxRateBps === null || v.taxRateBps === undefined || v.taxRateBps === '') {
+      counts.skipped++;
+      problems.push(`${label} (${code}): no GST rate in Inventory -- set one there before this can be sold.`);
+      continue;
+    }
     const bps = Number(v.taxRateBps);
     if (!Number.isInteger(bps) || bps < 0 || bps % 100 !== 0) {
       counts.skipped++;
