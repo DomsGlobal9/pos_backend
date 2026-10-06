@@ -45,6 +45,7 @@ export type AuditAction =
   | 'inventory.catalogue_synced'
   | 'receipt.sent'
   | 'shop.upi_set'
+  | 'shop.logo_set'
   | 'device.updated'
   | 'api_key.created'
   | 'api_key.revoked'
