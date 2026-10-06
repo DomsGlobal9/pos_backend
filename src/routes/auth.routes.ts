@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { openTill, staffOnTill, switchTo, closeTill, closeAllTills } from '../services/auth';
+import { openTill, staffOnTill, switchTo, closeTill, closeAllTills, actorFromStaffToken } from '../services/auth';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 /**
@@ -37,7 +37,22 @@ router.get('/me', devActor, (req: any, res) => {
   res.json({ success: true, data: { id: a.id, name: a.name, roles: a.roles, clientId: a.clientId } });
 });
 router.post('/close', async (req: any, res, next) => {
-  try { res.json({ success: true, data: await closeTill(till(req), null) }); } catch (e) { next(e); }
+  /*
+   * WHO CLOSED IT, where there is a who.
+   *
+   * This route cannot require a signed-in person the way /close-all does: the till has to close
+   * when the staff turn has already expired, which is exactly when a device gets handed back at the
+   * end of a shift. Requiring an actor would lock the device shut.
+   *
+   * So the person is resolved if their token is still good, and the close happens either way -- but
+   * when it was somebody pressing the button, the log says who, and so does the next device to wake
+   * up and find itself signed out. Passing a flat null here is why Activity showed six "Till
+   * opened" in an afternoon and not one close (6 Oct), and why the audit line added for it could
+   * never be written.
+   */
+  const raw = String(req.headers.authorization ?? '').replace(/^Bearer /, '').trim();
+  const by = raw ? await actorFromStaffToken(raw).catch(() => null) : null;
+  try { res.json({ success: true, data: await closeTill(till(req), by) }); } catch (e) { next(e); }
 });
 router.post('/close-all', devActor, async (req: any, res, next) => {
   try { res.json({ success: true, data: await closeAllTills(req.actor) }); } catch (e) { next(e); }

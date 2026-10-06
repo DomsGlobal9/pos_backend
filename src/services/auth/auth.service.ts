@@ -70,10 +70,29 @@ const CACHE_MS = 30_000;
 async function mustBeOpen(clientId: string, tid: string) {
   const at = openCache.get(tid);
   if (at && Date.now() - at < CACHE_MS) return;
-  const s = await prisma.tillSession.findFirst({ where: { id: tid, clientId }, select: { closedAt: true } });
-  if (!s || s.closedAt) {
+  const s = await prisma.tillSession.findFirst({ where: { id: tid, clientId }, select: { closedAt: true, closedById: true } });
+  /*
+   * CLOSED and NEVER-HEARD-OF are not the same thing, and sending both as TILL_CLOSED cost a day.
+   *
+   * A closed till is somebody pressing a button, and the answer is to open it again. A token naming
+   * a session this database has no row for is something else -- a token signed against other data,
+   * or a row that went away underneath it -- and opening the till will not fix whatever did that.
+   * Six sign-outs on the test shop (6 Oct) said only "This till has been closed" and so told us
+   * nothing about which of the two was happening.
+   */
+  if (!s) {
     openCache.delete(tid);
-    throw unauthorized('This till has been closed. An owner or manager needs to open it.', { code: 'TILL_CLOSED' });
+    throw unauthorized('This device was signed in to a till that no longer exists. Open the till again.', { code: 'TILL_UNKNOWN' });
+  }
+  if (s.closedAt) {
+    openCache.delete(tid);
+    const by = s.closedById ? await prisma.user.findUnique({ where: { id: s.closedById }, select: { name: true } }) : null;
+    throw unauthorized(
+      by?.name
+        ? `${by.name} closed this till. An owner or manager needs to open it.`
+        : 'This till has been closed. An owner or manager needs to open it.',
+      { code: 'TILL_CLOSED' }
+    );
   }
   openCache.set(tid, Date.now());
 }
@@ -197,7 +216,9 @@ export async function switchTo(tillToken: string | undefined, input: { userId?: 
 /** Close the till on this device. Anyone at it may -- closing is always safe. */
 export async function closeTill(tillToken: string | undefined, by: Actor | null) {
   const c = readToken(tillToken, 'till');
-  const r = await prisma.tillSession.updateMany({ where: { id: c.tid, clientId: c.cid, closedAt: null }, data: { closedAt: new Date(), closedById: by?.id ?? null } });
+  // A staff token of some other shop names nobody here, whatever it says.
+  const who = by && by.kind === 'USER' && by.clientId === c.cid ? by : null;
+  const r = await prisma.tillSession.updateMany({ where: { id: c.tid, clientId: c.cid, closedAt: null }, data: { closedAt: new Date(), closedById: who?.id ?? null } });
   openCache.delete(c.tid);
   /*
    * Recorded, like closing every till is. Closing one is the smaller act but it is the one that
@@ -206,7 +227,7 @@ export async function closeTill(tillToken: string | undefined, by: Actor | null)
    * one close (6 Oct). A sign-out a person did not expect looks like a fault until the log says
    * who did it.
    */
-  if (r.count && by) await record(by, { action: 'till.closed', detail: { everywhere: false } });
+  if (r.count && who) await record(who, { action: 'till.closed', detail: { everywhere: false } });
   return { closed: true };
 }
 
