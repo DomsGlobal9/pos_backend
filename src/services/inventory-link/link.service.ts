@@ -130,8 +130,9 @@ export const SKIP_REASON_MIN = 10;
  * left out: skipping a bill nobody looked at is exactly the silent gap this is meant to prevent.
  *
  * What Inventory then holds: the stock on that bill never left its books, and its day book is short
- * by that bill. Telling Inventory (a marker event) waits until Inventory accepts one -- until then
- * `reportedAt` stays empty and the screen says Inventory has not been told.
+ * by that bill. Inventory IS told, by a `document.skipped` marker the delivery loop sends on its
+ * next pass (`reportSkips`, live at Inventory since 5 Oct); `reportedAt` is stamped when it has
+ * been, and the screen says so either way. The marker records the gap and moves nothing.
  */
 export async function leaveOut(actor: Actor, input: { document: string; reason: string }) {
   mustManage(actor);
