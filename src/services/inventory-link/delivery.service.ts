@@ -323,6 +323,76 @@ export async function checkSettlements(clientId: string, max = 8): Promise<{ che
   return result;
 }
 
+/**
+ * Tell Inventory about the bills the owner left out. Contract: `document.skipped` (Inventory, 5 Oct).
+ *
+ * Leaving a bill out is the way past a refusal nobody can fix -- the queue moves on and the shop
+ * keeps selling. What it leaves behind is a hole: the stock on that bill never left Inventory's
+ * books and its day book is short by it, and until now Inventory was never told. The POS said so
+ * honestly on its own screen ("Inventory has not been told") and that was the whole of it.
+ *
+ * RECORDED, NEVER APPLIED, at Inventory's end: no stock moves, no order, no money. It is how
+ * Inventory knows its books are short, and the owner sees it under Settings -> Money -> POS, where
+ * it stays even after the till is disconnected, because the gap stays.
+ *
+ * THE NUMBER SENT IS THE ONE INVENTORY FILED UNDER, not the one the owner read. `skip.document` is
+ * the bill or credit note as it appeared on screen; for an exchange Inventory keyed the event on
+ * the NEW bill and for a payment on its idempotencyKey. Sending the owner's number would leave a
+ * marker against nothing. Same lookupKey as the settlement questions, for the same reason.
+ *
+ * Answered synchronously -- 200 APPLIED or ALREADY_APPLIED, never 202, nothing to poll. A repeat is
+ * ALREADY_APPLIED, so sending twice is safe and the cursor here is simply `reportedAt`.
+ *
+ * ponytail: a refusal is retried on the next pass, every 15 s, and only logged. That is deliberate
+ * while the only way to earn one is a contract drift -- noisy logs are the right failure mode for
+ * that. If it ever becomes an ordinary answer, give the row a reportAttemptAt and back it off.
+ */
+export async function reportSkips(clientId: string, max = 5) {
+  const waiting = await prisma.inventorySkip.findMany({
+    where: { clientId, reportedAt: null }, orderBy: { sequence: 'asc' }, take: max
+  });
+  if (waiting.length === 0) return { reported: 0 };
+
+  const link = await prisma.inventoryLink.findUnique({
+    where: { clientId }, select: { connected: true, baseUrl: true, keyCipher: true }
+  });
+  if (!link?.connected) return { reported: 0 };
+
+  let reported = 0;
+  for (const skip of waiting) {
+    const event = await prisma.webhookEvent.findFirst({
+      where: { clientId, sequence: skip.sequence },
+      select: { eventType: true, invoiceNo: true, payload: true }
+    });
+    // The event is gone, so its number cannot be worked out. The owner's own number is the best
+    // left, and a marker against the right bill matters more than a perfect key.
+    const document = event
+      ? lookupKey(event.eventType, event.invoiceNo, event.payload as any)
+      : skip.document;
+
+    const reply = await call({ baseUrl: link.baseUrl, keyCipher: link.keyCipher }, 'POST', '/events', {
+      kind: 'document.skipped',
+      document,
+      eventType: skip.eventType,
+      reason: skip.reason,
+      ...(skip.skippedBy ? { skippedBy: skip.skippedBy } : {}),
+      skippedAt: skip.skippedAt.toISOString(),
+      ...(skip.refusedCode ? { refusedCode: skip.refusedCode } : {}),
+      ...(skip.refusedText ? { refusedText: skip.refusedText } : {})
+    }, 30_000);
+
+    if (reply.kind === 'UNREACHABLE') break;   // every other one would meet the same; try later
+    const answer = readAnswer(reply.body).answer;
+    if (reply.status >= 200 && reply.status < 300 && (!answer || ['APPLIED', 'ALREADY_APPLIED'].includes(answer))) {
+      await prisma.inventorySkip.update({ where: { id: skip.id }, data: { reportedAt: new Date() } });
+      reported++;
+      continue;
+    }
+    console.error(`[inventory-link] Inventory would not record ${document} as left out (${reply.status}): ${readAnswer(reply.body).detail ?? ''}`);
+  }
+  return { reported };
+}
+
 /** Everything this shop has waiting, until the queue is empty or has to wait. */
 export async function drain(clientId: string, max = 100) {
   let sent = 0;
@@ -342,6 +412,8 @@ export async function runOnce() {
       if (l.blockedSequence === null) await drain(l.clientId);
       // Even a stopped queue has bills Inventory accepted before it stopped. Their endings still count.
       await checkSettlements(l.clientId);
+      // And the bills the owner left out: Inventory's books are short by them until it is told.
+      await reportSkips(l.clientId);
     } catch (error) {
       console.error(`[inventory-link] delivery for ${l.clientId} failed:`, (error as Error).message);
     }
