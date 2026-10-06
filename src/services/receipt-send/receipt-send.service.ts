@@ -22,7 +22,13 @@ import { pdfFor, money } from '../receipts';
 
 export function whatsappConfig() {
   const url = (process.env.WHATSAPP_SERVICE_URL ?? '').trim().replace(/\/+$/, '');
-  const key = (process.env.WHATSAPP_MODULE_KEY ?? '').trim();
+  /*
+   * Either name. create-module prints `WHATSAPP_SERVICE_KEY=...` and every other module on the
+   * service uses that, so somebody pasting the script's own output into Render would otherwise get
+   * a till that says "not set up" and no reason why. WHATSAPP_MODULE_KEY is what this service was
+   * written with and still works, so nothing deployed has to change.
+   */
+  const key = (process.env.WHATSAPP_SERVICE_KEY ?? process.env.WHATSAPP_MODULE_KEY ?? '').trim();
   return url && key ? { url, key } : null;
 }
 
