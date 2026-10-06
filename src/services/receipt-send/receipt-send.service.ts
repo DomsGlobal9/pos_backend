@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
-import { badRequest, conflict, notFound } from '../../utils/httpError';
+import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { record } from '../audit';
 import { pdfFor, money } from '../receipts';
 
@@ -29,6 +29,17 @@ export function whatsappConfig() {
 const DOCS = 'the bill';
 
 export async function sendReceipt(actor: Actor, saleId: string, input: { onceKey: string; channel?: string }) {
+  /*
+   * A PERSON, every time. The service's rule is one message per press and never automatic, because
+   * a linked number that sends on its own is how a shop's WhatsApp gets banned -- and that rule was
+   * written in the comment above and enforced by nothing. It holds today only because a person is
+   * the only actor this service can mint; the moment a client's own software gets an API key
+   * (Phase 12, the kind is already declared) it would have been able to send from the shop's number
+   * in a loop. One line now, rather than a hole later.
+   */
+  if (actor.kind !== 'USER') {
+    throw forbidden('A receipt is sent by someone at the till, not by other software.', { code: 'NOT_PERMITTED' });
+  }
   const channel = input.channel ?? 'WHATSAPP';
   if (channel === 'EMAIL' || channel === 'SMS') {
     throw conflict(`${channel === 'EMAIL' ? 'Email' : 'SMS'} receipts are not set up yet. Send it on WhatsApp, or print it.`, { code: 'NOT_CONFIGURED' });
