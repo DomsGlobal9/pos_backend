@@ -4,5 +4,5 @@
  * Standalone mode reads the POS's own Item table. With Inventory behind it the same shape comes
  * from the cache, refreshed through the Gateway -- the screen cannot tell the difference.
  */
-export { search, forSale, variantsOf, sizeRank } from './items.service';
+export { search, forSale, variantsOf, sizeRank, listForManaging } from './items.service';
 export type { FoundItem, SearchResult } from './items.service';

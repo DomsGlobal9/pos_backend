@@ -303,6 +303,57 @@ export async function pushItems(actor: Actor, raws: unknown) {
   return { added: checked.added, updated: checked.updated, unchanged: checked.unchanged, notes: checked.notes };
 }
 
+/**
+ * One item, typed by the owner on the Items screen. POS-STAND-003.
+ *
+ * A shop that does not use Inventory had no way to put an item in the till except a spreadsheet,
+ * which is a strange thing to ask of someone who wants to sell one saree. This is the same thing
+ * the spreadsheet does, for one row: the SAME checks, the SAME save, so a price typed here and a
+ * price imported cannot be validated differently.
+ *
+ * Upsert by code, as the import does -- typing a code that is already there is how you correct a
+ * price, and refusing it would send the owner to a spreadsheet to fix a typo. Bills already made
+ * keep the price and tax they were sold at (CONTRACTS §1.5), so nothing historic moves.
+ */
+export async function saveItem(actor: Actor, raw: Record<string, unknown>) {
+  mustManage(actor);
+  await mustBeStandalone(actor.clientId);
+  const code = String(raw?.code ?? '').trim();
+  const before = code
+    ? await prisma.item.findUnique({ where: { clientId_code: { clientId: actor.clientId, code } }, select: { id: true } })
+    : null;
+
+  /*
+   * Checked as a SHEET row, not an API one. The sheet reader is the forgiving one -- it takes
+   * "1,299.00", "Rs 1299" and "5%" -- and that is what a person types into a form. The API mode
+   * wants pricePaise and taxRate already turned into integers, which is right for software and
+   * wrong for a keyboard.
+   */
+  const checked = await checkAll(actor.clientId, [raw ?? {}], 'sheet', () => 'This item');
+  if (checked.problems.length) {
+    // The screen puts these under the fields, so they are sentences, not codes.
+    throw badRequest(checked.problems.join(' '), { code: 'ITEMS_INVALID', problems: checked.problems });
+  }
+  await save(actor.clientId, checked.items);
+  await record(actor, {
+    action: before ? 'item.changed' : 'item.added',
+    subject: checked.items[0].code,
+    detail: { name: checked.items[0].name, pricePaise: checked.items[0].pricePaise, taxRate: checked.items[0].taxRate }
+  });
+  const saved = await prisma.item.findUniqueOrThrow({
+    where: { clientId_code: { clientId: actor.clientId, code: checked.items[0].code } }
+  });
+  return {
+    added: !before,
+    item: {
+      code: saved.code, name: saved.name, pricePaise: saved.pricePaise, taxRate: saved.taxRate,
+      hsn: saved.hsn, barcode: saved.barcode, qty: saved.cachedQty, colour: saved.colour,
+      size: saved.size, group: saved.variantGroup, active: saved.active
+    },
+    notes: checked.notes
+  };
+}
+
 /** POS-API-005. Change one item's price, count, name or whether it is on sale. */
 export async function patchItem(actor: Actor, code: string, input: Record<string, unknown>) {
   mustManage(actor);
