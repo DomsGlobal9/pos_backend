@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { literal } from '../../utils/likeText';
-import { Actor } from '../../types/actor';
+import { Actor, may, PERMISSIONS } from '../../types/actor';
+import { forbidden } from '../../utils/httpError';
 
 /**
  * Finding something to sell.
@@ -291,4 +292,56 @@ export async function forSale(tx: any, clientId: string, itemIds: string[]) {
     select: SELECT
   });
   return new Map<string, any>(rows.map((r: any) => [r.id, r]));
+}
+
+/**
+ * The item list as the OWNER sees it, for the Items screen. POS-STAND-003.
+ *
+ * Not the sell search: that one shows only what can be sold, groups a saree's colours into one
+ * row, and never carries a cost. This is the opposite -- every item including the ones switched
+ * off, one row each, so the person who has to correct a price can find the thing they typed
+ * wrong. Owner only, for the same reason the import is.
+ */
+export async function listForManaging(actor: Actor, rawQuery: unknown) {
+  if (!may(actor, PERMISSIONS.SETTINGS)) {
+    throw forbidden('Only the owner can see and change the item list.', { code: 'NOT_PERMITTED' });
+  }
+  const q = String((rawQuery as any)?.q ?? '').trim();
+  const where = {
+    clientId: actor.clientId,
+    ...(q
+      ? {
+        OR: [
+          { code: { contains: q, mode: 'insensitive' as const } },
+          { name: { contains: q, mode: 'insensitive' as const } },
+          { barcode: { contains: q } }
+        ]
+      }
+      : {})
+  };
+  const [rows, total] = await Promise.all([
+    prisma.item.findMany({
+      where, orderBy: [{ active: 'desc' }, { name: 'asc' }], take: 200,
+      select: {
+        code: true, name: true, pricePaise: true, taxRate: true, hsn: true, barcode: true,
+        cachedQty: true, colour: true, size: true, variantGroup: true, active: true
+      }
+    }),
+    prisma.item.count({ where: { clientId: actor.clientId } })
+  ]);
+  const link = await prisma.inventoryLink.findUnique({
+    where: { clientId: actor.clientId }, select: { connected: true }
+  });
+  return {
+    // The screen hides its own Add form when Inventory owns the list, rather than offering a form
+    // that can only be refused.
+    fromInventory: link?.connected === true,
+    total,
+    shown: rows.length,
+    items: rows.map(r => ({
+      code: r.code, name: r.name, pricePaise: r.pricePaise, taxRate: r.taxRate, hsn: r.hsn,
+      barcode: r.barcode, qty: r.cachedQty, colour: r.colour, size: r.size, group: r.variantGroup,
+      active: r.active
+    }))
+  };
 }

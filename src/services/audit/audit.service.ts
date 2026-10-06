@@ -53,6 +53,8 @@ export type AuditAction =
   | 'webhook.deleted'
   | 'webhook.resent'
   | 'items.imported'
+  | 'item.added'
+  | 'item.changed'
   | 'staff.added'
   | 'staff.changed'
   | 'till.opened'
