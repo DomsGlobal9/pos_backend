@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { forTill, setUpiId } from '../services/shop';
+import { forTill, setUpiId, setLogo } from '../services/shop';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 const router = Router();
@@ -19,6 +19,16 @@ router.put('/upi', async (req, res, next) => {
   try {
     const upiId = req.body?.upiId === null ? null : String(req.body?.upiId ?? '');
     res.json({ success: true, data: await setUpiId((req as any).actor, upiId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** PUT /api/v1/shop/logo -- POS-RCPT-011. `{ logoUrl }`: a JPEG data URL or https address, or null to remove. Owner-only. */
+router.put('/logo', async (req, res, next) => {
+  try {
+    const logoUrl = req.body?.logoUrl === null ? null : String(req.body?.logoUrl ?? '');
+    res.json({ success: true, data: await setLogo((req as any).actor, logoUrl) });
   } catch (error) {
     next(error);
   }

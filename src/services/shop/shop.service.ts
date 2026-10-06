@@ -72,3 +72,29 @@ export async function setUpiId(actor: Actor, raw: string | null) {
   await record(actor, { action: 'shop.upi_set', detail: { upiId } });
   return forTill(actor);
 }
+
+/**
+ * The logo on the bill. POS-RCPT-011. Owner-only.
+ *
+ * Taken as a JPEG data URL, which the Settings screen makes from whatever picture the owner picks:
+ * a small JPEG embeds in the hand-written receipt PDF with no image library on either side, and
+ * nothing to host. An https address is accepted too, for a shop that already has one somewhere --
+ * it shows on screen and on paper, and is left out of the PDF, which cannot fetch.
+ *
+ * ponytail: one picture, stored on the settings row. If logos ever need resizing server-side or
+ * a PNG kept as PNG, that is an image library and a file store, not this function.
+ */
+const LOGO_MAX_CHARS = 200_000; // ~150 KB of JPEG, which is far more than a 42 mm print needs
+export async function setLogo(actor: Actor, raw: string | null) {
+  if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change the logo on the bill.');
+  const logoUrl = raw === null ? null : String(raw).trim();
+  if (logoUrl !== null) {
+    const jpeg = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(logoUrl);
+    const web = /^https:\/\/[^\s]{4,500}$/.test(logoUrl);
+    if (!jpeg && !web) throw badRequest('That is not a picture the till can use. Choose an image file, or give an https address.');
+    if (logoUrl.length > LOGO_MAX_CHARS) throw badRequest('That picture is too large for a bill. Choose a smaller one.');
+  }
+  await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { logoUrl } });
+  await record(actor, { action: 'shop.logo_set', detail: { kind: logoUrl === null ? 'removed' : logoUrl.startsWith('data:') ? 'picture' : 'address', chars: logoUrl?.length ?? 0 } });
+  return forTill(actor);
+}

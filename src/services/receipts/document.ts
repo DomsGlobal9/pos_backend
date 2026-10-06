@@ -16,7 +16,9 @@ export type DocLine =
   | { kind: 'text'; text: string; bold?: boolean; center?: boolean }
   | { kind: 'pair'; left: string; right: string; bold?: boolean }
   | { kind: 'rule' }
-  | { kind: 'gap' };
+  | { kind: 'gap' }
+  /** A JPEG as a data URL. The shop's logo, at the top; nothing else is a picture on a receipt. */
+  | { kind: 'image'; dataUrl: string };
 
 export function money(paise: number): string {
   const neg = paise < 0;
@@ -60,6 +62,8 @@ const when = (d: Date | string) => {
 export function receiptDocument(sale: any, opts: { receiptUrl?: string | null } = {}): DocLine[] {
   const L: DocLine[] = [];
   const shop = sale.shop ?? {};
+  // Only a JPEG data URL can go into the PDF: an https logo shows on screen and paper, not here.
+  if (typeof shop.logoUrl === 'string' && shop.logoUrl.startsWith('data:image/jpeg;base64,')) L.push({ kind: 'image', dataUrl: shop.logoUrl });
   L.push({ kind: 'text', text: ascii(shop.shopName ?? 'Shop'), bold: true, center: true });
   if (shop.address) L.push({ kind: 'text', text: ascii(shop.address), center: true });
   if (shop.gstin) L.push({ kind: 'text', text: `GSTIN ${ascii(shop.gstin)}`, center: true });

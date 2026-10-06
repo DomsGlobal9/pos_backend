@@ -109,7 +109,9 @@ async function loadBill(db: Tx | typeof prisma, actor: Actor, saleId: string) {
       lines: {
         select: {
           id: true, itemId: true, description: true, hsn: true, qty: true, unitPricePaise: true,
-          taxRate: true, lineTotalPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true
+          taxRate: true, lineTotalPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true,
+          // So the return screen can take a SCAN of the piece coming back, not only a tap.
+          item: { select: { code: true, barcode: true } }
         }
       },
       payments: { select: { method: true, amountPaise: true, status: true } },
@@ -340,6 +342,8 @@ export async function eligibility(actor: Actor, saleId: string) {
       return {
         saleLineId: line.id,
         itemId: line.itemId,
+        itemCode: line.item?.code ?? null,
+        barcode: line.item?.barcode ?? null,
         description: line.description,
         qty: line.qty,
         returnedQty: returned,
