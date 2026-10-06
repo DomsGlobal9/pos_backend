@@ -54,6 +54,19 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   const problems: string[] = [];
   const counts = { added: 0, updated: 0, switchedOff: 0, skipped: 0 };
 
+  /*
+   * WHETHER THIS SHOP CHARGES GST AT ALL, which decides whether a missing rate is a data gap.
+   *
+   * Only a REGULAR registration charges GST and issues tax invoices. A COMPOSITION shop issues a
+   * Bill of Supply and an UNREGISTERED one a plain receipt -- neither charges tax on anything, so
+   * "no rate set in Inventory" is not something the owner has to go and fix, and holding the item
+   * back would stop them selling for no reason (Inventory session, 6 Oct).
+   *
+   * Absent means REGULAR: that is what every shop's payload looked like before the field existed,
+   * and the cautious reading of silence is the one that keeps holding items back.
+   */
+  let gstCharged = true;
+
   for (let page = 0; page < MAX_PAGES; page++) {
     // The cursor means "everything changed after this point" -- the same mechanism for the next page
     // of a first sync and for the next refresh days later (contract §2, the storefront's semantics).
@@ -70,9 +83,10 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
     }
 
     const data = reply.body?.data ?? {};
+    if (data.gst?.registration) gstCharged = data.gst.registration === 'REGULAR';
     const products: any[] = Array.isArray(data.products) ? data.products : [];
     for (const product of products) {
-      await applyProduct(clientId, product, counts, problems);
+      await applyProduct(clientId, product, counts, problems, gstCharged);
     }
     cursor = data.nextCursor ?? cursor;
     if (!data.hasMore) break;
@@ -144,7 +158,7 @@ export function startCatalogueLoop(everyMs = EVERY_MS) {
   timer.unref();
 }
 
-async function applyProduct(clientId: string, product: any, counts: Record<string, number>, problems: string[]) {
+async function applyProduct(clientId: string, product: any, counts: Record<string, number>, problems: string[], gstCharged = true) {
   const title = String(product.title ?? '').trim() || product.productCode;
   const primary = (product.images ?? []).find((i: any) => i.isPrimary)?.url ?? product.images?.[0]?.url ?? null;
   const productOff = product.eligible === false;
@@ -175,8 +189,11 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
      * A deliberate 0 still sells: zero-rated goods are real. It is the ABSENCE that is a data gap,
      * and the contract already says so -- "a null taxRateBps is a data gap for the owner to fill in
      * Inventory, not something to guess".
+     *
+     * In a shop that charges no GST there is no gap to fill, so the absence is taken as the 0 it
+     * effectively is and the item sells.
      */
-    if (v.taxRateBps === null || v.taxRateBps === undefined || v.taxRateBps === '') {
+    if (gstCharged && (v.taxRateBps === null || v.taxRateBps === undefined || v.taxRateBps === '')) {
       counts.skipped++;
       problems.push(`${label} (${code}): no GST rate in Inventory -- set one there before this can be sold.`);
       continue;
