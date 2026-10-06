@@ -3,6 +3,7 @@ import { Actor } from '../../types/actor';
 import { badRequest, forbidden, notFound } from '../../utils/httpError';
 import { may, PERMISSIONS } from '../../types/actor';
 import { record } from '../audit';
+import { whatsappConfig } from '../receipt-send';
 
 /**
  * What the till needs to know before it can sell: which shop it is, and which counters it has.
@@ -39,6 +40,16 @@ export async function forTill(actor: Actor) {
      * alone, so a shop that had never connected was told it was (sphl, 1 Oct).
      */
     inventoryConnected: link?.connected === true,
+    /*
+     * Whether this till can send a receipt itself, or whether the cashier sends it from their own
+     * WhatsApp instead. Only the settings, not whether the shop's number is linked -- that is a
+     * question for the WhatsApp service and not worth a network call on every screen load; a send
+     * to an unlinked number comes back with the service's own sentence.
+     *
+     * It is false for every shop that does not use Inventory, because the only place to link a
+     * number today is Inventory's own settings. Those shops get Share, which needs nothing.
+     */
+    whatsappReady: whatsappConfig() !== null,
     counters,
     cashier: { id: actor.id, name: actor.name ?? null },
     permissions: actor.permissions
