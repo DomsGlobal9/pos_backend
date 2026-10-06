@@ -373,6 +373,14 @@ export async function reportSkips(clientId: string, max = 5) {
     const reply = await call({ baseUrl: link.baseUrl, keyCipher: link.keyCipher }, 'POST', '/events', {
       kind: 'document.skipped',
       document,
+      /*
+       * The number the OWNER read, when it is not the one Inventory matches on -- the credit note
+       * for an exchange. Inventory shows it beside the key as "INV/... (credit note CN/... at the
+       * till)", so the owner can tie the line in its list to the bill they actually left out
+       * (Inventory, 6 Oct). Only sent when the two differ; the same number twice would just be
+       * noise on that screen.
+       */
+      ...(skip.document && skip.document !== document ? { shownAs: skip.document } : {}),
       eventType: skip.eventType,
       reason: skip.reason,
       ...(skip.skippedBy ? { skippedBy: skip.skippedBy } : {}),
