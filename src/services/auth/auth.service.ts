@@ -197,8 +197,16 @@ export async function switchTo(tillToken: string | undefined, input: { userId?: 
 /** Close the till on this device. Anyone at it may -- closing is always safe. */
 export async function closeTill(tillToken: string | undefined, by: Actor | null) {
   const c = readToken(tillToken, 'till');
-  await prisma.tillSession.updateMany({ where: { id: c.tid, clientId: c.cid, closedAt: null }, data: { closedAt: new Date(), closedById: by?.id ?? null } });
+  const r = await prisma.tillSession.updateMany({ where: { id: c.tid, clientId: c.cid, closedAt: null }, data: { closedAt: new Date(), closedById: by?.id ?? null } });
   openCache.delete(c.tid);
+  /*
+   * Recorded, like closing every till is. Closing one is the smaller act but it is the one that
+   * actually happens, and an owner asking "why did the counter sign itself out in the middle of
+   * trade?" was getting nothing at all: Activity showed six "Till opened" in an afternoon and not
+   * one close (6 Oct). A sign-out a person did not expect looks like a fault until the log says
+   * who did it.
+   */
+  if (r.count && by) await record(by, { action: 'till.closed', detail: { everywhere: false } });
   return { closed: true };
 }
 
