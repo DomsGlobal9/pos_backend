@@ -772,7 +772,7 @@ export async function getReturn(actor: Actor, returnId: string) {
       refundMethod: true, totalPaise: true, taxPaise: true, roundOffPaise: true, approvedById: true, pointsBack: true, pointsBackPaise: true,
       cashier: { select: { id: true, name: true } },
       customer: { select: { id: true, name: true, phone: true, storeCreditPaise: true } },
-      originalSale: { select: { id: true, invoiceNo: true, createdAt: true } },
+      originalSale: { select: { id: true, invoiceNo: true, createdAt: true, documentKind: true } },
       exchangeSale: { select: { id: true, invoiceNo: true, totalPaise: true } },
       lines: {
         select: {

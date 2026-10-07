@@ -47,6 +47,7 @@ export type AuditAction =
   | 'shop.upi_set'
   | 'shop.logo_set'
   | 'sale.offers_applied'
+  | 'shop.gst_registration_set'
   | 'device.updated'
   | 'api_key.created'
   | 'api_key.revoked'

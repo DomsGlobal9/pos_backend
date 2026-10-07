@@ -1,3 +1,4 @@
+import { HEADING, COMPOSITION_DECLARATION, DocumentKind } from '../shop/gst-document';
 /**
  * The receipt as a DOCUMENT: an ordered list of lines, built from the bill exactly as it was saved.
  * POS-RCPT-002, -009.
@@ -66,8 +67,11 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null } 
   if (typeof shop.logoUrl === 'string' && shop.logoUrl.startsWith('data:image/jpeg;base64,')) L.push({ kind: 'image', dataUrl: shop.logoUrl });
   L.push({ kind: 'text', text: ascii(shop.shopName ?? 'Shop'), bold: true, center: true });
   if (shop.address) L.push({ kind: 'text', text: ascii(shop.address), center: true });
-  if (shop.gstin) L.push({ kind: 'text', text: `GSTIN ${ascii(shop.gstin)}`, center: true });
+  const docKind: DocumentKind = (sale.documentKind as DocumentKind) ?? 'TAX_INVOICE';
+  // A plain receipt is from a shop with no GST registration: it has no GSTIN to print.
+  if (shop.gstin && docKind !== 'RECEIPT') L.push({ kind: 'text', text: `GSTIN ${ascii(shop.gstin)}`, center: true });
   L.push({ kind: 'rule' });
+  L.push({ kind: 'text', text: HEADING[docKind], bold: true, center: true });
 
   L.push({ kind: 'pair', left: 'Bill', right: ascii(sale.invoiceNo), bold: true });
   L.push({ kind: 'pair', left: 'Date', right: when(sale.createdAt) });
@@ -126,6 +130,10 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null } 
   if (sale.savedPaise > 0) {
     L.push({ kind: 'rule' });
     L.push({ kind: 'text', text: `You saved ${money(sale.savedPaise)}`, bold: true, center: true });
+  }
+  if (docKind === 'BILL_OF_SUPPLY') {
+    L.push({ kind: 'rule' });
+    L.push({ kind: 'text', text: COMPOSITION_DECLARATION, center: true });
   }
   if (shop.receiptFooter) {
     L.push({ kind: 'rule' });

@@ -173,6 +173,11 @@ model ShopSettings {
   /// The shop's UPI ID, for a QR with the amount already in it. POS-PAY-012. Null: no QR offered.
   upiId String? @map("upi_id")
 
+  /// GST registration: REGULAR | COMPOSITION | UNREGISTERED. Decides what a bill IS -- a tax invoice,
+  /// a Bill of Supply (composition: no GST charged), or a plain receipt -- and whether tax is worked out
+  /// at all. Mirrored from Inventory while connected (its Settings own it); set here otherwise.
+  gstRegistration String @default("REGULAR") @map("gst_registration")
+
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("shop_settings")
@@ -414,6 +419,10 @@ model Sale {
   /// What the customer was shown as saved. Shown on the receipt, because it is the cheapest
   /// loyalty tool there is.
   savedPaise    Int @default(0) @map("saved_paise")
+
+  /// TAX_INVOICE | BILL_OF_SUPPLY | RECEIPT, fixed when the bill is issued from the shop's registration
+  /// at that moment. A later change of registration never rewrites a bill already in a customer's hand.
+  documentKind String @default("TAX_INVOICE") @map("document_kind")
 
   /// IDEMPOTENCY. The till makes one key per basket. Pressing Complete twice, a retry after a
   /// timeout, and the offline outbox flushing the same bill are three names for one problem, and
