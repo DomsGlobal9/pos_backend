@@ -1,10 +1,11 @@
 import { Fulfilment, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
-import { badRequest, conflict, notFound } from '../../utils/httpError';
+import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { literal, phoneDigits } from '../../utils/likeText';
 import { rupees } from '../money';
-import { planPayments, owedPaise, refreshMoneyStatus } from '../payments';
+import { planPayments, owedPaise, refreshMoneyStatus, duplicateReferences, duplicateMessage } from '../payments';
+import { grant } from '../approvals';
 import { PaymentInput } from '../sale/sale.schema';
 import { record } from '../audit';
 import { spendCredit } from '../store-credit';
@@ -163,7 +164,7 @@ async function lock(tx: Prisma.TransactionClient, saleId: string) {
 export async function collect(
   actor: Actor,
   saleId: string,
-  input: { onceKey: string; payments: PaymentInput[]; counterId?: string }
+  input: { onceKey: string; payments: PaymentInput[]; counterId?: string; approval?: { pin: string; reason: string } }
 ) {
   if (!input.onceKey || input.onceKey.length < 8) throw badRequest('This collection needs a key.');
   await refuseUnheldBalances(actor.clientId, input.payments, 'money collected on an order');
@@ -193,6 +194,13 @@ export async function collect(
       where: { clientId: actor.clientId }, select: { enabledPaymentMethods: true }
     });
     const planned = planPayments(owed, input.payments, settings?.enabledPaymentMethods ?? [], 'COLLECT');
+    // One payment shown twice is stopped here too (PLAN-payments Step 1); a manager may allow it.
+    const dupes = await duplicateReferences(tx, actor.clientId, planned);
+    if (dupes.length > 0) {
+      const detail = { references: dupes };
+      if (!input.approval) throw forbidden(duplicateMessage(dupes[0]), { code: 'APPROVAL_REQUIRED', kind: 'DUPLICATE_REFERENCE', ...detail });
+      await grant(actor, { kind: 'DUPLICATE_REFERENCE', pin: input.approval.pin, reason: input.approval.reason, detail }, tx);
+    }
 
     const now = new Date();
     // Saturday's balance goes into Saturday's drawer -- whichever is open where it is collected.

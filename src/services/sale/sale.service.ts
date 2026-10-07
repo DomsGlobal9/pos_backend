@@ -6,7 +6,7 @@ import { priceBasket, BasketLine } from '../basket';
 import { forSale } from '../items';
 import { nextNumber } from '../invoice-series';
 import { rupees, applyPercent } from '../money';
-import { planPayments, owedPaise } from '../payments';
+import { planPayments, duplicateReferences, duplicateMessage, owedPaise } from '../payments';
 import { grant, attachToSale } from '../approvals';
 import { record, AuditEntry } from '../audit';
 import { spendCredit } from '../store-credit';
@@ -419,8 +419,28 @@ export async function writeSale(
           input.payments,
           settings?.enabledPaymentMethods ?? [],
           // A kept order takes an advance -- anything from nothing up to the bill. POS-ORD-002.
-          isKept ? 'ADVANCE' : 'EXACT'
+          isKept ? 'ADVANCE' : 'EXACT',
+          { lenient: !!input.madeOfflineAt }
         );
+      }
+
+      /*
+       * ONE PAYMENT SHOWN TWICE is stopped (PLAN-payments Step 1) -- for everyone, owner included:
+       * it is a check on the payment, not on who is asking, so a manager types their own PIN and a
+       * reason. A sale made offline is never refused afterwards: its payment waits on Payment checks.
+       */
+      const dupes = await duplicateReferences(tx, actor.clientId, planned);
+      if (dupes.length > 0) {
+        const detail = { references: dupes.map(d => ({ method: d.method, reference: d.reference, invoiceNo: d.invoiceNo })) };
+        if (input.madeOfflineAt) {
+          for (const p of planned) if (dupes.some(d => d.method === p.method && d.reference === p.reference)) p.status = 'NEEDS_CHECKING';
+        } else if (!input.approval) {
+          throw forbidden(duplicateMessage(dupes[0]), { code: 'APPROVAL_REQUIRED', kind: 'DUPLICATE_REFERENCE', ...detail });
+        } else {
+          const granted = await grant(actor, { kind: 'DUPLICATE_REFERENCE', pin: input.approval.pin, reason: input.approval.reason, detail }, tx);
+          approvalIds.push(granted.id);
+          pendingAudit.push({ action: 'approval.granted', detail: { kind: 'DUPLICATE_REFERENCE', reason: granted.reason, approvedBy: granted.approvedBy.name, approvedById: granted.approvedBy.id, ...detail } });
+        }
       }
 
       // What the customer still owes once these payments are in. A payment still being checked is

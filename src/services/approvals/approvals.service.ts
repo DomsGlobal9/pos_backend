@@ -27,7 +27,8 @@ const REQUIRED_PERMISSION: Record<ApprovalKind, string> = {
   RETURN_OUTSIDE_WINDOW: PERMISSIONS.REFUND_OUTSIDE_WINDOW,
   CASH_OUT: PERMISSIONS.CASH_OUT,
   PAYMENT_VOID: PERMISSIONS.PAYMENT_VOID,
-  PAY_LATER: PERMISSIONS.PAY_LATER
+  PAY_LATER: PERMISSIONS.PAY_LATER,
+  DUPLICATE_REFERENCE: PERMISSIONS.PAYMENT_VOID
 };
 
 const HUMAN_KIND: Record<ApprovalKind, string> = {
@@ -37,7 +38,8 @@ const HUMAN_KIND: Record<ApprovalKind, string> = {
   RETURN_OUTSIDE_WINDOW: 'a return after the return window',
   CASH_OUT: 'taking cash out of the drawer',
   PAYMENT_VOID: 'marking a payment as never arrived',
-  PAY_LATER: 'selling on credit'
+  PAY_LATER: 'selling on credit',
+  DUPLICATE_REFERENCE: 'a payment reference already on another bill'
 };
 
 /**

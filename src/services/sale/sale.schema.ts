@@ -42,6 +42,9 @@ export const paymentSchema = z.object({
   /** Cash handed over. Only meaningful for CASH, and the change is worked out from it. */
   tenderedPaise: paise.positive().optional(),
   reference: z.string().trim().max(64).optional(),
+  /** CARD: the last 4 digits and the approval code off the machine's slip, kept as "1234/AB12C3". */
+  cardLast4: z.string().trim().max(8).optional(),
+  approvalCode: z.string().trim().max(12).optional(),
   /**
    * The cashier is not sure this one arrived. POS-PAY-010.
    *

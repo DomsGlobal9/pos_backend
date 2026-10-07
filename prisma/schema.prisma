@@ -1169,6 +1169,8 @@ model Approval {
 }
 
 enum ApprovalKind {
+  /// A UPI or card reference already on another bill -- one payment shown twice (PLAN-payments Step 1).
+  DUPLICATE_REFERENCE
   /// A discount larger than the cashier's limit.
   DISCOUNT_OVER_LIMIT
   /// Selling at a price other than the one on the tag.
