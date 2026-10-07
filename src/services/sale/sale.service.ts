@@ -247,7 +247,7 @@ export async function writeSale(
       const settings = await tx.shopSettings.findUnique({
         where: { clientId: actor.clientId },
         select: {
-          invoicePrefix: true, enabledPaymentMethods: true, manualDiscountMaxPercent: true, gstRegistration: true
+          invoicePrefix: true, enabledPaymentMethods: true, manualDiscountMaxPercent: true, gstRegistration: true, gstin: true
         }
       });
 
@@ -257,7 +257,7 @@ export async function writeSale(
        * bill would be headed right and still record tax the shop never collected, which then flows
        * into the GST report and the GSTR-1 export.
        */
-      const documentKind = documentKindFor(settings?.gstRegistration);
+      const documentKind = documentKindFor(settings?.gstRegistration, settings?.gstin);
       if (!chargesGst(documentKind)) for (const line of basket) line.taxRate = 0;
 
       /*
@@ -747,7 +747,7 @@ export async function getSale(actor: Actor, saleId: string) {
     }),
     prisma.shopSettings.findUnique({
       where: { clientId: actor.clientId },
-      select: { shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true }
+      select: { shopName: true, gstin: true, address: true, phone: true, logoUrl: true, receiptFooter: true }
     }),
     // Phase 6. The credit notes against this bill, and which pieces each took back.
     prisma.return.findMany({

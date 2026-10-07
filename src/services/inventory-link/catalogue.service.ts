@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { documentKindFor } from '../shop/gst-document';
 import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { conflict, forbidden } from '../../utils/httpError';
 import { record } from '../audit';
@@ -62,10 +63,11 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
    * "no rate set in Inventory" is not something the owner has to go and fix, and holding the item
    * back would stop them selling for no reason (Inventory session, 6 Oct).
    *
-   * Absent means REGULAR: that is what every shop's payload looked like before the field existed,
-   * and the cautious reading of silence is the one that keeps holding items back.
+   * Absent or null (never chosen): the till's own registration and GSTIN decide, by the same rule
+   * as the bill (documentKindFor) -- and no GSTIN means no GST, whatever the registration says.
    */
-  let gstCharged = true;
+  const own = await prisma.shopSettings.findUnique({ where: { clientId }, select: { gstRegistration: true, gstin: true } });
+  let gstCharged = documentKindFor(own?.gstRegistration, own?.gstin) === 'TAX_INVOICE';
   /*
    * THE SHOP'S DISCOUNT LIMIT, from Inventory, as an explicit shape -- never a bare null. Inventory's
    * null means NO limit; our manualDiscountMaxPercent of 0 means nothing may be discounted without a
@@ -80,6 +82,9 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   // Whether Inventory said anything about the logo at all: an older Inventory sends no `shop` block,
   // and its silence must not wipe the logo the shop already has.
   let logoSaid = false;
+  // The bill's shop details as Inventory keeps them (Settings -> Name, logo and bill details; address
+  // and phone are this till's STORE's own when set). Only the keys Inventory actually sent.
+  const details: { name?: unknown; address?: unknown; phone?: unknown; gstin?: unknown; receiptFooter?: unknown } = {};
 
   for (let page = 0; page < MAX_PAGES; page++) {
     // The cursor means "everything changed after this point" -- the same mechanism for the next page
@@ -97,12 +102,20 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
     }
 
     const data = reply.body?.data ?? {};
-    if (data.gst?.registration) gstCharged = data.gst.registration === 'REGULAR';
+    if (data.gst?.registration) {
+      const gstinNow = typeof data.shop?.gstin === 'string' && data.shop.gstin.trim() ? data.shop.gstin : own?.gstin;
+      gstCharged = documentKindFor(data.gst.registration, gstinNow) === 'TAX_INVOICE';
+    }
     if (['REGULAR', 'COMPOSITION', 'UNREGISTERED'].includes(data.gst?.registration)) registration = data.gst.registration;
     if (data.manualDiscount && typeof data.manualDiscount === 'object') manualDiscount = data.manualDiscount;
     if (data.shop && typeof data.shop === 'object' && 'logoUrl' in data.shop) {
       logoSaid = true;
       inventoryLogo = typeof data.shop.logoUrl === 'string' && /^https:\/\//.test(data.shop.logoUrl) ? data.shop.logoUrl : null;
+    }
+    if (data.shop && typeof data.shop === 'object') {
+      for (const key of ['name', 'address', 'phone', 'gstin', 'receiptFooter'] as const) {
+        if (key in data.shop) details[key] = data.shop[key];
+      }
     }
     const products: any[] = Array.isArray(data.products) ? data.products : [];
     for (const product of products) {
@@ -128,7 +141,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
    * next manual refresh to be listed. Fixing that properly means tracking problems per item code
    * rather than as sentences; worth it only if owners start missing things.
    */
-  const mine = await prisma.shopSettings.findUnique({ where: { clientId }, select: { gstin: true, logoUrl: true } });
+  const mine = await prisma.shopSettings.findUnique({ where: { clientId }, select: { gstin: true, logoUrl: true, gstRegistration: true } });
   /*
    * A SHOP WITH A GSTIN IS REGISTERED. Inventory answers UNREGISTERED when its owner never chose
    * (7 Oct), so taking that word for a shop whose bills carry a GSTIN would turn every bill into a
@@ -149,6 +162,35 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   if (logoSaid && inventoryLogo !== (mine?.logoUrl ?? null)) {
     await prisma.shopSettings.updateMany({ where: { clientId }, data: { logoUrl: inventoryLogo } });
   }
+  /*
+   * THE REST OF THE BILL'S HEADER COMES FROM INVENTORY TOO (7 Oct): name, address, phone, GSTIN and
+   * footer, the same one source as the logo. What Inventory leaves empty: a bill must always name the
+   * shop and say where it is, and a registered shop's tax invoice must carry its GSTIN -- so an empty
+   * name, address or GSTIN keeps the till's and tells the owner what to fill in. An empty phone or
+   * footer is simply none.
+   */
+  const text = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
+  const header: { shopName?: string; address?: string; gstin?: string; phone?: string | null; receiptFooter?: string | null } = {};
+  const fill = 'Fill it in Inventory (Settings -> Name, logo and bill details); the till keeps its own until then.';
+  if ('name' in details) {
+    const v = text(details.name, 120);
+    if (v) header.shopName = v; else problems.push(`Inventory has no shop name for the bill. ${fill}`);
+  }
+  if ('address' in details) {
+    const v = text(details.address, 300);
+    if (v) header.address = v; else problems.push(`Inventory has no address for this store's bills. ${fill}`);
+  }
+  if ('gstin' in details) {
+    const v = text(details.gstin, 20)?.replace(/\s+/g, '').toUpperCase() ?? null;
+    if (v && /^[0-9]{2}[A-Z0-9]{13}$/.test(v)) header.gstin = v;
+    else if (v) problems.push(`Inventory's GSTIN "${v}" is not 15 characters in the usual form, so the till kept its own. Check it in Inventory.`);
+    else if ((registration ?? mine?.gstRegistration) === 'REGULAR' || (registration ?? mine?.gstRegistration) === 'COMPOSITION') {
+      problems.push(`Inventory has no GSTIN saved for this registered shop. ${fill}`);
+    }
+  }
+  if ('phone' in details) header.phone = text(details.phone, 40);
+  if ('receiptFooter' in details) header.receiptFooter = text(details.receiptFooter, 300);
+  if (Object.keys(header).length) await prisma.shopSettings.updateMany({ where: { clientId }, data: header });
   if (manualDiscount) {
     const percent = manualDiscount.unlimited === true ? 100 : Number(manualDiscount.maxPercent);
     if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {
@@ -240,12 +282,16 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
      * In a shop that charges no GST there is no gap to fill, so the absence is taken as the 0 it
      * effectively is and the item sells.
      */
-    if (gstCharged && (v.taxRateBps === null || v.taxRateBps === undefined || v.taxRateBps === '')) {
-      counts.skipped++;
-      problems.push(`${label} (${code}): no GST rate in Inventory -- set one there before this can be sold.`);
-      continue;
+    /*
+     * GST IS OPTIONAL (7 Oct): a missing rate never stops an item selling. In a shop that charges GST
+     * it sells at 0% and the owner gets a quiet line to set the rate; anywhere else there is nothing
+     * to set.
+     */
+    const noRate = v.taxRateBps === null || v.taxRateBps === undefined || v.taxRateBps === '';
+    if (gstCharged && noRate) {
+      problems.push(`${label} (${code}): no GST rate in Inventory, so it sells at 0% GST. Set the rate there if it should carry GST.`);
     }
-    const bps = Number(v.taxRateBps);
+    const bps = noRate ? 0 : Number(v.taxRateBps);
     if (!Number.isInteger(bps) || bps < 0 || bps % 100 !== 0) {
       counts.skipped++;
       problems.push(`${label} (${code}): GST ${Number.isFinite(bps) ? bps / 100 : '?'}% is not a whole percent -- not taken until the till supports it.`);
