@@ -82,6 +82,14 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
   if (sale.customer) {
     L.push({ kind: 'pair', left: 'Customer', right: ascii(`${sale.customer.name ? `${sale.customer.name} ` : ''}${sale.customer.phoneMasked ?? ''}`) });
   }
+  // A tax invoice to a GST-registered business: the buyer as issued (Rule 46).
+  if (sale.buyerGstin) {
+    L.push({ kind: 'rule' });
+    L.push({ kind: 'text', text: 'Bill to', bold: true });
+    if (sale.buyerName) L.push({ kind: 'text', text: ascii(sale.buyerName) });
+    if (sale.buyerAddress) L.push({ kind: 'text', text: ascii(sale.buyerAddress) });
+    L.push({ kind: 'text', text: `GSTIN ${ascii(sale.buyerGstin)}` });
+  }
   L.push({ kind: 'rule' });
 
   for (const line of sale.lines ?? []) {

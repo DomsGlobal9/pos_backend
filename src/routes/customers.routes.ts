@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { findByPhone, findOrCreate, search, detail } from '../services/customers';
+import { findByPhone, findOrCreate, search, detail, updateDetails } from '../services/customers';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
 
@@ -56,6 +56,21 @@ router.post('/', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     res.json({ success: true, data: await detail((req as any).actor, req.params.id) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** PATCH /api/v1/customers/:id -- name, GSTIN and address, for B2B tax invoices. */
+router.patch('/:id', async (req, res, next) => {
+  try {
+    const body = z.object({
+      name: z.string().max(120).nullable().optional(),
+      gstin: z.string().max(20).nullable().optional(),
+      address: z.string().max(300).nullable().optional()
+    }).safeParse(req.body);
+    if (!body.success) throw badRequest(body.error.issues[0].message);
+    res.json({ success: true, data: await updateDetails((req as any).actor, req.params.id, body.data) });
   } catch (error) {
     next(error);
   }

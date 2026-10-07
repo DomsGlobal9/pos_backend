@@ -42,7 +42,7 @@ async function gather(actor: Actor, from: string, to: string) {
     where: { clientId: actor.clientId, createdAt: { gte: start, lt: end } },
     orderBy: [{ createdAt: 'asc' }, { invoiceNo: 'asc' }],
     select: {
-      invoiceNo: true, createdAt: true, roundOffPaise: true, totalPaise: true,
+      invoiceNo: true, createdAt: true, roundOffPaise: true, totalPaise: true, buyerGstin: true,
       customer: { select: { name: true, phone: true, gstin: true } },
       lines: { select: { taxRate: true, lineTotalPaise: true, taxPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true } },
       payments: { select: { method: true, amountPaise: true } }
@@ -53,7 +53,7 @@ async function gather(actor: Actor, from: string, to: string) {
     orderBy: [{ createdAt: 'asc' }, { creditNoteNo: 'asc' }],
     select: {
       id: true, creditNoteNo: true, createdAt: true, totalPaise: true, roundOffPaise: true, refundMethod: true,
-      originalSale: { select: { invoiceNo: true, customer: { select: { name: true, phone: true, gstin: true } } } }
+      originalSale: { select: { invoiceNo: true, buyerGstin: true, customer: { select: { name: true, phone: true, gstin: true } } } }
     }
   });
   const rLines = await prisma.returnLine.findMany({
@@ -74,7 +74,8 @@ export async function salesExport(actor: Actor, from: string, to: string) {
     for (const p of s.payments) methods.set(p.method, (methods.get(p.method) ?? 0) + p.amountPaise);
     rows.push({
       date: localDate(s.createdAt), time: localTime(s.createdAt), type: 'Sale', number: s.invoiceNo, against: '',
-      customer: s.customer?.name ?? '', phone: s.customer?.phone ?? '', gstin: s.customer?.gstin ?? '',
+      customer: s.customer?.name ?? '', phone: s.customer?.phone ?? '', // The GSTIN the bill was ISSUED to (B2B), never the customer's today.
+      gstin: s.buyerGstin ?? '',
       taxable: r(sum(l => l.lineTotalPaise - l.taxPaise)), cgst: r(sum(l => l.cgstPaise)), sgst: r(sum(l => l.sgstPaise)), igst: r(sum(l => l.igstPaise)),
       roundOff: r(s.roundOffPaise), total: r(s.totalPaise),
       paidBy: [...methods].map(([m, a]) => `${METHOD[m] ?? m} ${r(a).toFixed(2)}`).join(' + ')
@@ -96,7 +97,7 @@ export async function salesExport(actor: Actor, from: string, to: string) {
     const c = x.originalSale.customer;
     rows.push({
       date: localDate(x.createdAt), time: localTime(x.createdAt), type: 'Credit note', number: x.creditNoteNo, against: x.originalSale.invoiceNo,
-      customer: c?.name ?? '', phone: c?.phone ?? '', gstin: c?.gstin ?? '',
+      customer: c?.name ?? '', phone: c?.phone ?? '', gstin: x.originalSale.buyerGstin ?? '',
       taxable: -r(sum(l => l.amountPaise - l.taxPaise)), cgst: -r(sum(l => l.cgstPaise)), sgst: -r(sum(l => l.sgstPaise)), igst: -r(sum(l => l.igstPaise)),
       roundOff: -r(x.roundOffPaise), total: -r(x.totalPaise), paidBy: `Refund: ${METHOD[x.refundMethod] ?? x.refundMethod}`
     });
