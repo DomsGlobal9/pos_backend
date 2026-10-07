@@ -110,9 +110,11 @@ const saleLine = (l: SaleLineRow) => ({
  */
 function customerBlock(s: { customer: { name: string | null; phone: string } | null; buyerName: string | null; buyerGstin: string | null; buyerAddress: string | null }) {
   if (!s.customer) return null;
-  if (!s.buyerGstin) return { name: s.customer.name, phone: s.customer.phone };
+  // A bill made out to the buyer (B2B, or a Rs 50,000+ consumer bill under rule 46) sends them as printed.
+  if (!s.buyerGstin && !s.buyerAddress) return { name: s.customer.name, phone: s.customer.phone };
   return {
-    name: s.buyerName ?? s.customer.name, phone: s.customer.phone, gstin: s.buyerGstin,
+    name: s.buyerName ?? s.customer.name, phone: s.customer.phone,
+    ...(s.buyerGstin ? { gstin: s.buyerGstin } : {}),
     ...(s.buyerAddress ? { address: s.buyerAddress } : {})
   };
 }
