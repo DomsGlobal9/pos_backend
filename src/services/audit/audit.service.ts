@@ -48,6 +48,7 @@ export type AuditAction =
   | 'shop.logo_set'
   | 'sale.offers_applied'
   | 'shop.gst_registration_set'
+  | 'day.reclosed'
   | 'device.updated'
   | 'api_key.created'
   | 'api_key.revoked'
