@@ -34,6 +34,10 @@ export function money(paise: number): string {
   return `${neg ? '-' : ''}Rs ${grouped}${p ? `.${String(p).padStart(2, '0')}` : ''}`;
 }
 
+/** A typed text's own lines, each made printable; blank lines dropped. */
+const linesOf = (text: unknown): string[] =>
+  typeof text === 'string' ? text.split(/\r?\n/).map(ascii).map(l => l.trim()).filter(Boolean) : [];
+
 /** Anything a built-in PDF font cannot draw becomes its nearest plain equivalent. */
 export function ascii(text: string): string {
   return String(text ?? '')
@@ -69,7 +73,9 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
   const logo = opts.logo ?? (typeof shop.logoUrl === 'string' && shop.logoUrl.startsWith(jpeg) ? Buffer.from(shop.logoUrl.slice(jpeg.length), 'base64') : null);
   if (logo) L.push({ kind: 'image', bytes: logo });
   L.push({ kind: 'text', text: ascii(shop.shopName ?? 'Shop'), bold: true, center: true });
-  if (shop.address) L.push({ kind: 'text', text: ascii(shop.address), center: true });
+  // An address typed on several lines prints on several lines: ascii() drops the line break itself,
+  // which ran "Begum Bazaar" into "Hyderabad" on the first live B2B bill (7 Oct).
+  for (const part of linesOf(shop.address)) L.push({ kind: 'text', text: part, center: true });
   if (shop.phone) L.push({ kind: 'text', text: `Ph ${ascii(shop.phone)}`, center: true });
   const docKind: DocumentKind = (sale.documentKind as DocumentKind) ?? 'TAX_INVOICE';
   // A plain receipt is from a shop with no GST registration: it has no GSTIN to print.
@@ -88,7 +94,7 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
     L.push({ kind: 'rule' });
     L.push({ kind: 'text', text: 'Bill to', bold: true });
     if (sale.buyerName) L.push({ kind: 'text', text: ascii(sale.buyerName) });
-    if (sale.buyerAddress) L.push({ kind: 'text', text: ascii(sale.buyerAddress) });
+    for (const part of linesOf(sale.buyerAddress)) L.push({ kind: 'text', text: part });
     L.push({ kind: 'text', text: `GSTIN ${ascii(sale.buyerGstin)}` });
   }
   L.push({ kind: 'rule' });
