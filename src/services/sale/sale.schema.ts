@@ -16,7 +16,7 @@ const paise = z.number().int('Amounts are in paise, as whole numbers');
 
 export const saleLineSchema = z.object({
   itemId: z.string().min(1),
-  qty: z.number().int().positive('A line needs at least one of something'),
+  qty: z.number().int().positive('A line needs at least one of something').max(9999, 'At most 9,999 of one item on a line.'),
   lineDiscountPaise: paise.nonnegative().optional(),
   /**
    * SELLING AT A PRICE OTHER THAN THE TAG. POS-SELL-017.
@@ -27,7 +27,7 @@ export const saleLineSchema = z.object({
    *
    * Without it, everything is still priced from the database.
    */
-  overridePricePaise: paise.positive().optional()
+  overridePricePaise: paise.positive().max(1_000_000_000, 'That price is more than Rs 1 crore for one piece. Check it.').optional()
 });
 
 export const paymentSchema = z.object({
