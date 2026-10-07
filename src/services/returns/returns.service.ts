@@ -763,7 +763,8 @@ export async function getReturn(actor: Actor, returnId: string) {
       refundMethod: true, totalPaise: true, taxPaise: true, roundOffPaise: true, approvedById: true, pointsBack: true, pointsBackPaise: true,
       cashier: { select: { id: true, name: true } },
       customer: { select: { id: true, name: true, phone: true, storeCreditPaise: true } },
-      originalSale: { select: { id: true, invoiceNo: true, createdAt: true, documentKind: true } },
+      // The buyer the bill was made out to: a credit note to a registered buyer names them too (Rule 53).
+      originalSale: { select: { id: true, invoiceNo: true, createdAt: true, documentKind: true, buyerName: true, buyerGstin: true, buyerAddress: true } },
       exchangeSale: { select: { id: true, invoiceNo: true, totalPaise: true } },
       lines: {
         select: {
