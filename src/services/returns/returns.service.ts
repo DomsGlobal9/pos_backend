@@ -14,7 +14,7 @@ import { shiftFor } from '../shifts';
 import { adjust, cameBack, StockChange } from '../stock';
 import { saleReturned, saleExchanged } from '../events';
 import { CreateExchangeInput, CreateReturnInput, RefundInput } from './returns.schema';
-import { refuseUnheldBalances, holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
+import { holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
 
 /**
  * Returns and exchanges. POS-RET-001..007, POS-EXC-001..005, POS-APR-004/005, POS-PAY-015.
@@ -435,15 +435,11 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
   /*
    * THE EXCHANGE'S NEW BILL, LIKE ANY SALE (contract §10, Inventory 7 Oct): points and store credit
    * on it are held in Inventory first, confirmed the moment it commits, and let go if it does not.
-   * Inventory settles them from sale.exchanged exactly as from sale.completed.
-   *
-   * Still refused until Inventory says its side is live -- remove the refusal line below then, and
-   * nothing else changes. With the refusal in place holdForSale never sees points, and a shop with no
-   * Inventory gets no holds, so the wiring below is inert until that moment.
+   * Inventory settles them from sale.exchanged exactly as from sale.completed (live 7 Oct, 76339ac).
+   * A shop with no Inventory gets no holds and spends its own store credit, as on a sale.
    */
   let holds: Hold[] = [];
   if (mode.kind === 'EXCHANGE') {
-    await refuseUnheldBalances(actor.clientId, mode.input.newSale.payments ?? [], 'an exchange');
     const owner = await prisma.sale.findFirst({ where: { id: saleId, clientId: actor.clientId }, select: { customerId: true } });
     holds = await holdForSale(actor, {
       onceKey: `${input.onceKey}:sale`,
@@ -473,14 +469,9 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
 
       const computed = compute(bill, input.lines);
       const share = pointsShare(bill, computed.totalPaise - computed.roundOffPaise);
-      /*
-       * ponytail: an exchange on a bill paid partly in points is refused for now. Its credit towards
-       * the new bill would have to be the money share only, and whether Inventory restores points on
-       * sale.exchanged as it does on sale.returned is not agreed. Return it, then sell anew.
-       */
-      if (mode.kind === 'EXCHANGE' && share.points > 0) {
-        throw conflict('This bill was paid partly in points, so it cannot be exchanged yet. Return it, then ring up the new pieces as a new sale.', { code: 'POINTS_BILL_EXCHANGE' });
-      }
+      // A bill paid partly in points, exchanged: its points share goes back AS POINTS (Inventory, from
+      // its own shareOfBill), so only the money share pays towards the new bill.
+      const moneyBackPaise = computed.totalPaise - share.paise;
       const window = windowFor(bill.createdAt, settings.returnWindowDays);
 
       // --- POS-APR-004, -005 ------------------------------------------------------------------
@@ -571,7 +562,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
       // --- POS-EXC-001..005. The new bill, paid first by what came back. -----------------------
       const refunds: { method: RefundMethod; amountPaise: number; reference: string | null }[] = [];
       // The points share goes back as points, by Inventory. The till refunds the money share only.
-      let leftover = computed.totalPaise - share.paise;
+      let leftover = moneyBackPaise;
       let exchangeInvoiceNo: string | null = null;
       let goingOut: StockChange[] = [];
 
@@ -582,7 +573,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
           // The new bill belongs to the same person, unless the original had nobody on it.
           customerId: customerId ?? undefined,
           approval: input.approval
-        }, saleAudit, { exchangeCreditPaise: computed.totalPaise, holds });
+        }, saleAudit, { exchangeCreditPaise: moneyBackPaise, holds });
 
         exchangeInvoiceNo = written.invoiceNo;
         goingOut = written.stockChanges;
@@ -590,7 +581,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
         if (written.appliedCreditPaise > 0) {
           refunds.push({ method: 'EXCHANGE', amountPaise: written.appliedCreditPaise, reference: null });
         }
-        leftover = computed.totalPaise - written.appliedCreditPaise;
+        leftover = moneyBackPaise - written.appliedCreditPaise;
       }
 
       // --- POS-RET-007, POS-PAY-015. Whatever is left goes back. -------------------------------
