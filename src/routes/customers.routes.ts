@@ -37,7 +37,8 @@ const quickCreate = z.object({
   gstin: z.string().trim().max(20).optional(),
   note: z.string().trim().max(280).optional(),
   /** Only ever true from here. A screen without the tick is not the customer saying no. */
-  marketingConsent: z.boolean().optional()
+  marketingConsent: z.boolean().optional(),
+  address: z.string().max(300).optional()
 });
 
 /** POST /api/v1/customers -- POS-CUST-004. Find or create, so a race ends with one customer. */

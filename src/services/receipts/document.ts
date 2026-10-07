@@ -1,4 +1,5 @@
 import { HEADING, COMPOSITION_DECLARATION, DocumentKind } from '../shop/gst-document';
+import { stateOf } from '../shop/gst-states';
 /**
  * The receipt as a DOCUMENT: an ordered list of lines, built from the bill exactly as it was saved.
  * POS-RCPT-002, -009.
@@ -90,12 +91,15 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
     L.push({ kind: 'pair', left: 'Customer', right: ascii(`${sale.customer.name ? `${sale.customer.name} ` : ''}${sale.customer.phoneMasked ?? ''}`) });
   }
   // A tax invoice to a GST-registered business: the buyer as issued (Rule 46).
-  if (sale.buyerGstin) {
+  if (sale.buyerGstin || sale.buyerName || sale.buyerAddress) {
     L.push({ kind: 'rule' });
     L.push({ kind: 'text', text: 'Bill to', bold: true });
     if (sale.buyerName) L.push({ kind: 'text', text: ascii(sale.buyerName) });
     for (const part of linesOf(sale.buyerAddress)) L.push({ kind: 'text', text: part });
-    L.push({ kind: 'text', text: `GSTIN ${ascii(sale.buyerGstin)}` });
+    if (sale.buyerGstin) L.push({ kind: 'text', text: `GSTIN ${ascii(sale.buyerGstin)}` });
+    // An unregistered customer on a large bill: the state too (Rule 46). A counter sale is supplied
+    // in the shop's own state, so it is the shop's.
+    else if (stateOf(shop.gstin)) L.push({ kind: 'text', text: `State ${stateOf(shop.gstin)}` });
   }
   L.push({ kind: 'rule' });
 
