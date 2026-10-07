@@ -613,6 +613,9 @@ model Payment {
   holdId          String?   @map("hold_id")
   holdConfirmedAt DateTime? @map("hold_confirmed_at")
   holdNote        String?   @map("hold_note")
+  /// POINTS rows: how many points this payment spent. A return gives the points share back in
+  /// whole points, worked from this (contract §10.5, Inventory's own rule).
+  points          Int?      @map("points")
 
   sale      Sale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
   checkedBy User? @relation("PaymentCheckedBy", fields: [checkedById], references: [id], onDelete: SetNull)
@@ -696,6 +699,10 @@ model Return {
   /// Only ever non-zero on the return that empties a bill: the original bill's round-off comes
   /// back with the last piece, so everything returned adds up to exactly what was paid.
   roundOffPaise Int @default(0) @map("round_off_paise")
+  /// The points share of this return (contract §10.5): given back AS POINTS by Inventory, so it
+  /// is NOT refunded by the till. The till refunds only the money share, total less this.
+  pointsBack      Int @default(0) @map("points_back")
+  pointsBackPaise Int @default(0) @map("points_back_paise")
 
   lines     ReturnLine[]
   refunds   ReturnRefund[]
