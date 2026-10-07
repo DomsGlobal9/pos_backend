@@ -18,7 +18,7 @@ export async function forTill(actor: Actor) {
     prisma.shopSettings.findUnique({
       where: { clientId: actor.clientId },
       select: {
-        shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true,
+        shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true, upiQrEnabled: true,
         enabledPaymentMethods: true, manualDiscountMaxPercent: true, returnWindowDays: true,
         holdThresholdQty: true, upiId: true, gstRegistration: true
       }

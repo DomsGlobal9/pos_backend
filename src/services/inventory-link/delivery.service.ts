@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { confirmQrPayments } from './upi-qr.service';
 import { call } from './client';
 import { toInventory, readAnswer } from './wire';
 import { confirmPendingHolds } from './holds.service';
@@ -436,6 +437,7 @@ export async function runOnce() {
     try {
       // Holds first: a confirm is never left waiting behind the sale queue (contract §10).
       await confirmPendingHolds(l.clientId);
+      await confirmQrPayments(l.clientId);
       if (l.blockedSequence === null) await drain(l.clientId);
       // Even a stopped queue has bills Inventory accepted before it stopped. Their endings still count.
       await checkSettlements(l.clientId);

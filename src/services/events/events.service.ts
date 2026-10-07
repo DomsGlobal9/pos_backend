@@ -128,7 +128,7 @@ async function loadSale(tx: Tx, saleId: string) {
       customer: { select: { phone: true, name: true } },
       buyerName: true, buyerGstin: true, buyerAddress: true,
       lines: { select: LINE_SELECT },
-      payments: { select: { method: true, amountPaise: true, status: true, holdId: true } }
+      payments: { select: { method: true, amountPaise: true, status: true, holdId: true, qrId: true } }
     }
   });
 }
@@ -157,7 +157,7 @@ export async function saleCompleted(tx: Tx, clientId: string, saleId: string, pr
       subtotalPaise: s.subtotalPaise, discountPaise: s.discountPaise, taxPaise: s.taxPaise,
       roundOffPaise: s.roundOffPaise, totalPaise: s.totalPaise
     },
-    payments: s.payments.map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status, ...(p.holdId ? { holdId: p.holdId } : {}) }))
+    payments: s.payments.map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status, ...(p.holdId ? { holdId: p.holdId } : {}), ...(p.qrId ? { qrId: p.qrId } : {}) }))
   }, s.invoiceNo);
 }
 
@@ -232,7 +232,7 @@ export async function saleExchanged(tx: Tx, clientId: string, returnId: string) 
     newTotalPaise: s.totalPaise,
     differencePaise: s.totalPaise - (r.totalPaise - r.pointsBackPaise),
     ...(r.pointsBack ? { pointsRefunded: r.pointsBack } : {}),
-    payments: s.payments.filter(p => p.method !== 'EXCHANGE').map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status, ...(p.holdId ? { holdId: p.holdId } : {}) })),
+    payments: s.payments.filter(p => p.method !== 'EXCHANGE').map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status, ...(p.holdId ? { holdId: p.holdId } : {}), ...(p.qrId ? { qrId: p.qrId } : {}) })),
     refunds: r.refunds.filter(x => x.method !== 'EXCHANGE').map(x => ({ method: x.method, amountPaise: x.amountPaise, reference: x.reference ?? null }))
   }, r.creditNoteNo);
 }

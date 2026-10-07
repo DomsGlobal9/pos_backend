@@ -10,4 +10,6 @@ export { quoteBasket, heldQuote, __forgetQuote, COULD_NOT_CHECK } from './quote.
 export type { Quote, QuoteLine, QuoteResult } from './quote.service';
 export { walletFor, walletIsInventorys, holdForSale, releaseHolds, confirmSaleHolds, confirmPendingHolds, refuseUnheldBalances } from './holds.service';
 export type { Wallet, WalletResult, Hold } from './holds.service';
+export { createQr, qrStatus, closeQr, confirmQrPayments, verifyQrPayments } from './upi-qr.service';
+export type { QrStatus } from './upi-qr.service';
 export type { Outcome } from './delivery.service';

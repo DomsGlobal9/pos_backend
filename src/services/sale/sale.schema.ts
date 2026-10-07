@@ -43,6 +43,8 @@ export const paymentSchema = z.object({
   tenderedPaise: paise.positive().optional(),
   reference: z.string().trim().max(64).optional(),
   /** CARD: the last 4 digits and the approval code off the machine's slip, kept as "1234/AB12C3". */
+  /** UPI paid to a self-confirming QR (PLAN-payments Step 2). Checked with Inventory at Complete. */
+  qrId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional(),
   cardLast4: z.string().trim().max(8).optional(),
   approvalCode: z.string().trim().max(12).optional(),
   /**

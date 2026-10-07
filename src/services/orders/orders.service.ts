@@ -12,6 +12,7 @@ import { spendCredit } from '../store-credit';
 import { shiftFor } from '../shifts';
 import { paymentUpdated } from '../events';
 import { refuseUnheldBalances } from '../inventory-link/holds.service';
+import { verifyQrPayments } from '../inventory-link/upi-qr.service';
 
 /**
  * Orders: goods kept for a customer, money still owed, things to hand over. POS-ORD-001..014.
@@ -167,6 +168,7 @@ export async function collect(
   input: { onceKey: string; payments: PaymentInput[]; counterId?: string; approval?: { pin: string; reason: string } }
 ) {
   if (!input.onceKey || input.onceKey.length < 8) throw badRequest('This collection needs a key.');
+  input = { ...input, payments: await verifyQrPayments(actor.clientId, input.payments) };
   await refuseUnheldBalances(actor.clientId, input.payments, 'money collected on an order');
 
   // Already recorded -- the second press of the same button. Return the order as it stands.
@@ -211,6 +213,7 @@ export async function collect(
         saleId,
         method: payment.method,
         amountPaise: payment.amountPaise,
+        qrId: payment.qrId ?? null,
         reference: payment.reference,
         tenderedPaise: payment.tenderedPaise,
         changePaise: payment.changePaise,
