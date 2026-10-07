@@ -115,11 +115,11 @@ async function loadBill(db: Tx | typeof prisma, actor: Actor, saleId: string) {
           item: { select: { code: true, barcode: true } }
         }
       },
-      payments: { select: { method: true, amountPaise: true, status: true } },
+      payments: { select: { method: true, amountPaise: true, status: true, points: true, holdNote: true } },
       returns: {
         orderBy: { createdAt: 'asc' },
         select: {
-          id: true, creditNoteNo: true, totalPaise: true, refundMethod: true, createdAt: true,
+          id: true, creditNoteNo: true, totalPaise: true, roundOffPaise: true, refundMethod: true, createdAt: true,
           exchangeSaleId: true,
           lines: { select: { saleLineId: true, qty: true } },
           refunds: { select: { method: true, amountPaise: true } }
@@ -193,6 +193,33 @@ function moneyRefundable(bill: Bill) {
     .filter(r => MONEY.includes(r.method))
     .reduce((sum, r) => sum + r.amountPaise, 0);
   return Math.max(0, paid - refunded);
+}
+
+/**
+ * THE POINTS SHARE OF A RETURN. Contract §10.5, Inventory's own rule (loyalty.service shareOfBill),
+ * copied exactly because the two sides must split the same way or the customer is refunded twice.
+ *
+ * Points spent on returned goods come back AS POINTS -- Inventory gives them back itself on the
+ * return -- so the till refunds only the MONEY share, the return's value less this. Cumulative and
+ * floored to whole points: upTo(x) = floor(used x min(x, T) / T), and this return gets
+ * upTo(before + this) - upTo(before). The odd point waits for the last return, so a bill returned
+ * piece by piece gives back exactly the points it took.
+ *
+ *   used    points actually spent on the bill: POINTS rows whose hold Inventory settled
+ *   T       the bill as Inventory holds it: the lines' totals, no round-off
+ *   before  the value of this bill's earlier returns, round-off excluded
+ */
+export function pointsShare(bill: Bill, valuePaise: number): { points: number; paise: number } {
+  const spent = bill.payments.filter(p => p.method === 'POINTS' && p.status === 'COLLECTED' && !p.holdNote && (p.points ?? 0) > 0);
+  const used = spent.reduce((n, p) => n + (p.points ?? 0), 0);
+  if (used === 0 || valuePaise <= 0) return { points: 0, paise: 0 };
+  const paidPaise = spent.reduce((n, p) => n + p.amountPaise, 0);
+  const T = bill.lines.reduce((n, l) => n + l.lineTotalPaise, 0);
+  if (T <= 0) return { points: 0, paise: 0 };
+  const before = bill.returns.reduce((n, r) => n + (r.totalPaise - (r.roundOffPaise ?? 0)), 0);
+  const upTo = (x: number) => Math.floor((used * Math.min(x, T)) / T);
+  const points = upTo(before + valuePaise) - upTo(before);
+  return { points, paise: Math.min(valuePaise, Math.round((points * paidPaise) / used)) };
 }
 
 export interface ComputedLine {
@@ -371,7 +398,10 @@ export async function quote(actor: Actor, saleId: string, lines: { saleLineId: s
   const bill = await loadBill(prisma, actor, saleId);
   const blocked = blockedReason(bill);
   if (blocked) throw conflict(blocked.message, { code: blocked.code });
-  return compute(bill, lines);
+  const computed = compute(bill, lines);
+  const share = pointsShare(bill, computed.totalPaise - computed.roundOffPaise);
+  // What goes back as points, and what the till actually refunds in money.
+  return { ...computed, pointsBack: share.points, pointsBackPaise: share.paise, moneyBackPaise: computed.totalPaise - share.paise };
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -424,6 +454,15 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
       if (blocked) throw conflict(blocked.message, { code: blocked.code });
 
       const computed = compute(bill, input.lines);
+      const share = pointsShare(bill, computed.totalPaise - computed.roundOffPaise);
+      /*
+       * ponytail: an exchange on a bill paid partly in points is refused for now. Its credit towards
+       * the new bill would have to be the money share only, and whether Inventory restores points on
+       * sale.exchanged as it does on sale.returned is not agreed. Return it, then sell anew.
+       */
+      if (mode.kind === 'EXCHANGE' && share.points > 0) {
+        throw conflict('This bill was paid partly in points, so it cannot be exchanged yet. Return it, then ring up the new pieces as a new sale.', { code: 'POINTS_BILL_EXCHANGE' });
+      }
       const window = windowFor(bill.createdAt, settings.returnWindowDays);
 
       // --- POS-APR-004, -005 ------------------------------------------------------------------
@@ -487,6 +526,8 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
           totalPaise: computed.totalPaise,
           taxPaise: computed.taxPaise,
           roundOffPaise: computed.roundOffPaise,
+          pointsBack: share.points,
+          pointsBackPaise: share.paise,
           customerId,
           approvedById,
           onceKey: input.onceKey,
@@ -511,7 +552,8 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
 
       // --- POS-EXC-001..005. The new bill, paid first by what came back. -----------------------
       const refunds: { method: RefundMethod; amountPaise: number; reference: string | null }[] = [];
-      let leftover = computed.totalPaise;
+      // The points share goes back as points, by Inventory. The till refunds the money share only.
+      let leftover = computed.totalPaise - share.paise;
       let exchangeInvoiceNo: string | null = null;
       let goingOut: StockChange[] = [];
 
@@ -705,7 +747,7 @@ export async function getReturn(actor: Actor, returnId: string) {
     where: { id: returnId, clientId: actor.clientId },
     select: {
       id: true, creditNoteNo: true, financialYear: true, createdAt: true, reason: true,
-      refundMethod: true, totalPaise: true, taxPaise: true, roundOffPaise: true, approvedById: true,
+      refundMethod: true, totalPaise: true, taxPaise: true, roundOffPaise: true, approvedById: true, pointsBack: true, pointsBackPaise: true,
       cashier: { select: { id: true, name: true } },
       customer: { select: { id: true, name: true, phone: true, storeCreditPaise: true } },
       originalSale: { select: { id: true, invoiceNo: true, createdAt: true } },
@@ -741,6 +783,8 @@ export async function getReturn(actor: Actor, returnId: string) {
     totalPaise: row.totalPaise,
     taxPaise: row.taxPaise,
     roundOffPaise: row.roundOffPaise,
+    pointsBack: row.pointsBack,
+    pointsBackPaise: row.pointsBackPaise,
     cashier: row.cashier,
     approvedBy: approver?.name ?? null,
     customer: row.customer && {

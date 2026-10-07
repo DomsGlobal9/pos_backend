@@ -150,7 +150,7 @@ async function loadReturn(tx: Tx, returnId: string) {
   return tx.return.findUniqueOrThrow({
     where: { id: returnId },
     select: {
-      creditNoteNo: true, createdAt: true, reason: true, totalPaise: true, taxPaise: true, roundOffPaise: true,
+      creditNoteNo: true, createdAt: true, reason: true, totalPaise: true, taxPaise: true, roundOffPaise: true, pointsBack: true,
       originalSale: { select: { invoiceNo: true } },
       customer: { select: { phone: true } },
       exchangeSaleId: true,
@@ -186,7 +186,8 @@ export async function saleReturned(tx: Tx, clientId: string, returnId: string) {
     customerRef: r.customer?.phone ?? null,
     lines: r.lines.map(returnedLine),
     totals: { totalPaise: r.totalPaise, taxPaise: r.taxPaise, roundOffPaise: r.roundOffPaise },
-    refunds: r.refunds.map(x => ({ method: x.method, amountPaise: x.amountPaise, reference: x.reference ?? null }))
+    refunds: r.refunds.map(x => ({ method: x.method, amountPaise: x.amountPaise, reference: x.reference ?? null })),
+    ...(r.pointsBack ? { pointsRefunded: r.pointsBack } : {})
   }, r.creditNoteNo);
 }
 

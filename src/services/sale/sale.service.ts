@@ -489,7 +489,9 @@ export async function writeSale(
           // One key per payment, derived from the sale's. A retry writes the same rows or none.
           onceKey: `${input.onceKey}:pay:${index}`,
           // The Inventory hold this payment spends, on POINTS and CREDIT rows of a connected shop.
-          holdId: options.holds?.find(h => h.kind === payment.method)?.holdId ?? null
+          holdId: options.holds?.find(h => h.kind === payment.method)?.holdId ?? null,
+          // How many points, so a return can give the points share back in whole points (§10.5).
+          points: payment.method === 'POINTS' ? (input.payments.find(p => p.method === 'POINTS') as any)?.points ?? null : null
         }))
       });
 
