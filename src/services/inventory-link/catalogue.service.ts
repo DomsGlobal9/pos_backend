@@ -73,6 +73,10 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
    * owner's choice (contract §9). { unlimited: true } becomes 100; { maxPercent } is taken as is.
    */
   let manualDiscount: { maxPercent?: number; unlimited?: boolean } | null = null;
+  // The shop's GST registration, owned by Inventory's Settings while connected (it decides what a bill is).
+  let registration: string | null = null;
+  // The shop's logo as Inventory keeps it (Settings -> Name, logo and bill details), an https address.
+  let inventoryLogo: string | null = null;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     // The cursor means "everything changed after this point" -- the same mechanism for the next page
@@ -91,7 +95,9 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
 
     const data = reply.body?.data ?? {};
     if (data.gst?.registration) gstCharged = data.gst.registration === 'REGULAR';
+    if (['REGULAR', 'COMPOSITION', 'UNREGISTERED'].includes(data.gst?.registration)) registration = data.gst.registration;
     if (data.manualDiscount && typeof data.manualDiscount === 'object') manualDiscount = data.manualDiscount;
+    if (typeof data.shop?.logoUrl === 'string' && /^https:\/\//.test(data.shop.logoUrl)) inventoryLogo = data.shop.logoUrl;
     const products: any[] = Array.isArray(data.products) ? data.products : [];
     for (const product of products) {
       await applyProduct(clientId, product, counts, problems, gstCharged);
@@ -116,6 +122,26 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
    * next manual refresh to be listed. Fixing that properly means tracking problems per item code
    * rather than as sentences; worth it only if owners start missing things.
    */
+  const mine = await prisma.shopSettings.findUnique({ where: { clientId }, select: { gstin: true, logoUrl: true } });
+  /*
+   * A SHOP WITH A GSTIN IS REGISTERED. Inventory answers UNREGISTERED when its owner never chose
+   * (7 Oct), so taking that word for a shop whose bills carry a GSTIN would turn every bill into a
+   * plain receipt with no GST -- tax the shop owes, uncollected. Only a GST-registered business has a
+   * GSTIN, so the contradiction is the owner's to settle, and the till keeps issuing tax invoices.
+   */
+  if (registration === 'UNREGISTERED' && mine?.gstin) {
+    problems.push(`Inventory says this shop is not GST registered, but its bills carry GSTIN ${mine.gstin}. A shop with a GSTIN is registered: choose GST registered or Composition in Inventory (Settings -> Name, logo and bill details). Bills stay tax invoices until then.`);
+  } else if (registration) {
+    await prisma.shopSettings.updateMany({ where: { clientId }, data: { gstRegistration: registration } });
+  }
+  /*
+   * THE LOGO ON THE BILL, from Inventory when the till has none of its own. A picture uploaded on the
+   * till's own Settings is kept (a JPEG, which the WhatsApp PDF can carry); Inventory's https logo
+   * shows on screen and on the printed bill.
+   */
+  if (inventoryLogo && (!mine?.logoUrl || mine.logoUrl.startsWith('https://'))) {
+    await prisma.shopSettings.updateMany({ where: { clientId }, data: { logoUrl: inventoryLogo } });
+  }
   if (manualDiscount) {
     const percent = manualDiscount.unlimited === true ? 100 : Number(manualDiscount.maxPercent);
     if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {

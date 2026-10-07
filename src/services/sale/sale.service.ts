@@ -18,6 +18,7 @@ import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
 import { heldQuote, COULD_NOT_CHECK } from '../inventory-link/quote.service';
 import { holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
+import { documentKindFor, chargesGst } from '../shop/gst-document';
 
 /**
  * Completing a sale.
@@ -228,9 +229,18 @@ export async function writeSale(
       const settings = await tx.shopSettings.findUnique({
         where: { clientId: actor.clientId },
         select: {
-          invoicePrefix: true, enabledPaymentMethods: true, manualDiscountMaxPercent: true
+          invoicePrefix: true, enabledPaymentMethods: true, manualDiscountMaxPercent: true, gstRegistration: true
         }
       });
+
+      /*
+       * WHAT THIS BILL IS, fixed now from the registration at this moment. A Bill of Supply or a
+       * receipt charges no GST on anything, so no tax is worked out of the price -- otherwise the
+       * bill would be headed right and still record tax the shop never collected, which then flows
+       * into the GST report and the GSTR-1 export.
+       */
+      const documentKind = documentKindFor(settings?.gstRegistration);
+      if (!chargesGst(documentKind)) for (const line of basket) line.taxRate = 0;
 
       // 2a. The offers, from Inventory's quote -- the one pricing engine. Contract §9.
       const offered = applyQuote(actor.clientId, input, basket, items, new Set(overridden.map(o => o.code)));
@@ -435,6 +445,7 @@ export async function writeSale(
           roundOffPaise: priced.roundOffPaise,
           totalPaise: priced.totalPaise,
           savedPaise: priced.savedPaise,
+          documentKind,
           onceKey: input.onceKey,
           // The digital receipt's address, made now so the paper receipt can carry it. POS-RCPT-009.
           receiptToken: newReceiptToken(),
@@ -659,7 +670,7 @@ export async function getSale(actor: Actor, saleId: string) {
       select: {
         id: true, invoiceNo: true, financialYear: true, kind: true, status: true, createdAt: true,
         subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true,
-        totalPaise: true, savedPaise: true, madeOfflineAt: true,
+        totalPaise: true, savedPaise: true, madeOfflineAt: true, documentKind: true,
         printCount: true, lastPrintedAt: true, receiptToken: true,
         fulfilment: true, promisedAt: true, note: true, readyAt: true,
         handedOverAt: true, handoverDuePaise: true,

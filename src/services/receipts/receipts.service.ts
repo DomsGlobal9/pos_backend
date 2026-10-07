@@ -52,7 +52,8 @@ function publicShape(sale: any, token: string) {
     counter: counter ? { name: counter.name } : null,
     cashier: cashier ? { name: cashier.name } : null,
     customer: customer ? { name: customer.name, phoneMasked: customer.phoneMasked } : null,
-    lines: lines.map(({ id: _i, ...l }: any) => l),
+    // No internal id of any kind on a page anyone with the link can open: the line's, or the item's.
+    lines: lines.map(({ id: _i, itemId: _t, ...l }: any) => l),
     payments: payments.map(({ id: _i, ...p }: any) => p),
     returns: (returns ?? []).map((r: any) => ({ creditNoteNo: r.creditNoteNo, totalPaise: r.totalPaise, createdAt: r.createdAt })),
     exchangedFrom: exchangedFrom ? { originalInvoiceNo: exchangedFrom.originalInvoiceNo, creditNoteNo: exchangedFrom.creditNoteNo } : null

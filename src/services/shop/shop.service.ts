@@ -1,6 +1,7 @@
+import { REGISTRATIONS } from './gst-document';
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
-import { badRequest, forbidden, notFound } from '../../utils/httpError';
+import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { may, PERMISSIONS } from '../../types/actor';
 import { record } from '../audit';
 import { whatsappConfig } from '../receipt-send';
@@ -19,7 +20,7 @@ export async function forTill(actor: Actor) {
       select: {
         shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true,
         enabledPaymentMethods: true, manualDiscountMaxPercent: true, returnWindowDays: true,
-        holdThresholdQty: true, upiId: true
+        holdThresholdQty: true, upiId: true, gstRegistration: true
       }
     }),
     prisma.counter.findMany({
@@ -96,5 +97,23 @@ export async function setLogo(actor: Actor, raw: string | null) {
   }
   await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { logoUrl } });
   await record(actor, { action: 'shop.logo_set', detail: { kind: logoUrl === null ? 'removed' : logoUrl.startsWith('data:') ? 'picture' : 'address', chars: logoUrl?.length ?? 0 } });
+  return forTill(actor);
+}
+
+/**
+ * The shop's GST registration (REGULAR | COMPOSITION | UNREGISTERED). Owner-only.
+ *
+ * Only for a shop with no Inventory. A connected shop's registration is set in Inventory (Settings ->
+ * Name, logo and bill details) and comes down with the items, so there is one answer in one place.
+ * A change affects bills from now on; every bill already issued keeps the kind it was issued as.
+ */
+export async function setGstRegistration(actor: Actor, raw: string) {
+  if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change how the shop is registered for GST.');
+  const registration = String(raw ?? '').toUpperCase();
+  if (!(REGISTRATIONS as readonly string[]).includes(registration)) throw badRequest('Choose GST registered, composition, or not registered.');
+  const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { connected: true } });
+  if (link?.connected) throw conflict('This shop is connected to Inventory, so its GST registration is set there: Settings -> Name, logo and bill details. It reaches the till with the next item refresh.');
+  await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { gstRegistration: registration } });
+  await record(actor, { action: 'shop.gst_registration_set', detail: { registration } });
   return forTill(actor);
 }

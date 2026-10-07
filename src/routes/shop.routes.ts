@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { forTill, setUpiId, setLogo } from '../services/shop';
+import { forTill, setUpiId, setLogo, setGstRegistration } from '../services/shop';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 const router = Router();
@@ -29,6 +29,15 @@ router.put('/logo', async (req, res, next) => {
   try {
     const logoUrl = req.body?.logoUrl === null ? null : String(req.body?.logoUrl ?? '');
     res.json({ success: true, data: await setLogo((req as any).actor, logoUrl) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** PUT /api/v1/shop/gst -- `{ registration }`: REGULAR | COMPOSITION | UNREGISTERED. Owner-only; not while connected. */
+router.put('/gst', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await setGstRegistration((req as any).actor, String(req.body?.registration ?? '')) });
   } catch (error) {
     next(error);
   }
