@@ -14,6 +14,7 @@ import { shiftFor } from '../shifts';
 import { adjust, cameBack, StockChange } from '../stock';
 import { saleReturned, saleExchanged } from '../events';
 import { CreateExchangeInput, CreateReturnInput, RefundInput } from './returns.schema';
+import { refuseUnheldBalances } from '../inventory-link/holds.service';
 
 /**
  * Returns and exchanges. POS-RET-001..007, POS-EXC-001..005, POS-APR-004/005, POS-PAY-015.
@@ -400,6 +401,8 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
 
   const pendingAudit: AuditEntry[] = [];
   const saleAudit: AuditEntry[] = [];
+
+  if (mode.kind === 'EXCHANGE') await refuseUnheldBalances(actor.clientId, mode.input.newSale.payments ?? [], 'an exchange');
 
   try {
     const returnId = await prisma.$transaction(async (tx) => {

@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { call } from './client';
 import { toInventory, readAnswer } from './wire';
+import { confirmPendingHolds } from './holds.service';
 
 /**
  * Sending the outbox to Inventory. POS-INV-006, -007, -008. Contract §4.
@@ -417,6 +418,8 @@ export async function runOnce() {
   const links = await prisma.inventoryLink.findMany({ where: { connected: true }, select: { clientId: true, blockedSequence: true } });
   for (const l of links) {
     try {
+      // Holds first: a confirm is never left waiting behind the sale queue (contract §10).
+      await confirmPendingHolds(l.clientId);
       if (l.blockedSequence === null) await drain(l.clientId);
       // Even a stopped queue has bills Inventory accepted before it stopped. Their endings still count.
       await checkSettlements(l.clientId);

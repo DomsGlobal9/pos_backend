@@ -606,6 +606,14 @@ model Payment {
   checkedById String?   @map("checked_by_id")
   checkedNote String?   @map("checked_note")
 
+  /// Points or store credit held in Inventory for this payment (contract §10). Set only on POINTS
+  /// and CREDIT rows of a connected shop. The hold is CONFIRMED by its own call the moment the sale
+  /// commits, retried until Inventory answers -- never left to the sale event, which may arrive hours
+  /// later. holdNote says why a confirm can never succeed (the hold was swept), so the retry stops.
+  holdId          String?   @map("hold_id")
+  holdConfirmedAt DateTime? @map("hold_confirmed_at")
+  holdNote        String?   @map("hold_note")
+
   sale      Sale  @relation(fields: [saleId], references: [id], onDelete: Cascade)
   checkedBy User? @relation("PaymentCheckedBy", fields: [checkedById], references: [id], onDelete: SetNull)
 
@@ -619,6 +627,7 @@ model Payment {
   @@index([saleId])
   /// Finding everything still waiting to be checked, without scanning the table.
   @@index([clientId, status])
+  @@index([holdId])
   @@map("payments")
 }
 

@@ -17,6 +17,7 @@ import { newReceiptToken, receiptUrl } from '../../utils/receiptLink';
 import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
 import { heldQuote, COULD_NOT_CHECK } from '../inventory-link/quote.service';
+import { holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
 
 /**
  * Completing a sale.
@@ -73,6 +74,7 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
     }
   }
 
+  let holds: Hold[] = [];
   try {
     /*
      * AUDIT ENTRIES ARE COLLECTED HERE AND WRITTEN ONLY AFTER THE SALE COMMITS.
@@ -85,10 +87,22 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
      */
     const pendingAudit: AuditEntry[] = [];
 
+    /*
+     * POINTS AND STORE CREDIT ARE HELD BEFORE ANYTHING IS WRITTEN (contract §10). A refusal stops
+     * the sale here with Inventory's own sentence, and the cashier takes the rest another way. If
+     * the write below fails, whatever was held is let go -- unless another press of the same bill
+     * won the race, in which case the hold is that bill's and stays.
+     */
+    holds = await holdForSale(actor, input);
+
     const written = await prisma.$transaction(
-      async (tx) => writeSale(tx, actor, input, pendingAudit),
+      async (tx) => writeSale(tx, actor, input, pendingAudit, { holds }),
       { timeout: 30_000, maxWait: 15_000 }
     );
+
+    // Committed: confirm the holds NOW, before the receipt is shown. The loop retries any that fail.
+    const holdNotes = holds.length ? await confirmSaleHolds(actor.clientId, written.saleId) : [];
+    const notes = [...written.notes, ...holdNotes];
 
     const made = await getSale(actor, written.saleId);
 
@@ -97,7 +111,7 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
       await record(actor, { ...entry, subject: made.invoiceNo });
     }
 
-    return { replayed: false, sale: made, ...(written.notes.length ? { notes: written.notes } : {}) };
+    return { replayed: false, sale: made, ...(notes.length ? { notes } : {}) };
   } catch (error: any) {
     /*
      * Lost a race with the same onceKey: the other request made the sale, and that IS the answer.
@@ -105,6 +119,7 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
      */
     const winner = await findByOnceKey(actor.clientId, input.onceKey).catch(() => null);
     if (winner) return replay(actor, winner, input);
+    await releaseHolds(actor.clientId, holds);
     throw error;
   }
 }
@@ -117,6 +132,8 @@ export interface WriteSaleOptions {
    * more than the new bill, nothing is paid and the caller refunds the rest.
    */
   exchangeCreditPaise?: number;
+  /** Points and store credit already held in Inventory for this sale (contract §10). */
+  holds?: Hold[];
 }
 
 export interface WrittenSale {
@@ -470,7 +487,9 @@ export async function writeSale(
           shiftId,
           createdAt: when,
           // One key per payment, derived from the sale's. A retry writes the same rows or none.
-          onceKey: `${input.onceKey}:pay:${index}`
+          onceKey: `${input.onceKey}:pay:${index}`,
+          // The Inventory hold this payment spends, on POINTS and CREDIT rows of a connected shop.
+          holdId: options.holds?.find(h => h.kind === payment.method)?.holdId ?? null
         }))
       });
 
@@ -494,7 +513,10 @@ export async function writeSale(
        * with the balance check inside the UPDATE. If it is not there, the whole sale rolls back --
        * number, lines and all -- and the cashier is told how much there really is.
        */
-      if (creditPaise > 0) {
+      // Held in Inventory instead (a connected shop): Inventory owns the balance, and the till's
+      // own figure is only a cache, refreshed from the wallet. Spending it here too would be twice.
+      const creditHeld = options.holds?.some(h => h.kind === 'CREDIT');
+      if (creditPaise > 0 && !creditHeld) {
         await spendCredit(tx, actor, input.customerId!, creditPaise, { saleId: sale.id });
         pendingAudit.push({ action: 'store_credit.spent', detail: { amountPaise: creditPaise } });
       }
