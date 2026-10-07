@@ -36,7 +36,7 @@ export const paymentSchema = z.object({
    * taken from their balance inside the sale's own transaction -- never from a figure the screen
    * was showing. EXCHANGE is deliberately absent: only the exchange path may write one.
    */
-  method: z.enum(['CASH', 'UPI', 'CARD', 'CREDIT']),
+  method: z.enum(['CASH', 'UPI', 'CARD', 'CREDIT', 'POINTS']),
   amountPaise: paise.positive('A payment has to be for something'),
   /** Cash handed over. Only meaningful for CASH, and the change is worked out from it. */
   tenderedPaise: paise.positive().optional(),
@@ -49,7 +49,12 @@ export const paymentSchema = z.object({
    * NEEDS_CHECKING for someone to settle against the bank. The alternative is asking the customer
    * to pay again, which is the one thing a till must never do.
    */
-  unconfirmed: z.boolean().optional()
+  unconfirmed: z.boolean().optional(),
+  /**
+   * POINTS only: how many points (contract §10). amountPaise is what they are worth on this bill, and
+   * it must equal what Inventory says when it holds them -- the till never values points itself.
+   */
+  points: z.number().int().positive().optional()
 });
 
 export const completeSaleSchema = z.object({

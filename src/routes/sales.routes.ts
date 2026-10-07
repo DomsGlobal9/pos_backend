@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { search, variantsOf } from '../services/items';
 import { completeSale, getSale, completeSaleSchema } from '../services/sale';
-import { quoteBasket } from '../services/inventory-link';
+import { quoteBasket, walletFor } from '../services/inventory-link';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
 
@@ -54,6 +54,21 @@ router.post('/quote', async (req, res, next) => {
     }).safeParse(req.body);
     if (!body.success) throw badRequest(body.error.issues[0].message);
     res.json({ success: true, data: await quoteBasket((req as any).actor, body.data) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/v1/sales/wallet?customerId=&billPaise= -- what this customer may spend in points and store
+ * credit on this bill, from Inventory (contract §10). Always 200: `{ ok: false, reason }` is one line
+ * for the cashier, and the payment screen simply does not offer points.
+ */
+router.get('/wallet', async (req, res, next) => {
+  try {
+    const q = z.object({ customerId: z.string().min(1), billPaise: z.coerce.number().int().nonnegative() }).safeParse(req.query);
+    if (!q.success) throw badRequest('Say whose wallet, and for how much.');
+    res.json({ success: true, data: await walletFor((req as any).actor, q.data.customerId, q.data.billPaise) });
   } catch (error) {
     next(error);
   }

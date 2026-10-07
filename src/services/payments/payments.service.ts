@@ -70,7 +70,7 @@ export function planPayments(
   // Store credit is not a method a shop turns on or off: it is the customer's own money, given by
   // an earlier return, and whether it can be spent is decided by their balance.
   for (const payment of payments) {
-    if (payment.method === 'CREDIT') continue;
+    if (payment.method === 'CREDIT' || payment.method === 'POINTS') continue;
     if (enabledMethods.length > 0 && !enabledMethods.includes(payment.method)) {
       throw badRequest(`This shop is not set up to take ${pretty(payment.method)}.`);
     }
@@ -142,8 +142,10 @@ export function planPayments(
       throw badRequest('Cash is either taken or it is not. Only UPI and card can be left to check.');
     }
     // The same for store credit: the balance is right here, so there is nothing to check later.
-    if (payment.method === 'CREDIT' && status === 'NEEDS_CHECKING') {
-      throw badRequest('Store credit is either there or it is not. Only UPI and card can be left to check.');
+    if ((payment.method === 'CREDIT' || payment.method === 'POINTS') && status === 'NEEDS_CHECKING') {
+      throw badRequest(payment.method === 'CREDIT'
+        ? 'Store credit is either there or it is not. Only UPI and card can be left to check.'
+        : 'Points are either there or they are not. Only UPI and card can be left to check.');
     }
 
     return {

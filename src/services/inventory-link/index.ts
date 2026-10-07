@@ -8,4 +8,6 @@ export { syncCatalogue, startCatalogueLoop } from './catalogue.service';
 export { toInventory, readAnswer } from './wire';
 export { quoteBasket, heldQuote, __forgetQuote, COULD_NOT_CHECK } from './quote.service';
 export type { Quote, QuoteLine, QuoteResult } from './quote.service';
+export { walletFor, walletIsInventorys, holdForSale, releaseHolds, confirmSaleHolds, confirmPendingHolds, refuseUnheldBalances } from './holds.service';
+export type { Wallet, WalletResult, Hold } from './holds.service';
 export type { Outcome } from './delivery.service';

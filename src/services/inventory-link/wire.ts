@@ -45,7 +45,7 @@ function refundOf(refunds: any[] | undefined) {
 }
 
 const collected = (payments: any[] | undefined) =>
-  (payments ?? []).filter(p => !p.status || p.status === 'COLLECTED').map(p => ({ method: p.method, amountPaise: p.amountPaise }));
+  (payments ?? []).filter(p => !p.status || p.status === 'COLLECTED').map(p => ({ method: p.method, amountPaise: p.amountPaise, ...(p.holdId ? { holdId: p.holdId } : {}) }));
 
 export function toInventory(eventType: string, payload: any): Record<string, unknown> {
   if (eventType === 'sale.completed') {

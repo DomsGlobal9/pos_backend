@@ -113,7 +113,7 @@ async function loadSale(tx: Tx, saleId: string) {
       cashier: { select: { name: true } },
       customer: { select: { phone: true, name: true } },
       lines: { select: LINE_SELECT },
-      payments: { select: { method: true, amountPaise: true, status: true } }
+      payments: { select: { method: true, amountPaise: true, status: true, holdId: true } }
     }
   });
 }
@@ -142,7 +142,7 @@ export async function saleCompleted(tx: Tx, clientId: string, saleId: string, pr
       subtotalPaise: s.subtotalPaise, discountPaise: s.discountPaise, taxPaise: s.taxPaise,
       roundOffPaise: s.roundOffPaise, totalPaise: s.totalPaise
     },
-    payments: s.payments.map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status }))
+    payments: s.payments.map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status, ...(p.holdId ? { holdId: p.holdId } : {}) }))
   }, s.invoiceNo);
 }
 

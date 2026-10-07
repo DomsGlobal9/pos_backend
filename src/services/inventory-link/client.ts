@@ -19,7 +19,7 @@ export interface LinkTarget {
 
 export async function call(
   link: LinkTarget,
-  method: 'GET' | 'POST',
+  method: 'GET' | 'POST' | 'DELETE',
   path: string,
   body?: unknown,
   timeoutMs = 10_000

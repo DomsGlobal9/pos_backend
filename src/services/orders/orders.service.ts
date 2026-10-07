@@ -10,6 +10,7 @@ import { record } from '../audit';
 import { spendCredit } from '../store-credit';
 import { shiftFor } from '../shifts';
 import { paymentUpdated } from '../events';
+import { refuseUnheldBalances } from '../inventory-link/holds.service';
 
 /**
  * Orders: goods kept for a customer, money still owed, things to hand over. POS-ORD-001..014.
@@ -165,6 +166,7 @@ export async function collect(
   input: { onceKey: string; payments: PaymentInput[]; counterId?: string }
 ) {
   if (!input.onceKey || input.onceKey.length < 8) throw badRequest('This collection needs a key.');
+  await refuseUnheldBalances(actor.clientId, input.payments, 'money collected on an order');
 
   // Already recorded -- the second press of the same button. Return the order as it stands.
   const already = await prisma.payment.findFirst({
