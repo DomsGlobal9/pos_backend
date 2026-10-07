@@ -35,6 +35,15 @@ import { record, AuditEntry } from '../audit';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
+
+/*
+ * A drawer holds less than Rs 1 crore. More is a typing slip -- found live 7 Oct: the float box
+ * offered 22599, the cashier typed 5000 after it, and 225995000 rupees overflowed the 32-bit money
+ * column into a server error. Now it is one sentence.
+ */
+const DRAWER_MAX_PAISE = 1_000_000_000;
+const TOO_MUCH = 'That is more than Rs 1 crore -- check the amount you typed.';
+
 export const NOTE_MIN = 3;
 
 // ------------------------------------------------------------------------------------------------
@@ -228,6 +237,9 @@ export async function open(actor: Actor, input: { counterId: string; openingCash
   if (!Number.isInteger(input.openingCashPaise) || input.openingCashPaise < 0) {
     throw badRequest('Enter the cash in the drawer. Nothing at all is fine -- type 0.');
   }
+  if (input.openingCashPaise > DRAWER_MAX_PAISE) {
+    throw badRequest(TOO_MUCH, { code: 'AMOUNT_TOO_LARGE' });
+  }
 
   const counter = await prisma.counter.findFirst({
     where: { id: input.counterId, clientId: actor.clientId },
@@ -303,6 +315,7 @@ export interface MoveInput {
 export async function move(actor: Actor, input: MoveInput) {
   const reason = (input.reason ?? '').trim();
   if (!Number.isInteger(input.amountPaise) || input.amountPaise <= 0) throw badRequest('Enter an amount.');
+  if (input.amountPaise > DRAWER_MAX_PAISE) throw badRequest(TOO_MUCH, { code: 'AMOUNT_TOO_LARGE' });
   if (reason.length < NOTE_MIN) {
     throw badRequest(`Say what the cash was ${input.direction === 'IN' ? 'for' : 'taken for'} -- "courier", "change float".`);
   }
@@ -402,6 +415,9 @@ export async function move(actor: Actor, input: MoveInput) {
 export async function close(actor: Actor, shiftId: string, input: { countedCashPaise: number; note?: string }) {
   if (!Number.isInteger(input.countedCashPaise) || input.countedCashPaise < 0) {
     throw badRequest('Enter what you counted in the drawer.');
+  }
+  if (input.countedCashPaise > DRAWER_MAX_PAISE) {
+    throw badRequest(TOO_MUCH, { code: 'AMOUNT_TOO_LARGE' });
   }
   const note = (input.note ?? '').trim();
 

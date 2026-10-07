@@ -66,7 +66,7 @@ router.post('/quote', async (req, res, next) => {
  */
 router.get('/wallet', async (req, res, next) => {
   try {
-    const q = z.object({ customerId: z.string().min(1), billPaise: z.coerce.number().int().nonnegative() }).safeParse(req.query);
+    const q = z.object({ customerId: z.string().min(1), billPaise: z.coerce.number().int().nonnegative().max(2_000_000_000) }).safeParse(req.query);
     if (!q.success) throw badRequest('Say whose wallet, and for how much.');
     res.json({ success: true, data: await walletFor((req as any).actor, q.data.customerId, q.data.billPaise) });
   } catch (error) {

@@ -11,7 +11,7 @@ import { completeSaleSchema } from '../sale/sale.schema';
 
 const returnLine = z.object({
   saleLineId: z.string().min(1),
-  qty: z.number().int().positive('Return at least one')
+  qty: z.number().int().positive('Return at least one').max(9999)
 });
 
 const lines = z.array(returnLine)
