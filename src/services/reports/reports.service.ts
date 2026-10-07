@@ -56,7 +56,7 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
   const mine = full ? {} : { cashierId: actor.id ?? '__nobody__' };
   const saleWhere: Prisma.SaleWhereInput = { clientId, createdAt: inRange, status: { in: COUNTED }, ...mine };
 
-  const [totals, payments, unsettled, refunds, byCashier, byCounter, returns, returnLines, taxLines, overrides, approvals] = await Promise.all([
+  const [totals, payments, unsettled, refunds, byCashier, byCounter, returns, returnLines, taxLines, overrides, approvals, offered] = await Promise.all([
     // POS-RPT-001
     prisma.sale.aggregate({
       where: saleWhere,
@@ -118,6 +118,15 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
       by: ['kind'],
       where: { clientId, createdAt: inRange, ...(full ? {} : { requestedById: actor.id ?? '__nobody__' }) },
       _count: true
+    }),
+    /*
+     * The offers' share of the discounts (contract §9). An automatic offer is Inventory's price,
+     * not a cashier giving money away, and an owner reading "Discounts given" means the latter.
+     * Summed here from the lines' applied offers; a shop's day is a few hundred lines at most.
+     */
+    prisma.saleLine.findMany({
+      where: { sale: saleWhere, appliedOffers: { not: Prisma.DbNull } },
+      select: { appliedOffers: true }
     })
   ]);
 
@@ -159,6 +168,8 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
   const byReason = new Map<string, number>();
   for (const r of returns) byReason.set(r.reason, (byReason.get(r.reason) ?? 0) + 1);
 
+  const offersPaise = offered.reduce((n, l) => n + (Array.isArray(l.appliedOffers) ? (l.appliedOffers as any[]).reduce((m, o) => m + (Number(o?.discountPaise) || 0), 0) : 0), 0);
+
   const base = {
     scope: full ? ('SHOP' as const) : ('MINE_TODAY' as const),
     period: { from: p.from, to: p.to, days: p.days },
@@ -166,6 +177,7 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
       bills,
       grossPaise: totals._sum.subtotalPaise ?? 0,
       discountPaise: totals._sum.discountPaise ?? 0,
+      offersPaise,
       taxPaise: totals._sum.taxPaise ?? 0,
       roundOffPaise: totals._sum.roundOffPaise ?? 0,
       netPaise: net,
@@ -196,6 +208,7 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
     },
     discounts: {
       totalPaise: totals._sum.discountPaise ?? 0,
+      offersPaise,
       priceOverrides: overrides.length,
       priceOverridesGivenPaise: overrides.reduce((n, l) => n + ((l.listPricePaise ?? 0) - l.unitPricePaise) * l.qty, 0),
       approvals: Object.fromEntries(approvals.map(a => [a.kind, a._count]))
