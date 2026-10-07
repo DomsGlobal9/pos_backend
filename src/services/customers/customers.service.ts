@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { Actor } from '../../types/actor';
-import { badRequest, notFound } from '../../utils/httpError';
+import { Actor, PERMISSIONS, may } from '../../types/actor';
+import { badRequest, forbidden, notFound } from '../../utils/httpError';
 import { literal, phoneDigits } from '../../utils/likeText';
 import { normalisePhone, displayPhone, maskPhone, PhoneError } from '../../utils/phone';
 import { owedByCustomer } from '../orders';
@@ -377,6 +377,9 @@ export async function updateDetails(
   if (input.gstin !== undefined) {
     const gstin = input.gstin?.trim() ? normaliseGstin(input.gstin) : null;
     if (gstin) { const problem = gstinProblem(gstin); if (problem) throw badRequest(problem, { code: 'BAD_GSTIN' }); }
+    if (row.gstin && gstin !== row.gstin && !may(actor, PERMISSIONS.CUSTOMER_GSTIN)) {
+      throw forbidden('Changing a business\'s GSTIN needs a manager. Adding one where there was none does not.', { code: 'GSTIN_CHANGE_NEEDS_MANAGER' });
+    }
     patch.gstin = gstin;
   }
   const gstinAfter = patch.gstin !== undefined ? patch.gstin : row.gstin;
