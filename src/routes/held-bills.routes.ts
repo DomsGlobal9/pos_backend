@@ -20,9 +20,9 @@ const parking = z.object({
   counterId: z.string().min(1),
   label: z.string().trim().max(60).optional(),
   payload: z.object({
-    lines: z.array(z.object({ id: z.string().min(1), qty: z.number().int().positive() }).passthrough()),
+    lines: z.array(z.object({ id: z.string().min(1), qty: z.number().int().positive().max(9999) }).passthrough()),
     customer: z.object({ id: z.string() }).passthrough().nullable().optional(),
-    billDiscountPaise: z.number().int().nonnegative().optional(),
+    billDiscountPaise: z.number().int().nonnegative().max(2_000_000_000).optional(),
     onceKey: z.string().optional()
   })
 });

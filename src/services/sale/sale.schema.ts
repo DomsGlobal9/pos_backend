@@ -12,7 +12,8 @@ import { z } from 'zod';
  * what to do with a third decimal place, and the answer it picked would be silent.
  */
 
-const paise = z.number().int('Amounts are in paise, as whole numbers');
+// No bill is over Rs 2 crore (sale.service MAX_BILL_PAISE): the money columns are 32-bit.
+const paise = z.number().int('Amounts are in paise, as whole numbers').max(2_000_000_000, 'That is more than any one bill can be. Check the amount.');
 
 export const saleLineSchema = z.object({
   itemId: z.string().min(1),
@@ -54,7 +55,7 @@ export const paymentSchema = z.object({
    * POINTS only: how many points (contract §10). amountPaise is what they are worth on this bill, and
    * it must equal what Inventory says when it holds them -- the till never values points itself.
    */
-  points: z.number().int().positive().optional()
+  points: z.number().int().positive().max(100_000_000).optional()
 });
 
 export const completeSaleSchema = z.object({

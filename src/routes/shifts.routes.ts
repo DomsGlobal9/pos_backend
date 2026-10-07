@@ -8,7 +8,9 @@ import { devActor } from '../middleware/dev-actor.middleware';
 const router = Router();
 router.use(devActor);
 
-const paise = z.number().int('Amounts are in paise, as whole numbers');
+// A drawer holds less than Rs 1 crore. More is a typing slip (a float typed after the box's own figure,
+// found live 7 Oct) -- said in words, never a crash on the 32-bit money columns.
+const paise = z.number().int('Amounts are in paise, as whole numbers').max(1_000_000_000, 'That is more than Rs 1 crore. Check the amount.');
 
 /** GET /api/v1/shifts/counter/:counterId -- the counter's open shift, figures and recent closes. */
 router.get('/counter/:counterId', async (req, res, next) => {
