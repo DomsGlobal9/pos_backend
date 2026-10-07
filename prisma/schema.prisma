@@ -424,6 +424,12 @@ model Sale {
   /// at that moment. A later change of registration never rewrites a bill already in a customer's hand.
   documentKind String @default("TAX_INVOICE") @map("document_kind")
 
+  /// Loyalty on this bill, as Inventory settled it (contract §10, /events/status `points`): earned,
+  /// spent, and the balance right after. Null until Inventory has applied the bill, and for a walk-in.
+  pointsEarned       Int? @map("points_earned")
+  pointsUsed         Int? @map("points_used")
+  pointsBalanceAfter Int? @map("points_balance_after")
+
   /// IDEMPOTENCY. The till makes one key per basket. Pressing Complete twice, a retry after a
   /// timeout, and the offline outbox flushing the same bill are three names for one problem, and
   /// this is the answer to all three: unique, and the second attempt returns the first sale rather

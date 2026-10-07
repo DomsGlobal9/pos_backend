@@ -132,6 +132,12 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null } 
     L.push({ kind: 'rule' });
     L.push({ kind: 'text', text: `You saved ${money(sale.savedPaise)}`, bold: true, center: true });
   }
+  if (sale.pointsEarned || sale.pointsUsed) {
+    L.push({ kind: 'rule' });
+    if (sale.pointsUsed) L.push({ kind: 'pair', left: 'Points used', right: String(sale.pointsUsed) });
+    if (sale.pointsEarned) L.push({ kind: 'pair', left: 'Points earned', right: String(sale.pointsEarned) });
+    if (sale.pointsBalanceAfter != null) L.push({ kind: 'pair', left: 'Points balance', right: String(sale.pointsBalanceAfter), bold: true });
+  }
   if (docKind === 'BILL_OF_SUPPLY') {
     L.push({ kind: 'rule' });
     L.push({ kind: 'text', text: COMPOSITION_DECLARATION, center: true });
