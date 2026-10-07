@@ -316,6 +316,22 @@ export async function checkSettlements(clientId: string, max = 8): Promise<{ che
 
       await prisma.inventorySettlement.update({ where: { id: row.id }, data: { checks, status: 'APPLIED', detail: null, settledAt: new Date() } });
       await noteWarnings(clientId, row.invoiceNo, readAnswer(reply.body).warnings);
+      /*
+       * The customer's points on this bill, now that Inventory has settled it: what they earned, what
+       * they spent, and where that left them. Printed on the digital receipt and on any reprint; the
+       * first paper copy has gone already. Nothing earned or spent prints nothing.
+       */
+      const pts = data.points;
+      if (pts && (Number(pts.earned) > 0 || Number(pts.used) > 0)) {
+        await prisma.sale.updateMany({
+          where: { clientId, invoiceNo: row.invoiceNo },
+          data: {
+            pointsEarned: Number(pts.earned) || 0,
+            pointsUsed: Number(pts.used) || 0,
+            pointsBalanceAfter: Number.isInteger(pts.balanceAfter) ? pts.balanceAfter : null
+          }
+        });
+      }
       result.applied++;
     }
   } finally {

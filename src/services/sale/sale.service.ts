@@ -683,6 +683,7 @@ export async function getSale(actor: Actor, saleId: string) {
         id: true, invoiceNo: true, financialYear: true, kind: true, status: true, createdAt: true,
         subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true,
         totalPaise: true, savedPaise: true, madeOfflineAt: true, documentKind: true,
+        pointsEarned: true, pointsUsed: true, pointsBalanceAfter: true,
         printCount: true, lastPrintedAt: true, receiptToken: true,
         fulfilment: true, promisedAt: true, note: true, readyAt: true,
         handedOverAt: true, handoverDuePaise: true,
