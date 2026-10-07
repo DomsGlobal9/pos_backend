@@ -25,7 +25,9 @@ const collection = z.object({
   onceKey: z.string().min(8),
   payments: z.array(paymentSchema).min(1, 'Nothing has been paid').max(6),
   /** Which till the money was taken at, so it counts in that drawer. POS-SHIFT-005. */
-  counterId: z.string().min(1).optional()
+  counterId: z.string().min(1).optional(),
+  /** A manager's yes, when the payment's reference is already on another bill. */
+  approval: z.object({ pin: z.string().min(1), reason: z.string() }).optional()
 });
 
 /** POST /api/v1/orders/:id/collect -- POS-ORD-012. Idempotent on onceKey. */

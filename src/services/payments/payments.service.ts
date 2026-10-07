@@ -38,6 +38,54 @@ export interface PlannedPayment {
 }
 
 /**
+ * ONE PAYMENT SHOWN TWICE (PLAN-payments Step 1). The commonest trick at a counter is one UPI
+ * screenshot shown for two bills; a card slip can be shown twice the same way. A reference already
+ * on another bill of this shop -- collected or still being checked -- comes back here with that
+ * bill's number, and so does one typed twice on the same bill. VOID payments do not count: they
+ * never arrived.
+ *
+ * ponytail: read, then written in the sale's transaction -- two tills typing the same UTR in the same
+ * second both pass. A partial unique index would close that, but a manager may allow a genuine
+ * duplicate, so it would need the approval on the row. Add it if it is ever seen.
+ */
+export async function duplicateReferences(
+  tx: Prisma.TransactionClient,
+  clientId: string,
+  planned: { method: PaymentMethod; reference: string | null }[],
+  exceptPaymentId?: string
+): Promise<{ method: PaymentMethod; reference: string; invoiceNo: string | null }[]> {
+  const mine = planned.filter(p => (p.method === 'UPI' || p.method === 'CARD') && p.reference);
+  if (mine.length === 0) return [];
+  const found: { method: PaymentMethod; reference: string; invoiceNo: string | null }[] = [];
+  const seen = new Set<string>();
+  for (const p of mine) {
+    const key = `${p.method} ${p.reference}`;
+    if (seen.has(key)) found.push({ method: p.method, reference: p.reference!, invoiceNo: null });
+    seen.add(key);
+  }
+  const earlier = await tx.payment.findMany({
+    where: {
+      clientId,
+      status: { in: ['COLLECTED', 'NEEDS_CHECKING'] },
+      ...(exceptPaymentId ? { id: { not: exceptPaymentId } } : {}),
+      OR: mine.map(p => ({ method: p.method, reference: p.reference! }))
+    },
+    select: { method: true, reference: true, sale: { select: { invoiceNo: true } } },
+    take: 5
+  });
+  for (const e of earlier) found.push({ method: e.method, reference: e.reference!, invoiceNo: e.sale?.invoiceNo ?? null });
+  return found;
+}
+
+/** The cashier's sentence for a reference already used. */
+export function duplicateMessage(d: { method: PaymentMethod; reference: string; invoiceNo: string | null }) {
+  const what = d.method === 'UPI' ? `UPI reference ${d.reference}` : `card payment ${d.reference}`;
+  return d.invoiceNo
+    ? `This ${what} is already on bill ${d.invoiceNo}. One payment cannot pay for two bills -- ask the customer for the right one, or a manager can allow it.`
+    : `The ${what} is typed twice on this bill. Check it, or a manager can allow it.`;
+}
+
+/**
  * How much the payments have to come to.
  *
  *   EXACT    a normal sale -- the whole bill, to the paisa
@@ -56,11 +104,39 @@ export type PaymentMode = 'EXACT' | 'ADVANCE' | 'COLLECT';
  * either rows to write or an error a cashier can read. That makes every rule below testable
  * without a sale, which is why they are all covered by cases rather than by hope.
  */
+/*
+ * WHAT A REFERENCE LOOKS LIKE (PLAN-payments Step 1). A UPI payment's reference is the 12-digit
+ * UTR every UPI app shows; a card's is the last 4 digits and the 6-character approval code on the
+ * machine's slip. Checked only when the payment is recorded as collected -- an unconfirmed one has
+ * nothing to check yet. Returns the reference to keep, or an error a cashier can act on.
+ */
+export function referenceFor(payment: { method: PaymentMethod; reference?: string; cardLast4?: string; approvalCode?: string }):
+  { reference: string | null } | { problem: string; code: string } {
+  if (payment.method === 'UPI') {
+    const ref = (payment.reference ?? '').replace(/\s+/g, '');
+    if (!ref) return { reference: null };
+    if (!/^\d{12}$/.test(ref)) {
+      return { problem: 'A UPI reference is the 12-digit number (UTR) in the customer\'s UPI app. Check it, or save the payment as not confirmed yet.', code: 'BAD_UPI_REFERENCE' };
+    }
+    return { reference: ref };
+  }
+  if (payment.method === 'CARD' && (payment.cardLast4 || payment.approvalCode)) {
+    const last4 = (payment.cardLast4 ?? '').replace(/\s+/g, '');
+    const code = (payment.approvalCode ?? '').replace(/\s+/g, '').toUpperCase();
+    if (!/^\d{4}$/.test(last4)) return { problem: 'Type the card\'s last 4 digits, from the machine\'s slip.', code: 'BAD_CARD_REFERENCE' };
+    if (!/^[A-Z0-9]{6}$/.test(code)) return { problem: 'The approval code is the 6 letters or numbers on the card machine\'s slip (APPR or AUTH CODE).', code: 'BAD_CARD_REFERENCE' };
+    return { reference: `${last4}/${code}` };
+  }
+  return { reference: payment.reference?.trim() || null };
+}
+
 export function planPayments(
   totalPaise: number,
   payments: PaymentInput[],
   enabledMethods: PaymentMethod[],
-  mode: PaymentMode = 'EXACT'
+  mode: PaymentMode = 'EXACT',
+  /** A sale made offline, saved now: a reference that does not look right waits to be checked. */
+  options: { lenient?: boolean } = {}
 ): PlannedPayment[] {
   // A bill discounted to nothing (a gift, a goodwill replacement) has nothing to pay, and is still a bill.
   if (payments.length === 0 && mode !== 'ADVANCE' && !(mode === 'EXACT' && totalPaise === 0)) throw badRequest('Nothing has been paid.');
@@ -125,10 +201,18 @@ export function planPayments(
      * write down yet -- demanding the reference there would force them to either invent one or
      * mark a real payment as failed, and the second is the thing this whole file exists to prevent.
      */
-    const status: PaymentStatus = payment.unconfirmed ? 'NEEDS_CHECKING' : 'COLLECTED';
+    let status: PaymentStatus = payment.unconfirmed ? 'NEEDS_CHECKING' : 'COLLECTED';
+
+    const ref = referenceFor(payment as any);
+    if ('problem' in ref && status === 'COLLECTED') {
+      // A sale made offline is never refused for it afterwards: it waits on Payment checks instead.
+      if (!options.lenient) throw badRequest(ref.problem, { code: ref.code, method: payment.method });
+    }
+    const keptReference = 'problem' in ref ? (payment.reference?.trim() || null) : ref.reference;
+    if ('problem' in ref && status === 'COLLECTED' && options.lenient) status = 'NEEDS_CHECKING';
 
     if (NEEDS_REFERENCE.includes(payment.method) && status === 'COLLECTED') {
-      const reference = (payment.reference ?? '').trim();
+      const reference = keptReference ?? '';
       if (!reference) {
         throw badRequest(
           `Add the ${pretty(payment.method)} reference, or mark it as not confirmed yet.`,
@@ -152,7 +236,7 @@ export function planPayments(
     return {
       method: payment.method,
       amountPaise: payment.amountPaise,
-      reference: payment.reference?.trim() || null,
+      reference: keptReference,
       tenderedPaise: isCash ? payment.tenderedPaise ?? null : null,
       changePaise: isCash && payment.tenderedPaise != null
         ? changeDue(payment.tenderedPaise, payment.amountPaise)
@@ -312,7 +396,15 @@ export async function resolve(
     checkedNote: (input.arrived ? input.note?.trim() : why) || null,
     ...(actor.id ? { checkedBy: { connect: { id: actor.id } } } : {})
   };
-  if (input.arrived && input.reference?.trim()) data.reference = input.reference.trim();
+  if (input.arrived && input.reference?.trim()) {
+    // The same rules as at the counter: a UPI reference is a 12-digit UTR, and one payment cannot
+    // settle two bills (PLAN-payments Step 1).
+    const ref = referenceFor({ method: payment.method, reference: input.reference });
+    if ('problem' in ref) throw badRequest(ref.problem, { code: ref.code });
+    const dupes = await duplicateReferences(prisma as any, actor.clientId, [{ method: payment.method, reference: ref.reference }], payment.id);
+    if (dupes.length) throw conflict(duplicateMessage(dupes[0]).replace(' -- ask the customer for the right one, or a manager can allow it.', '.'), { code: 'DUPLICATE_REFERENCE', invoiceNo: dupes[0].invoiceNo });
+    data.reference = ref.reference;
+  }
 
   /*
    * The payment and the sale's money status change together. Checking a UPI and finding it never

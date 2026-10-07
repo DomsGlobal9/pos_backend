@@ -24,6 +24,7 @@
     "verify:shifts": "ts-node src/scripts/verify-shifts.ts",
     "verify:events": "ts-node src/scripts/verify-events.ts",
     "verify:inventory-link": "ts-node src/scripts/verify-inventory-link.ts",
+    "verify:references": "ts-node src/scripts/verify-references.ts",
     "verify:reports": "ts-node src/scripts/verify-reports.ts",
     "verify:receipts": "ts-node src/scripts/verify-receipts.ts",
     "verify:offline": "ts-node src/scripts/verify-offline.ts",
