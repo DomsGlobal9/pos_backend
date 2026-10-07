@@ -131,7 +131,7 @@ export async function holdForSale(actor: Actor, input: {
         const data = reply.body?.data ?? {};
         if (reply.status !== 200) {
           const what = w.kind === 'POINTS' ? 'Points' : 'Store credit';
-          throw conflict(`${what} can't be used: ${data.detail ?? 'Inventory refused'}. Take the rest another way.`, { code: data.answer ?? 'POINTS_REFUSED' });
+          throw conflict(`${what} can't be used: ${String(data.detail ?? 'Inventory refused').replace(/[.\s]+$/, '')}. Take the rest another way.`, { code: data.answer ?? 'POINTS_REFUSED' });
         }
         if (data.status === 'RELEASED' || data.status === 'SWEPT') { key = `${input.onceKey}:${w.kind}:${Date.now()}`.slice(0, 120); continue; }
         held.push({ kind: w.kind, holdId: String(data.holdId), valuePaise: Number(data.valuePaise) });
