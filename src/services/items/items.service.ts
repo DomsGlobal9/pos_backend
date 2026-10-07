@@ -72,6 +72,12 @@ export interface FoundItem {
 export interface SearchResult {
   exact: boolean;
   items: FoundItem[];
+  /**
+   * An exact match whose code is ALSO the start of other codes ("COT-01" when "COT-010" exists). The
+   * till adds an exact match by itself when the cashier stops typing -- but not this one, because the
+   * cashier may simply have paused halfway through the longer code. Enter still adds it.
+   */
+  prefixOfOthers?: boolean;
 }
 
 function shape(row: any, variantCount = 1): FoundItem {
@@ -192,7 +198,18 @@ export async function search(actor: Actor, rawQuery: unknown): Promise<SearchRes
    * exact match goes straight into the basket even when siblings exist. The picker is for someone
    * typing a name, which is the case where the colour has not been chosen yet.
    */
-  if (exact.length === 1) return { exact: true, items: [shape(exact[0])] };
+  if (exact.length === 1) {
+    const longer = await prisma.item.count({
+      where: {
+        ...sellable, id: { not: exact[0].id },
+        OR: [
+          { code: { startsWith: literal(q), mode: 'insensitive' } },
+          { barcode: { startsWith: literal(q) } }
+        ]
+      }
+    });
+    return { exact: true, items: [shape(exact[0])], ...(longer > 0 ? { prefixOfOthers: true } : {}) };
+  }
   if (exact.length > 1) return { exact: false, items: await withCounts(actor.clientId, exact) };
 
   const words = q.split(/\s+/).filter(Boolean).slice(0, 5);

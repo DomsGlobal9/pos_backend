@@ -813,6 +813,8 @@ export async function getReturn(actor: Actor, returnId: string) {
       id: row.customer.id,
       name: row.customer.name,
       phoneMasked: maskPhone(row.customer.phone),
+      // In full for the till's own staff, to send the credit note on WhatsApp. Never on a public page.
+      phone: row.customer.phone,
       storeCreditPaise: row.customer.storeCreditPaise
     },
     originalSale: row.originalSale,
