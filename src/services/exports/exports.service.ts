@@ -137,6 +137,40 @@ export async function salesCsv(actor: Actor, from: string, to: string) {
   return '﻿' + lines.join('\r\n') + '\r\n';
 }
 
+/**
+ * GSTR-1 TABLE 12: the HSN-wise summary, B2B and B2C apart (two tables since 2025). The till's export
+ * is the GST record for till bills (Inventory files none), so this is the sheet an accountant copies
+ * into the return. Only tax invoices count -- a Bill of Supply or a plain receipt carries no GST to
+ * report. Credit notes in the same period come off their bill's HSN and rate. Quantity in NOS.
+ */
+export async function hsnSummary(actor: Actor, from: string, to: string) {
+  const start = dayRange(from).start;
+  const end = dayRange(to).end;
+  const sold = await prisma.saleLine.findMany({
+    where: { sale: { clientId: actor.clientId, createdAt: { gte: start, lt: end }, documentKind: 'TAX_INVOICE' } },
+    select: { hsn: true, description: true, qty: true, taxRate: true, lineTotalPaise: true, taxPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, sale: { select: { buyerGstin: true } } }
+  });
+  const back = await prisma.returnLine.findMany({
+    where: { returnRow: { clientId: actor.clientId, createdAt: { gte: start, lt: end } }, saleLine: { sale: { documentKind: 'TAX_INVOICE' } } },
+    select: { qty: true, amountPaise: true, taxPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, saleLine: { select: { hsn: true, description: true, taxRate: true, sale: { select: { buyerGstin: true } } } } }
+  });
+  type Row = { supply: 'B2B' | 'B2C'; hsn: string; description: string; uqc: string; qty: number; value: number; taxable: number; igst: number; cgst: number; sgst: number; rate: number };
+  const groups = new Map<string, Row>();
+  const add = (supply: 'B2B' | 'B2C', hsn: string | null, description: string, rate: number, sign: 1 | -1, qty: number, total: number, tax: number, igst: number, cgst: number, sgst: number) => {
+    const code = hsn?.trim() || 'NO HSN';
+    const key = `${supply}|${code}|${rate}`;
+    const g = groups.get(key) ?? { supply, hsn: code, description, uqc: 'NOS', qty: 0, value: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, rate };
+    g.qty += sign * qty; g.value += sign * total; g.taxable += sign * (total - tax);
+    g.igst += sign * igst; g.cgst += sign * cgst; g.sgst += sign * sgst;
+    groups.set(key, g);
+  };
+  for (const l of sold) add(l.sale.buyerGstin ? 'B2B' : 'B2C', l.hsn, l.description, Number(l.taxRate), 1, l.qty, l.lineTotalPaise, l.taxPaise, l.igstPaise, l.cgstPaise, l.sgstPaise);
+  for (const l of back) add(l.saleLine.sale.buyerGstin ? 'B2B' : 'B2C', l.saleLine.hsn, l.saleLine.description, Number(l.saleLine.taxRate), -1, l.qty, l.amountPaise, l.taxPaise, l.igstPaise, l.cgstPaise, l.sgstPaise);
+  return [...groups.values()]
+    .map(g => ({ ...g, value: r(g.value), taxable: r(g.taxable), igst: r(g.igst), cgst: r(g.cgst), sgst: r(g.sgst) }))
+    .sort((a, b) => a.supply.localeCompare(b.supply) || a.hsn.localeCompare(b.hsn) || a.rate - b.rate);
+}
+
 export async function salesXlsx(actor: Actor, from: string, to: string): Promise<Buffer> {
   const { rows, byRate } = await salesExport(actor, from, to);
   const book = new ExcelJS.Workbook();
@@ -161,6 +195,17 @@ export async function salesXlsx(actor: Actor, from: string, to: string): Promise
   byRate.forEach(x => gst.addRow(x));
   for (const k of ['taxable', 'cgst', 'sgst', 'igst']) gst.getColumn(k).numFmt = money;
   gst.getRow(1).font = { bold: true };
+
+  const hsn = book.addWorksheet('HSN summary', { views: [{ state: 'frozen', ySplit: 1 }] });
+  hsn.columns = [
+    { header: 'B2B / B2C', key: 'supply', width: 10 }, { header: 'HSN', key: 'hsn', width: 10 }, { header: 'Description', key: 'description', width: 30 },
+    { header: 'UQC', key: 'uqc', width: 6 }, { header: 'Total quantity', key: 'qty', width: 13 }, { header: 'Total value', key: 'value', width: 14 },
+    { header: 'Rate %', key: 'rate', width: 8 }, { header: 'Taxable value', key: 'taxable', width: 14 },
+    { header: 'IGST', key: 'igst', width: 12 }, { header: 'CGST', key: 'cgst', width: 12 }, { header: 'SGST', key: 'sgst', width: 12 }
+  ];
+  (await hsnSummary(actor, from, to)).forEach(x => hsn.addRow(x));
+  for (const k of ['value', 'taxable', 'igst', 'cgst', 'sgst']) hsn.getColumn(k).numFmt = money;
+  hsn.getRow(1).font = { bold: true };
 
   const days = book.addWorksheet('Days', { views: [{ state: 'frozen', ySplit: 1 }] });
   days.columns = [
