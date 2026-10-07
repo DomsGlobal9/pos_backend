@@ -88,6 +88,8 @@ export async function setUpiId(actor: Actor, raw: string | null) {
 const LOGO_MAX_CHARS = 200_000; // ~150 KB of JPEG, which is far more than a 42 mm print needs
 export async function setLogo(actor: Actor, raw: string | null) {
   if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change the logo on the bill.');
+  const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { connected: true } });
+  if (link?.connected) throw conflict('This shop is connected to Inventory, so its logo is set there: Settings -> Name, logo and bill details. It reaches the till with the next item refresh.', { code: 'SET_IN_INVENTORY' });
   const logoUrl = raw === null ? null : String(raw).trim();
   if (logoUrl !== null) {
     const jpeg = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(logoUrl);

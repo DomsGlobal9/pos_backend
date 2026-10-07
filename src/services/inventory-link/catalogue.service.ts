@@ -77,6 +77,9 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   let registration: string | null = null;
   // The shop's logo as Inventory keeps it (Settings -> Name, logo and bill details), an https address.
   let inventoryLogo: string | null = null;
+  // Whether Inventory said anything about the logo at all: an older Inventory sends no `shop` block,
+  // and its silence must not wipe the logo the shop already has.
+  let logoSaid = false;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     // The cursor means "everything changed after this point" -- the same mechanism for the next page
@@ -97,7 +100,10 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
     if (data.gst?.registration) gstCharged = data.gst.registration === 'REGULAR';
     if (['REGULAR', 'COMPOSITION', 'UNREGISTERED'].includes(data.gst?.registration)) registration = data.gst.registration;
     if (data.manualDiscount && typeof data.manualDiscount === 'object') manualDiscount = data.manualDiscount;
-    if (typeof data.shop?.logoUrl === 'string' && /^https:\/\//.test(data.shop.logoUrl)) inventoryLogo = data.shop.logoUrl;
+    if (data.shop && typeof data.shop === 'object' && 'logoUrl' in data.shop) {
+      logoSaid = true;
+      inventoryLogo = typeof data.shop.logoUrl === 'string' && /^https:\/\//.test(data.shop.logoUrl) ? data.shop.logoUrl : null;
+    }
     const products: any[] = Array.isArray(data.products) ? data.products : [];
     for (const product of products) {
       await applyProduct(clientId, product, counts, problems, gstCharged);
@@ -135,11 +141,12 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
     await prisma.shopSettings.updateMany({ where: { clientId }, data: { gstRegistration: registration } });
   }
   /*
-   * THE LOGO ON THE BILL, from Inventory when the till has none of its own. A picture uploaded on the
-   * till's own Settings is kept (a JPEG, which the WhatsApp PDF can carry); Inventory's https logo
-   * shows on screen and on the printed bill.
+   * THE LOGO ON THE BILL COMES FROM INVENTORY while connected -- like the items, the prices and the
+   * GST registration: one answer in one place (the owner, 7 Oct). Inventory's logo replaces whatever
+   * the till had, and no logo there means no logo here. It shows on screen and on the printed bill;
+   * the WhatsApp PDF carries a picture only when it is a JPEG.
    */
-  if (inventoryLogo && (!mine?.logoUrl || mine.logoUrl.startsWith('https://'))) {
+  if (logoSaid && inventoryLogo !== (mine?.logoUrl ?? null)) {
     await prisma.shopSettings.updateMany({ where: { clientId }, data: { logoUrl: inventoryLogo } });
   }
   if (manualDiscount) {
