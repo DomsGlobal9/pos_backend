@@ -151,6 +151,9 @@ model ShopSettings {
   shopName       String  @map("shop_name")
   gstin          String?
   address        String?
+  /// The store's phone, printed under the address. From Inventory while connected (the till's store's
+  /// own number when it has one, else the shop's).
+  phone          String?
   logoUrl        String? @map("logo_url")
   receiptFooter  String? @map("receipt_footer")
   invoicePrefix  String  @default("INV") @map("invoice_prefix")

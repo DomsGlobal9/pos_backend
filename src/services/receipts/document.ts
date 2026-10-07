@@ -70,6 +70,7 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
   if (logo) L.push({ kind: 'image', bytes: logo });
   L.push({ kind: 'text', text: ascii(shop.shopName ?? 'Shop'), bold: true, center: true });
   if (shop.address) L.push({ kind: 'text', text: ascii(shop.address), center: true });
+  if (shop.phone) L.push({ kind: 'text', text: `Ph ${ascii(shop.phone)}`, center: true });
   const docKind: DocumentKind = (sale.documentKind as DocumentKind) ?? 'TAX_INVOICE';
   // A plain receipt is from a shop with no GST registration: it has no GSTIN to print.
   if (shop.gstin && docKind !== 'RECEIPT') L.push({ kind: 'text', text: `GSTIN ${ascii(shop.gstin)}`, center: true });

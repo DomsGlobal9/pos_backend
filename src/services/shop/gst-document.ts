@@ -11,8 +11,15 @@ export const REGISTRATIONS = ['REGULAR', 'COMPOSITION', 'UNREGISTERED'] as const
 export type Registration = typeof REGISTRATIONS[number];
 export type DocumentKind = 'TAX_INVOICE' | 'BILL_OF_SUPPLY' | 'RECEIPT';
 
-export const documentKindFor = (registration: string | null | undefined): DocumentKind =>
-  registration === 'COMPOSITION' ? 'BILL_OF_SUPPLY' : registration === 'UNREGISTERED' ? 'RECEIPT' : 'TAX_INVOICE';
+/*
+ * GST IS OPTIONAL (the owner of the Inventory side, 7 Oct): a shop may have no GSTIN, no registration
+ * chosen and no rates, and must still sell and print normally. Only a GSTIN holder may charge GST or
+ * issue a tax invoice or a Bill of Supply, so with no GSTIN a bill is a plain receipt -- whatever the
+ * registration says, including the REGULAR the column defaults to for a shop that never chose.
+ */
+export const documentKindFor = (registration: string | null | undefined, gstin: string | null | undefined): DocumentKind =>
+  !gstin?.trim() ? 'RECEIPT'
+    : registration === 'COMPOSITION' ? 'BILL_OF_SUPPLY' : registration === 'UNREGISTERED' ? 'RECEIPT' : 'TAX_INVOICE';
 
 export const HEADING: Record<DocumentKind, string> = {
   TAX_INVOICE: 'TAX INVOICE',

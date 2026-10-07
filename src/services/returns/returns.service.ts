@@ -782,7 +782,7 @@ export async function getReturn(actor: Actor, returnId: string) {
       : null,
     prisma.shopSettings.findUnique({
       where: { clientId: actor.clientId },
-      select: { shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true }
+      select: { shopName: true, gstin: true, address: true, phone: true, logoUrl: true, receiptFooter: true }
     })
   ]);
 
