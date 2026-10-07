@@ -974,6 +974,11 @@ model DayClose {
   closedBy   User?    @relation(fields: [closedById], references: [id], onDelete: SetNull)
   closedAt   DateTime @default(now()) @map("closed_at")
 
+  /// 1 for the first close; 2, 3 ... each time the day is CLOSED AGAIN after late bills. The earlier
+  /// closes are kept in byMethod.earlier, never overwritten, and the event carries the revision so an
+  /// accountant's software replaces the day rather than adding it twice.
+  revision Int @default(1)
+
   @@unique([clientId, date])
   @@map("day_closes")
 }

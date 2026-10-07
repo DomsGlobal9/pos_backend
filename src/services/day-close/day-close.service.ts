@@ -179,7 +179,7 @@ export async function day(actor: Actor, date: string) {
     const by = snapshot.closedById
       ? await prisma.user.findUnique({ where: { id: snapshot.closedById }, select: { name: true } })
       : null;
-    const frozen = snapshot.byMethod as unknown as { figures: DayFigures };
+    const frozen = snapshot.byMethod as unknown as { figures: DayFigures; earlier?: { revision: number; closedAt: string; closedById: string | null; note: string | null; figures: DayFigures }[] };
     // What changed after closing, said separately -- never folded into the closed numbers.
     const since = {
       bills: live.bills.count - frozen.figures.bills.count,
@@ -192,6 +192,13 @@ export async function day(actor: Actor, date: string) {
       note: snapshot.note,
       openShiftsAtClose: snapshot.openShiftsAtClose,
       figures: frozen.figures,
+      revision: snapshot.revision,
+      // The earlier closes of this day, oldest first: when, by whom, why, and what they said then.
+      earlier: await Promise.all((frozen.earlier ?? []).map(async e => ({
+        revision: e.revision, closedAt: e.closedAt, note: e.note,
+        closedBy: e.closedById ? (await prisma.user.findUnique({ where: { id: e.closedById }, select: { name: true } }))?.name ?? null : null,
+        netPaise: e.figures.bills.netPaise, bills: e.figures.bills.count
+      }))),
       since: since.bills !== 0 || since.netPaise !== 0 || since.returnsPaise !== 0 ? since : null
     };
   }
@@ -213,7 +220,7 @@ export async function day(actor: Actor, date: string) {
  * they are closing anyway -- the same shape as handing over an order with money owed. The count of
  * shifts left open is kept on the close.
  */
-export async function closeDay(actor: Actor, date: string, input: { acceptOpenShifts?: boolean; note?: string } = {}) {
+export async function closeDay(actor: Actor, date: string, input: { acceptOpenShifts?: boolean; note?: string; again?: boolean } = {}) {
   if (!may(actor, PERMISSIONS.CLOSE_DAY)) {
     throw forbidden('Only a manager or the owner can close the day.', { code: 'NOT_PERMITTED' });
   }
@@ -221,10 +228,17 @@ export async function closeDay(actor: Actor, date: string, input: { acceptOpenSh
   if (start.getTime() > Date.now()) throw badRequest('That day has not happened yet.');
 
   const existing = await prisma.dayClose.findUnique({
-    where: { clientId_date: { clientId: actor.clientId, date: key } },
-    select: { closedAt: true, closedById: true }
+    where: { clientId_date: { clientId: actor.clientId, date: key } }
   });
-  if (existing) throw await alreadyClosed(existing);
+  if (existing && !input.again) throw await alreadyClosed(existing);
+  /*
+   * CLOSING AGAIN (7 Oct, asked for by the owner): a late customer after the day was closed. The day
+   * is closed afresh with every bill in it, and the earlier close is KEPT -- figures, who, when, note
+   * -- not overwritten. It says why, and only when something has actually changed since.
+   */
+  if (existing && input.again && (input.note ?? '').trim().length < 4) {
+    throw badRequest('Say why the day is being closed again -- for example, "late customer after closing".', { code: 'REASON_REQUIRED' });
+  }
 
   const stillOpen = (await openShifts(actor.clientId)).filter(s => s.openedAt.getTime() < end.getTime());
   if (stillOpen.length > 0 && !input.acceptOpenShifts) {
@@ -237,6 +251,43 @@ export async function closeDay(actor: Actor, date: string, input: { acceptOpenSh
 
   const live = await figures(actor, date);
 
+  if (existing && input.again) {
+    const frozen = existing.byMethod as unknown as { figures: DayFigures; earlier?: unknown[] };
+    const unchanged = live.bills.count === frozen.figures.bills.count && live.bills.netPaise === frozen.figures.bills.netPaise
+      && live.returns.totalPaise === frozen.figures.returns.totalPaise;
+    if (unchanged) throw conflict('Nothing has changed since the day was closed, so there is nothing to close again.', { code: 'NOTHING_NEW' });
+    const revision = existing.revision + 1;
+    await prisma.$transaction(async (tx) => {
+      // Guarded on the revision read: two managers closing again at once -- one wins, one is told.
+      const r = await tx.dayClose.updateMany({
+        where: { id: existing.id, revision: existing.revision },
+        data: {
+          ...columnsOf(live, stillOpen.length),
+          revision,
+          byMethod: {
+            figures: live,
+            earlier: [...(frozen.earlier ?? []), { revision: existing.revision, closedAt: existing.closedAt, closedById: existing.closedById, note: existing.note, figures: frozen.figures }]
+          } as unknown as Prisma.InputJsonValue,
+          note: input.note!.trim(),
+          closedById: actor.kind === 'USER' ? actor.id : null,
+          closedAt: new Date()
+        }
+      });
+      if (r.count === 0) throw conflict('Someone else closed this day again a moment ago. Look at it again.', { code: 'RECLOSED_MEANWHILE' });
+      await dayClosed(tx, actor.clientId, date, {
+        revision, replaces: existing.revision,
+        bills: live.bills, returns: live.returns, paidIn: live.paidIn, paidOut: live.paidOut,
+        cash: live.cash, openShiftsAtClose: stillOpen.length, note: input.note!.trim()
+      });
+    });
+    await record(actor, {
+      action: 'day.reclosed',
+      subject: date,
+      detail: { revision, reason: input.note!.trim(), netWasPaise: frozen.figures.bills.netPaise, netNowPaise: live.bills.netPaise, billsWas: frozen.figures.bills.count, billsNow: live.bills.count }
+    });
+    return day(actor, date);
+  }
+
   try {
     // The close and its event together: an accountant's software is told about exactly the closes
     // that happened. POS-API-007, POS-WEB-001.
@@ -245,22 +296,7 @@ export async function closeDay(actor: Actor, date: string, input: { acceptOpenSh
       data: {
         clientId: actor.clientId,
         date: key,
-        salesCount: live.bills.count,
-        grossPaise: live.bills.grossPaise,
-        discountPaise: live.bills.discountPaise,
-        taxPaise: live.bills.taxPaise,
-        netPaise: live.bills.netPaise,
-        returnsPaise: live.returns.totalPaise,
-        returnsCount: live.returns.count,
-        cashPositionPaise: live.cash.positionPaise,
-        openingCashPaise: live.cash.openingPaise,
-        cashInPaise: live.cash.inPaise,
-        cashOutPaise: live.cash.outPaise,
-        countedCashPaise: live.cash.countedPaise,
-        variancePaise: live.cash.variancePaise,
-        unattributedCashPaise: live.cash.unattributedPaise,
-        openShiftsAtClose: stillOpen.length,
-        paymentsToCheck: live.paymentsToCheck,
+        ...columnsOf(live, stillOpen.length),
         // The whole picture, frozen as it was read. The columns above are for querying across days;
         // this is what the closed day shows, so it can never be re-derived differently later.
         byMethod: { figures: live } as unknown as Prisma.InputJsonValue,
@@ -299,11 +335,33 @@ export async function closeDay(actor: Actor, date: string, input: { acceptOpenSh
   return day(actor, date);
 }
 
+/** The day's figures as the queryable columns of its close. One place, for a first close and a later one. */
+function columnsOf(live: DayFigures, openShiftsAtClose: number) {
+  return {
+    salesCount: live.bills.count,
+    grossPaise: live.bills.grossPaise,
+    discountPaise: live.bills.discountPaise,
+    taxPaise: live.bills.taxPaise,
+    netPaise: live.bills.netPaise,
+    returnsPaise: live.returns.totalPaise,
+    returnsCount: live.returns.count,
+    cashPositionPaise: live.cash.positionPaise,
+    openingCashPaise: live.cash.openingPaise,
+    cashInPaise: live.cash.inPaise,
+    cashOutPaise: live.cash.outPaise,
+    countedCashPaise: live.cash.countedPaise,
+    variancePaise: live.cash.variancePaise,
+    unattributedCashPaise: live.cash.unattributedPaise,
+    openShiftsAtClose,
+    paymentsToCheck: live.paymentsToCheck
+  };
+}
+
 async function alreadyClosed(row: { closedAt: Date; closedById: string | null }) {
   const by = row.closedById ? await prisma.user.findUnique({ where: { id: row.closedById }, select: { name: true } }) : null;
   const at = row.closedAt.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
   return conflict(
-    `This day was already closed${by?.name ? ` by ${by.name}` : ''} at ${at}. A closed day is not changed -- anything since shows on its own line.`,
+    `This day was already closed${by?.name ? ` by ${by.name}` : ''} at ${at}. Anything since shows on its own line; use Close again to take it in.`,
     { code: 'ALREADY_CLOSED' }
   );
 }

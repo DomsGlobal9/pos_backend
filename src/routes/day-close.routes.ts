@@ -23,7 +23,7 @@ router.get('/:date', async (req, res, next) => {
  */
 router.post('/:date', async (req, res, next) => {
   try {
-    const body = z.object({ acceptOpenShifts: z.boolean().optional(), note: z.string().max(280).optional() })
+    const body = z.object({ acceptOpenShifts: z.boolean().optional(), note: z.string().max(280).optional(), again: z.boolean().optional() })
       .safeParse(req.body ?? {});
     if (!body.success) throw badRequest(body.error.issues[0].message);
     res.json({ success: true, data: await closeDay((req as any).actor, req.params.date, body.data) });
