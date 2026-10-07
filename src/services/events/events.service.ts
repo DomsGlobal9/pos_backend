@@ -103,6 +103,20 @@ const saleLine = (l: SaleLineRow) => ({
   ...(Array.isArray(l.appliedOffers) && l.appliedOffers.length ? { offers: l.appliedOffers } : {})
 });
 
+/**
+ * The customer as Inventory reads it. On a B2B tax invoice it carries the buyer AS ISSUED -- the name,
+ * GSTIN and address frozen on the bill -- so Inventory's "Bill to" matches the paper. On any other
+ * bill gstin and address are left out entirely (Inventory, 7 Oct: absent, never null or "").
+ */
+function customerBlock(s: { customer: { name: string | null; phone: string } | null; buyerName: string | null; buyerGstin: string | null; buyerAddress: string | null }) {
+  if (!s.customer) return null;
+  if (!s.buyerGstin) return { name: s.customer.name, phone: s.customer.phone };
+  return {
+    name: s.buyerName ?? s.customer.name, phone: s.customer.phone, gstin: s.buyerGstin,
+    ...(s.buyerAddress ? { address: s.buyerAddress } : {})
+  };
+}
+
 async function loadSale(tx: Tx, saleId: string) {
   return tx.sale.findUniqueOrThrow({
     where: { id: saleId },
@@ -112,6 +126,7 @@ async function loadSale(tx: Tx, saleId: string) {
       counter: { select: { name: true } },
       cashier: { select: { name: true } },
       customer: { select: { phone: true, name: true } },
+      buyerName: true, buyerGstin: true, buyerAddress: true,
       lines: { select: LINE_SELECT },
       payments: { select: { method: true, amountPaise: true, status: true, holdId: true } }
     }
@@ -136,7 +151,7 @@ export async function saleCompleted(tx: Tx, clientId: string, saleId: string, pr
     customerRef: s.customer?.phone ?? null,
     // For Inventory's own customer record (contract §4.1, Q6). Its outside-customer rule may drop
     // a phone it already has on someone else -- that is correct there, not a mismatch here.
-    customer: s.customer ? { name: s.customer.name, phone: s.customer.phone } : null,
+    customer: customerBlock(s),
     lines: s.lines.map(saleLine),
     totals: {
       subtotalPaise: s.subtotalPaise, discountPaise: s.discountPaise, taxPaise: s.taxPaise,
@@ -209,7 +224,7 @@ export async function saleExchanged(tx: Tx, clientId: string, returnId: string) 
     reason: r.reason,
     counter: s.counter.name,
     customerRef: s.customer?.phone ?? r.customer?.phone ?? null,
-    customer: s.customer ? { name: s.customer.name, phone: s.customer.phone } : null,
+    customer: customerBlock(s),
     returned: r.lines.map(returnedLine),
     taken: s.lines.map(saleLine),
     // What came back pays only its money share; a points share goes back as points.
