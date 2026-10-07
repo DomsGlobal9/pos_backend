@@ -4,7 +4,8 @@ import { Actor, systemActor } from '../../types/actor';
 import { notFound } from '../../utils/httpError';
 import { getSale } from '../sale/sale.service';
 import { receiptDocument } from './document';
-import { renderPdf } from './pdf';
+import { renderPdf, pictureOf } from './pdf';
+import { fetchBytes } from '../inventory-link/client';
 
 /**
  * Digital receipts. POS-RCPT-002 (PDF), POS-RCPT-009 (the receipt's own web address).
@@ -40,32 +41,38 @@ export async function pdfFor(actor: Actor, saleId: string) {
   const token = await ensureToken(actor, saleId);
   const sale = await getSale(actor, saleId);
   const url = receiptUrl(token);
-  const logo = await httpsLogo(sale.shop?.logoUrl);
+  const logo = await httpsLogo(actor.clientId, sale.shop?.logoUrl);
   return { invoiceNo: sale.invoiceNo, pdf: renderPdf(receiptDocument(sale, { receiptUrl: url, logo }), { qr: url }), sale, url };
 }
 
-// ponytail: per-process cache keyed by address; a new logo in Inventory is a new address.
+// ponytail: per-process cache, keyed by shop and logo address -- a new logo in Inventory is a new address.
 const logos = new Map<string, Buffer>();
 
 /**
- * Inventory's logo (an https picture) for the PDF, fetched once and kept. Slow or broken: the PDF
- * goes without it -- a WhatsApp bill is never held up for a picture.
+ * Inventory's logo for the PDF. Inventory stores pictures as WebP, which a PDF cannot carry, so a
+ * connected till asks for the PRINT copy (GET /logo-print: PNG, at most 400 px, on the till key);
+ * failing that, the logo's own address, which may already be a PNG or JPEG. Only a picture the PDF
+ * can draw is kept. Slow, missing or unreadable: the PDF goes without -- never held up for it.
  */
-async function httpsLogo(logoUrl: unknown): Promise<Buffer | null> {
+async function httpsLogo(clientId: string, logoUrl: unknown): Promise<Buffer | null> {
   if (typeof logoUrl !== 'string' || !logoUrl.startsWith('https://')) return null;
-  const kept = logos.get(logoUrl);
+  const key = `${clientId} ${logoUrl}`;
+  const kept = logos.get(key);
   if (kept) return kept;
-  try {
-    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return null;
-    const bytes = Buffer.from(await res.arrayBuffer());
-    if (bytes.length > 2_000_000) return null;
-    if (logos.size > 200) logos.clear();
-    logos.set(logoUrl, bytes);
-    return bytes;
-  } catch {
-    return null;
+  const link = await prisma.inventoryLink.findUnique({ where: { clientId }, select: { connected: true, baseUrl: true, keyCipher: true } });
+  const candidates = [
+    () => (link?.connected ? fetchBytes('/logo-print', link) : Promise.resolve(null)),
+    () => fetchBytes(logoUrl)
+  ];
+  for (const get of candidates) {
+    const bytes = await get().catch(() => null);
+    if (bytes && pictureOf(bytes)) {
+      if (logos.size > 200) logos.clear();
+      logos.set(key, bytes);
+      return bytes;
+    }
   }
+  return null;
 }
 
 /** Strip everything that identifies a row in OUR database. A public page gets the bill, not our keys. */
