@@ -120,7 +120,7 @@ export async function findByPhone(actor: Actor, rawPhone: string): Promise<Custo
  */
 export async function findOrCreate(
   actor: Actor,
-  input: { phone: string; name?: string; gstin?: string; note?: string; marketingConsent?: boolean }
+  input: { phone: string; name?: string; gstin?: string; address?: string; note?: string; marketingConsent?: boolean }
 ): Promise<{ customer: CustomerCard; created: boolean }> {
   const phone = normalise(input.phone);
   const name = input.name?.trim() || null;
@@ -143,6 +143,7 @@ export async function findOrCreate(
     const patch: Prisma.CustomerUpdateInput = {};
     if (name && !existing.name) patch.name = name;
     if (gstin && !existing.gstin) patch.gstin = gstin;
+    if (input.address?.trim() && !existing.address) patch.address = input.address.trim();
     if (input.note?.trim()) patch.note = input.note.trim();
     if (input.marketingConsent && !existing.marketingConsent) {
       patch.marketingConsent = true;
@@ -163,6 +164,7 @@ export async function findOrCreate(
         phone: phone.e164,
         name,
         gstin,
+        address: input.address?.trim() || null,
         note: input.note?.trim() || null,
         marketingConsent: input.marketingConsent === true,
         consentAt: input.marketingConsent === true ? new Date() : null

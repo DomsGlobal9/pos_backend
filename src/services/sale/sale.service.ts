@@ -19,6 +19,9 @@ import { CompleteSaleInput } from './sale.schema';
 import { heldQuote, quoteBasket, COULD_NOT_CHECK } from '../inventory-link/quote.service';
 import { holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
 import { verifyQrPayments } from '../inventory-link/upi-qr.service';
+
+/** Rule 46: an unregistered customer's name and address on a tax invoice of this taxable value or more. */
+const LARGE_B2C_PAISE = 5_000_000;
 import { documentKindFor, chargesGst } from '../shop/gst-document';
 
 /**
@@ -458,7 +461,14 @@ export async function writeSale(
        * attached to somebody else's customer, or to one deleted between the screen loading and
        * Complete being pressed.
        */
-      let buyer: { buyerName: string | null; buyerGstin: string; buyerAddress: string | null } | Record<string, never> = {};
+      let buyer: { buyerName: string | null; buyerGstin: string | null; buyerAddress: string | null } | Record<string, never> = {};
+      /*
+       * RULE 46, an unregistered customer: a tax invoice whose taxable value is Rs 50,000 or more must
+       * name them and give their address (bridal bills cross it every day). Never a reason to refuse
+       * the sale -- the customer may not give them -- so the bill goes, and the cashier is told.
+       */
+      const taxablePaise = priced.totalPaise - priced.taxPaise;
+      const bigConsumerBill = documentKind === 'TAX_INVOICE' && taxablePaise >= LARGE_B2C_PAISE;
       if (input.customerId) {
         const customer = await tx.customer.findFirst({
           where: { id: input.customerId, clientId: actor.clientId, deletedAt: null },
@@ -470,8 +480,13 @@ export async function writeSale(
         // A tax invoice to a GST-registered business carries the buyer (Rule 46), as they are NOW.
         if (customer.gstin && documentKind === 'TAX_INVOICE') {
           buyer = { buyerName: customer.name, buyerGstin: customer.gstin, buyerAddress: customer.address };
+        } else if (bigConsumerBill && (customer.name || customer.address)) {
+          buyer = { buyerName: customer.name, buyerGstin: null, buyerAddress: customer.address };
         }
       }
+      const largeNote = bigConsumerBill && !(buyer as any).buyerGstin && !((buyer as any).buyerName && (buyer as any).buyerAddress)
+        ? ['This bill is Rs 50,000 or more and went without the customer\'s name and address, which GST rule 46 asks for. Write them on the paper bill if the customer wants it, and add them before payment next time.']
+        : [];
 
       // 4. Inside this transaction, deliberately: a sale that fails takes its number with it, so
       // the series never gains a gap.
@@ -619,7 +634,7 @@ export async function writeSale(
         totalPaise: priced.totalPaise,
         appliedCreditPaise: applied,
         stockChanges: exchange ? stockChanges : [],
-        notes: offered.notes
+        notes: [...offered.notes, ...largeNote]
       };
   }
 }
