@@ -16,7 +16,7 @@ import { saleCompleted } from '../events';
 import { newReceiptToken, receiptUrl } from '../../utils/receiptLink';
 import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
-import { heldQuote, COULD_NOT_CHECK } from '../inventory-link/quote.service';
+import { heldQuote, quoteBasket, COULD_NOT_CHECK } from '../inventory-link/quote.service';
 import { holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
 import { documentKindFor, chargesGst } from '../shop/gst-document';
 
@@ -96,6 +96,22 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
      * the write below fails, whatever was held is let go -- unless another press of the same bill
      * won the race, in which case the hold is that bill's and stays.
      */
+    /*
+     * A QUOTE THIS SERVER NO LONGER HOLDS -- it restarted (every deploy does), or the quote outlived
+     * its 15 minutes. The screen still shows the offer price and the cashier has taken that money; going
+     * on at the tag price refused the sale ("Rs 300 still to pay") for a reason nobody at the counter
+     * could see (found on the live till, 7 Oct). So ask Inventory again for this same basket, once,
+     * before giving up. Only if that fails too does the bill go at the shop's own prices.
+     */
+    if (input.quoteId && !heldQuote(actor.clientId, input.quoteId)) {
+      const again = await quoteBasket(actor, {
+        lines: input.lines.map(l => ({ itemId: l.itemId, qty: l.qty })),
+        ...(input.customerId ? { customerId: input.customerId } : {}),
+        ...(input.couponCode ? { couponCode: input.couponCode } : {})
+      });
+      if (again.ok) input = { ...input, quoteId: again.quote.quoteId };
+    }
+
     holds = await holdForSale(actor, input);
 
     const written = await prisma.$transaction(
