@@ -86,6 +86,12 @@ export const completeSaleSchema = z.object({
    * never mentioned it -- caught when the suites were run, because tsc excludes src/scripts.
    */
   kind: z.enum(['COMPLETE', 'KEPT']).optional(),
+  /**
+   * A CREDIT SALE (udhaar): the goods go home now and the rest is owed. Built as a kept order handed
+   * over at once, so the Due tab, collecting later, the customer card and Inventory's payment.updated
+   * all work as they already do. Needs a customer, and a manager when anything is left owing.
+   */
+  payLater: z.boolean().optional(),
   /** When the customer was told to come back. POS-ORD-004. */
   promisedAt: z.coerce.date().optional(),
   /** "Fall and pico, blouse to be stitched." POS-ORD-005. */

@@ -46,6 +46,8 @@ const basketKey = (lines: { itemId: string; qty: number }[]) =>
   lines.map(l => `${l.itemId}:${l.qty}`).sort().join('|');
 
 export async function completeSale(actor: Actor, input: CompleteSaleInput) {
+  // A credit sale is a kept order handed over at once: everything a kept order does, it does.
+  if (input.payLater) input = { ...input, kind: 'KEPT' };
   const existing = await findByOnceKey(actor.clientId, input.onceKey);
   if (existing) return replay(actor, existing, input);
 
@@ -276,7 +278,13 @@ export async function writeSale(
       const manualDiscountPaise = priced.discountPaise - offered.offersPaise;
       const discountOverLimit = manualDiscountPaise > allowedDiscount;
 
-      const needs: { kind: 'DISCOUNT_OVER_LIMIT' | 'PRICE_OVERRIDE'; detail: any }[] = [];
+      const needs: { kind: 'DISCOUNT_OVER_LIMIT' | 'PRICE_OVERRIDE' | 'PAY_LATER'; detail: any }[] = [];
+      /*
+       * A CREDIT SALE IS THE SHOP LENDING (udhaar). Whatever is left owing when the goods leave needs
+       * someone allowed to lend -- a manager's PIN for a cashier -- and is recorded either way.
+       */
+      const owingNow = input.payLater ? priced.totalPaise - input.payments.reduce((n, p) => n + p.amountPaise, 0) : 0;
+      if (owingNow > 0) needs.push({ kind: 'PAY_LATER', detail: { owedPaise: owingNow, totalPaise: priced.totalPaise } });
 
       if (discountOverLimit) {
         needs.push({
@@ -296,8 +304,8 @@ export async function writeSale(
 
       const approvalIds: string[] = [];
       for (const need of needs) {
-        const permission = need.kind === 'DISCOUNT_OVER_LIMIT'
-          ? PERMISSIONS.DISCOUNT_OVER_LIMIT
+        const permission = need.kind === 'DISCOUNT_OVER_LIMIT' ? PERMISSIONS.DISCOUNT_OVER_LIMIT
+          : need.kind === 'PAY_LATER' ? PERMISSIONS.PAY_LATER
           : PERMISSIONS.PRICE_OVERRIDE;
 
         /*
@@ -307,7 +315,7 @@ export async function writeSale(
          */
         if (may(actor, permission)) {
           pendingAudit.push({
-            action: need.kind === 'DISCOUNT_OVER_LIMIT' ? 'sale.discount_over_limit' : 'sale.price_override',
+            action: need.kind === 'DISCOUNT_OVER_LIMIT' ? 'sale.discount_over_limit' : need.kind === 'PAY_LATER' ? 'order.handed_over_with_due' : 'sale.price_override',
             detail: { ...need.detail, byOwnAuthority: true }
           });
           continue;
@@ -317,7 +325,9 @@ export async function writeSale(
           throw forbidden(
             need.kind === 'DISCOUNT_OVER_LIMIT'
               ? `A manager needs to approve a discount over ${limitPercent}%.`
-              : 'A manager needs to approve a price change.',
+              : need.kind === 'PAY_LATER'
+                ? 'A manager needs to approve selling on credit.'
+                : 'A manager needs to approve a price change.',
             {
               code: 'APPROVAL_REQUIRED',
               kind: need.kind,
@@ -433,10 +443,12 @@ export async function writeSale(
           kind: isKept ? 'KEPT' : 'COMPLETE',
           // The money view. A kept order with nothing owed is still kept -- it just is not due.
           status: owed > 0 ? 'BALANCE_DUE' : 'COMPLETED',
-          // The goods view. A counter sale leaves with the customer; a kept order waits.
-          fulfilment: isKept ? 'WAITING' : 'HANDED_OVER',
-          handedOverAt: isKept ? null : new Date(),
-          handedOverById: isKept ? null : (actor.kind === 'USER' ? actor.id : null),
+          // The goods view. A counter sale leaves with the customer; a kept order waits; a credit
+          // sale leaves now, with what is owed written on it.
+          fulfilment: isKept && !input.payLater ? 'WAITING' : 'HANDED_OVER',
+          handedOverAt: isKept && !input.payLater ? null : new Date(),
+          handedOverById: isKept && !input.payLater ? null : (actor.kind === 'USER' ? actor.id : null),
+          ...(input.payLater && owed > 0 ? { handoverDuePaise: owed } : {}),
           promisedAt: input.promisedAt ?? null,
           note: input.note ?? null,
           subtotalPaise: priced.subtotalPaise,

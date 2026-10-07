@@ -1158,6 +1158,8 @@ enum ApprovalKind {
   CASH_OUT
   /// Marking a payment that was being checked as never arrived: the customer owes it again.
   PAYMENT_VOID
+  /// Goods handed over now with money still owed: a credit sale (udhaar). The shop is lending.
+  PAY_LATER
 }
 
 // ---------------------------------------------------------------------------------------------

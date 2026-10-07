@@ -60,6 +60,8 @@ export const PERMISSIONS = {
   CASH_OUT: 'cash:out',
   /** Saying a payment that was being checked never arrived. A cashier needs a manager's PIN. */
   PAYMENT_VOID: 'payment:void',
+  /** Selling on credit (udhaar): goods handed over now, money owed. A cashier needs a manager's PIN. */
+  PAY_LATER: 'sale:pay_later',
   /** The full reports: any period, every cashier and counter. Without it: your own sales today. POS-RPT. */
   REPORTS: 'report:view',
   SEE_COST: 'report:cost',
