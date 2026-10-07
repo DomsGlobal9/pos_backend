@@ -6,6 +6,8 @@ import { literal, phoneDigits } from '../../utils/likeText';
 import { normalisePhone, displayPhone, maskPhone, PhoneError } from '../../utils/phone';
 import { owedByCustomer } from '../orders';
 import { history as creditHistory, CreditEntry } from '../store-credit';
+import { record } from '../audit';
+import { gstinProblem, normaliseGstin } from '../../utils/gstin';
 
 /**
  * The customer. POS-CUST-002..010, -014.
@@ -35,6 +37,7 @@ export interface CustomerCard {
   phoneMasked: string;
   name: string | null;
   gstin: string | null;
+  address: string | null;
   note: string | null;
   marketingConsent: boolean;
   /** Both are the POS's own figures while standalone. See the schema comment before spending one. */
@@ -73,6 +76,7 @@ function card(row: any, stats?: { count: number; total: number; first: Date | nu
     phoneMasked: maskPhone(row.phone),
     name: row.name,
     gstin: row.gstin,
+    address: row.address ?? null,
     note: row.note ?? null,
     marketingConsent: row.marketingConsent ?? false,
     loyaltyPoints: row.loyaltyPoints ?? 0,
@@ -85,7 +89,7 @@ function card(row: any, stats?: { count: number; total: number; first: Date | nu
 }
 
 const SELECT = {
-  id: true, phone: true, name: true, gstin: true, note: true,
+  id: true, phone: true, name: true, gstin: true, address: true, note: true,
   marketingConsent: true, loyaltyPoints: true, storeCreditPaise: true
 } as const;
 
@@ -120,6 +124,8 @@ export async function findOrCreate(
 ): Promise<{ customer: CustomerCard; created: boolean }> {
   const phone = normalise(input.phone);
   const name = input.name?.trim() || null;
+  const gstin = input.gstin?.trim() ? normaliseGstin(input.gstin) : null;
+  if (gstin) { const problem = gstinProblem(gstin); if (problem) throw badRequest(problem, { code: 'BAD_GSTIN' }); }
 
   const existing = await prisma.customer.findFirst({
     where: { clientId: actor.clientId, phone: phone.e164, deletedAt: null },
@@ -136,7 +142,7 @@ export async function findOrCreate(
      */
     const patch: Prisma.CustomerUpdateInput = {};
     if (name && !existing.name) patch.name = name;
-    if (input.gstin?.trim() && !existing.gstin) patch.gstin = input.gstin.trim();
+    if (gstin && !existing.gstin) patch.gstin = gstin;
     if (input.note?.trim()) patch.note = input.note.trim();
     if (input.marketingConsent && !existing.marketingConsent) {
       patch.marketingConsent = true;
@@ -156,7 +162,7 @@ export async function findOrCreate(
         clientId: actor.clientId,
         phone: phone.e164,
         name,
-        gstin: input.gstin?.trim() || null,
+        gstin,
         note: input.note?.trim() || null,
         marketingConsent: input.marketingConsent === true,
         consentAt: input.marketingConsent === true ? new Date() : null
@@ -348,4 +354,37 @@ function normalise(raw: string) {
     // rather than replacing them with something vaguer.
     throw badRequest(error instanceof PhoneError ? error.message : 'That does not look like a phone number.');
   }
+}
+
+/**
+ * A customer's business details: name, GSTIN and address, for B2B tax invoices. PATCH-style -- a
+ * field left out stays as it is; null clears it. A GSTIN is checked (format and check character),
+ * and an address is asked for with it, because a tax invoice to a business must carry both.
+ * Bills already issued keep the details they were issued with.
+ */
+export async function updateDetails(
+  actor: Actor,
+  customerId: string,
+  input: { name?: string | null; gstin?: string | null; address?: string | null }
+): Promise<CustomerCard> {
+  const row = await prisma.customer.findFirst({ where: { id: customerId, clientId: actor.clientId, deletedAt: null }, select: SELECT });
+  if (!row) throw notFound('That customer was not found.');
+  const patch: Prisma.CustomerUpdateInput = {};
+  if (input.name !== undefined) patch.name = input.name?.trim() || null;
+  if (input.address !== undefined) patch.address = input.address?.trim() || null;
+  if (input.gstin !== undefined) {
+    const gstin = input.gstin?.trim() ? normaliseGstin(input.gstin) : null;
+    if (gstin) { const problem = gstinProblem(gstin); if (problem) throw badRequest(problem, { code: 'BAD_GSTIN' }); }
+    patch.gstin = gstin;
+  }
+  const gstinAfter = patch.gstin !== undefined ? patch.gstin : row.gstin;
+  const addressAfter = patch.address !== undefined ? patch.address : row.address;
+  if (gstinAfter && !addressAfter) {
+    throw badRequest('Add the business address too -- a tax invoice to a GST-registered buyer shows their address.', { code: 'ADDRESS_REQUIRED' });
+  }
+  const updated = Object.keys(patch).length ? await prisma.customer.update({ where: { id: row.id }, data: patch, select: SELECT }) : row;
+  if (Object.keys(patch).length) {
+    await record(actor, { action: 'customer.updated', subject: maskPhone(row.phone), detail: { fields: Object.keys(patch), gstin: updated.gstin } });
+  }
+  return card(updated, await statsFor(actor.clientId, updated.id));
 }

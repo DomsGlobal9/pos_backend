@@ -435,13 +435,18 @@ export async function writeSale(
        * attached to somebody else's customer, or to one deleted between the screen loading and
        * Complete being pressed.
        */
+      let buyer: { buyerName: string | null; buyerGstin: string; buyerAddress: string | null } | Record<string, never> = {};
       if (input.customerId) {
         const customer = await tx.customer.findFirst({
           where: { id: input.customerId, clientId: actor.clientId, deletedAt: null },
-          select: { id: true }
+          select: { id: true, name: true, gstin: true, address: true }
         });
         if (!customer) {
           throw notFound('That customer was not found. Complete the sale without one, or add them again.');
+        }
+        // A tax invoice to a GST-registered business carries the buyer (Rule 46), as they are NOW.
+        if (customer.gstin && documentKind === 'TAX_INVOICE') {
+          buyer = { buyerName: customer.name, buyerGstin: customer.gstin, buyerAddress: customer.address };
         }
       }
 
@@ -484,6 +489,7 @@ export async function writeSale(
           totalPaise: priced.totalPaise,
           savedPaise: priced.savedPaise,
           documentKind,
+          ...buyer,
           onceKey: input.onceKey,
           // The digital receipt's address, made now so the paper receipt can carry it. POS-RCPT-009.
           receiptToken: newReceiptToken(),
@@ -713,6 +719,7 @@ export async function getSale(actor: Actor, saleId: string) {
         subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true,
         totalPaise: true, savedPaise: true, madeOfflineAt: true, documentKind: true,
         pointsEarned: true, pointsUsed: true, pointsBalanceAfter: true,
+        buyerName: true, buyerGstin: true, buyerAddress: true,
         printCount: true, lastPrintedAt: true, receiptToken: true,
         fulfilment: true, promisedAt: true, note: true, readyAt: true,
         handedOverAt: true, handoverDuePaise: true,

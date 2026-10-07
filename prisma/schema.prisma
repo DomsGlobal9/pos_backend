@@ -250,6 +250,8 @@ model Customer {
   phone    String
   name     String?
   gstin    String?
+  /// A business buyer's address, for its tax invoices. Only asked for alongside a GSTIN.
+  address  String?
 
   /// WHO OWNS THESE DEPENDS ON THE MODE, and the difference decides whether they may be SPENT.
   ///
@@ -429,6 +431,13 @@ model Sale {
   pointsEarned       Int? @map("points_earned")
   pointsUsed         Int? @map("points_used")
   pointsBalanceAfter Int? @map("points_balance_after")
+
+  /// THE BUYER, AS ISSUED (GST Rule 46): a tax invoice to a registered business carries its name,
+  /// address and GSTIN. Frozen here at issue -- editing the customer later never changes a bill
+  /// already given, and a GSTIN added later never turns an old consumer bill into a B2B one.
+  buyerName    String? @map("buyer_name")
+  buyerGstin   String? @map("buyer_gstin")
+  buyerAddress String? @map("buyer_address")
 
   /// IDEMPOTENCY. The till makes one key per basket. Pressing Complete twice, a retry after a
   /// timeout, and the offline outbox flushing the same bill are three names for one problem, and
