@@ -48,3 +48,21 @@ export async function call(
     clearTimeout(timer);
   }
 }
+
+/**
+ * A picture, as bytes: null for anything but a 200 of at most 2 MB, in time. The till key goes only
+ * with a request to the shop's own Inventory link -- never to any other address.
+ */
+export async function fetchBytes(url: string, link?: LinkTarget, timeoutMs = 3_000): Promise<Buffer | null> {
+  try {
+    const res = await fetch(link ? `${link.baseUrl.replace(/\/+$/, '')}${url}` : url, {
+      signal: AbortSignal.timeout(timeoutMs),
+      headers: link ? { 'x-storefront-key': open(link.keyCipher) } : {}
+    });
+    if (res.status !== 200) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    return bytes.length > 0 && bytes.length <= 2_000_000 ? bytes : null;
+  } catch {
+    return null;
+  }
+}
