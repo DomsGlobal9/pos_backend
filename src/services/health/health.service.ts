@@ -23,6 +23,8 @@ export interface Health {
    * the first day rather than added when someone complains. */
   databaseMs: number | null;
   authMode: 'local' | 'gateway';
+  /** Which commit is running (Render sets RENDER_GIT_COMMIT): "did my push deploy?" in one look. */
+  commit: string | null;
   at: string;
 }
 
@@ -48,6 +50,7 @@ export async function health(): Promise<Health> {
     database,
     databaseMs,
     authMode: env.AUTH_MODE,
+    commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null,
     at: new Date().toISOString()
   };
 }
