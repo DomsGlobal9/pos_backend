@@ -18,8 +18,8 @@ export type DocLine =
   | { kind: 'pair'; left: string; right: string; bold?: boolean }
   | { kind: 'rule' }
   | { kind: 'gap' }
-  /** A JPEG as a data URL. The shop's logo, at the top; nothing else is a picture on a receipt. */
-  | { kind: 'image'; dataUrl: string };
+  /** The shop's logo as JPEG or PNG bytes, at the top; nothing else is a picture on a receipt. */
+  | { kind: 'image'; bytes: Buffer };
 
 export function money(paise: number): string {
   const neg = paise < 0;
@@ -60,11 +60,14 @@ const when = (d: Date | string) => {
 /**
  * `sale` is what getSale() returns -- the same object the till's Receipt component renders.
  */
-export function receiptDocument(sale: any, opts: { receiptUrl?: string | null } = {}): DocLine[] {
+export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; logo?: Buffer | null } = {}): DocLine[] {
   const L: DocLine[] = [];
   const shop = sale.shop ?? {};
-  // Only a JPEG data URL can go into the PDF: an https logo shows on screen and paper, not here.
-  if (typeof shop.logoUrl === 'string' && shop.logoUrl.startsWith('data:image/jpeg;base64,')) L.push({ kind: 'image', dataUrl: shop.logoUrl });
+  // The logo: one uploaded on the till is a JPEG data URL; Inventory's is an https picture, fetched
+  // by the caller (this stays synchronous) and handed in as `logo`.
+  const jpeg = 'data:image/jpeg;base64,';
+  const logo = opts.logo ?? (typeof shop.logoUrl === 'string' && shop.logoUrl.startsWith(jpeg) ? Buffer.from(shop.logoUrl.slice(jpeg.length), 'base64') : null);
+  if (logo) L.push({ kind: 'image', bytes: logo });
   L.push({ kind: 'text', text: ascii(shop.shopName ?? 'Shop'), bold: true, center: true });
   if (shop.address) L.push({ kind: 'text', text: ascii(shop.address), center: true });
   const docKind: DocumentKind = (sale.documentKind as DocumentKind) ?? 'TAX_INVOICE';

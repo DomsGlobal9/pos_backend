@@ -40,7 +40,32 @@ export async function pdfFor(actor: Actor, saleId: string) {
   const token = await ensureToken(actor, saleId);
   const sale = await getSale(actor, saleId);
   const url = receiptUrl(token);
-  return { invoiceNo: sale.invoiceNo, pdf: renderPdf(receiptDocument(sale, { receiptUrl: url }), { qr: url }), sale, url };
+  const logo = await httpsLogo(sale.shop?.logoUrl);
+  return { invoiceNo: sale.invoiceNo, pdf: renderPdf(receiptDocument(sale, { receiptUrl: url, logo }), { qr: url }), sale, url };
+}
+
+// ponytail: per-process cache keyed by address; a new logo in Inventory is a new address.
+const logos = new Map<string, Buffer>();
+
+/**
+ * Inventory's logo (an https picture) for the PDF, fetched once and kept. Slow or broken: the PDF
+ * goes without it -- a WhatsApp bill is never held up for a picture.
+ */
+async function httpsLogo(logoUrl: unknown): Promise<Buffer | null> {
+  if (typeof logoUrl !== 'string' || !logoUrl.startsWith('https://')) return null;
+  const kept = logos.get(logoUrl);
+  if (kept) return kept;
+  try {
+    const res = await fetch(logoUrl, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return null;
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (bytes.length > 2_000_000) return null;
+    if (logos.size > 200) logos.clear();
+    logos.set(logoUrl, bytes);
+    return bytes;
+  } catch {
+    return null;
+  }
 }
 
 /** Strip everything that identifies a row in OUR database. A public page gets the bill, not our keys. */

@@ -150,7 +150,7 @@ async function loadReturn(tx: Tx, returnId: string) {
   return tx.return.findUniqueOrThrow({
     where: { id: returnId },
     select: {
-      creditNoteNo: true, createdAt: true, reason: true, totalPaise: true, taxPaise: true, roundOffPaise: true, pointsBack: true,
+      creditNoteNo: true, createdAt: true, reason: true, totalPaise: true, taxPaise: true, roundOffPaise: true, pointsBack: true, pointsBackPaise: true,
       originalSale: { select: { invoiceNo: true } },
       customer: { select: { phone: true } },
       exchangeSaleId: true,
@@ -212,9 +212,11 @@ export async function saleExchanged(tx: Tx, clientId: string, returnId: string) 
     customer: s.customer ? { name: s.customer.name, phone: s.customer.phone } : null,
     returned: r.lines.map(returnedLine),
     taken: s.lines.map(saleLine),
-    creditPaise: r.totalPaise,
+    // What came back pays only its money share; a points share goes back as points.
+    creditPaise: r.totalPaise - r.pointsBackPaise,
     newTotalPaise: s.totalPaise,
-    differencePaise: s.totalPaise - r.totalPaise,
+    differencePaise: s.totalPaise - (r.totalPaise - r.pointsBackPaise),
+    ...(r.pointsBack ? { pointsRefunded: r.pointsBack } : {}),
     payments: s.payments.filter(p => p.method !== 'EXCHANGE').map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status, ...(p.holdId ? { holdId: p.holdId } : {}) })),
     refunds: r.refunds.filter(x => x.method !== 'EXCHANGE').map(x => ({ method: x.method, amountPaise: x.amountPaise, reference: x.reference ?? null }))
   }, r.creditNoteNo);

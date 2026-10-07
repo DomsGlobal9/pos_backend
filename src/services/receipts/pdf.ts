@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { deflateSync, inflateSync } from 'zlib';
 import { DocLine } from './document';
 
 /**
@@ -18,15 +19,22 @@ const CHAR_W = FONT_SIZE * 0.6; // Courier is 600/1000 em wide
 const LEADING = 10.5;
 const MARGIN = 10;
 
+type Picture = { data: Buffer; w: number; h: number; gray: boolean; filter: 'DCTDecode' | 'FlateDecode' };
+
+/** A JPEG or a PNG, ready for the page; null for anything else, or anything broken. */
+export function pictureOf(bytes: Buffer): Picture | null {
+  try {
+    return jpegOf(bytes) ?? pngOf(bytes);
+  } catch {
+    return null; // a bill with no logo beats no bill
+  }
+}
+
 /**
- * Width, height and bytes of a JPEG data URL, read off its SOF marker. Null if it is not one the
- * page can draw: PDF takes JPEG bytes as they are (DCTDecode), which is the whole reason the logo
- * is kept as JPEG -- no decoding here, no library. Grey and RGB only; CMYK would print wrong.
+ * Width, height and bytes of a JPEG, read off its SOF marker. PDF takes JPEG bytes as they are
+ * (DCTDecode) -- no decoding here, no library. Grey and RGB only; CMYK would print wrong.
  */
-function jpegFromDataUrl(dataUrl: string): { data: Buffer; w: number; h: number; gray: boolean } | null {
-  const m = /^data:image[/]jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
-  if (!m) return null;
-  const data = Buffer.from(m[1], 'base64');
+function jpegOf(data: Buffer): Picture | null {
   if (data.length < 4 || data.readUInt16BE(0) !== 0xFFD8) return null;
   let i = 2;
   while (i + 9 < data.length) {
@@ -35,11 +43,83 @@ function jpegFromDataUrl(dataUrl: string): { data: Buffer; w: number; h: number;
     if (marker >= 0xC0 && marker <= 0xCF && marker !== 0xC4 && marker !== 0xC8 && marker !== 0xCC) {
       const comps = data[i + 9];
       if (comps !== 1 && comps !== 3) return null;
-      return { data, w: data.readUInt16BE(i + 7), h: data.readUInt16BE(i + 5), gray: comps === 1 };
+      return { data, w: data.readUInt16BE(i + 7), h: data.readUInt16BE(i + 5), gray: comps === 1, filter: 'DCTDecode' };
     }
     i += 2 + data.readUInt16BE(i + 2);
   }
   return null;
+}
+
+/**
+ * A PNG -- what Inventory keeps a shop's logo as. Decoded with zlib (8-bit, not interlaced: what
+ * logo tools write), laid on WHITE where it is see-through, since that is the paper, and shrunk to
+ * at most 400 x 200 dots so the WhatsApp PDF stays small. Out goes plain grey or RGB.
+ */
+function pngOf(buf: Buffer): Picture | null {
+  if (buf.length < 33 || buf.readUInt32BE(0) !== 0x89504E47) return null;
+  let w = 0, h = 0, depth = 0, type = 0, interlace = 0;
+  let plte: Buffer | null = null, trns: Buffer | null = null;
+  const idat: Buffer[] = [];
+  for (let i = 8; i + 8 <= buf.length;) {
+    const len = buf.readUInt32BE(i);
+    const t = buf.toString('latin1', i + 4, i + 8);
+    const d = buf.subarray(i + 8, i + 8 + len);
+    if (t === 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); depth = d[8]; type = d[9]; interlace = d[12]; }
+    else if (t === 'PLTE') plte = d;
+    else if (t === 'tRNS') trns = d;
+    else if (t === 'IDAT') idat.push(d);
+    else if (t === 'IEND') break;
+    i += 12 + len;
+  }
+  const ch = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 } as Record<number, number>)[type];
+  // Grey and palette pictures may pack 1, 2 or 4 bits a dot (optimised logos do); 16 is read as 8.
+  const depthOk = depth === 8 || (depth === 16 && type !== 3) || ([1, 2, 4].includes(depth) && (type === 0 || type === 3));
+  if (!ch || !depthOk || interlace || !w || !h || w * h > 16_000_000 || (type === 3 && !plte)) return null;
+  const raw = inflateSync(Buffer.concat(idat));
+  const bits = ch * depth, bpp = Math.max(1, bits >> 3), stride = Math.ceil((w * bits) / 8);
+  if (raw.length < h * (stride + 1)) return null;
+
+  // Undo the per-row filters (PNG spec, section 9).
+  const px = Buffer.alloc(h * stride);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], src = y * (stride + 1) + 1, o = y * stride;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= bpp ? px[o + x - bpp] : 0, b = y ? px[o - stride + x] : 0, c = x >= bpp && y ? px[o - stride + x - bpp] : 0;
+      let v = raw[src + x];
+      if (f === 1) v += a;
+      else if (f === 2) v += b;
+      else if (f === 3) v += (a + b) >> 1;
+      else if (f === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+      else if (f !== 0) return null;
+      px[o + x] = v & 255;
+    }
+  }
+
+  const step = Math.max(1, Math.ceil(Math.max(w / 400, h / 200)));
+  const W = Math.max(1, Math.floor(w / step)), H = Math.max(1, Math.floor(h / step));
+  const gray = type === 0 || type === 4;
+  const out = Buffer.alloc(W * H * (gray ? 1 : 3));
+  const onWhite = (v: number, alpha: number) => Math.round((v * alpha + 255 * (255 - alpha)) / 255);
+  // Channel k of the dot at (x, y): the raw value for a palette index, else scaled to 0..255.
+  const at = (x: number, y: number, k: number) => {
+    const o = y * stride;
+    if (depth === 8) return px[o + x * ch + k];
+    if (depth === 16) return px[o + (x * ch + k) * 2];
+    const v = (px[o + ((x * depth) >> 3)] >> (8 - depth - ((x * depth) & 7))) & ((1 << depth) - 1);
+    return type === 3 ? v : Math.round((v * 255) / ((1 << depth) - 1));
+  };
+  for (let Y = 0; Y < H; Y++) {
+    for (let X = 0; X < W; X++) {
+      const x = X * step, y = Y * step, q = Y * W + X;
+      let r: number, g: number, bl: number, al = 255;
+      if (type === 3) { const k = at(x, y, 0); r = plte![k * 3]; g = plte![k * 3 + 1]; bl = plte![k * 3 + 2]; if (trns && k < trns.length) al = trns[k]; }
+      else if (gray) { r = g = bl = at(x, y, 0); if (type === 4) al = at(x, y, 1); }
+      else { r = at(x, y, 0); g = at(x, y, 1); bl = at(x, y, 2); if (type === 6) al = at(x, y, 3); }
+      if (gray) out[q] = onWhite(r, al);
+      else { out[q * 3] = onWhite(r, al); out[q * 3 + 1] = onWhite(g, al); out[q * 3 + 2] = onWhite(bl, al); }
+    }
+  }
+  return { data: deflateSync(out), w: W, h: H, gray, filter: 'FlateDecode' };
 }
 
 function escape(text: string) {
@@ -65,14 +145,14 @@ export function renderPdf(lines: DocLine[], opts: { widthMm?: number; qr?: strin
   const cols = Math.floor((widthPt - 2 * MARGIN) / CHAR_W);
 
   // Lay the lines out as text rows first, so the page can be exactly as long as the bill.
-  type Row = { text: string; bold: boolean; x: number } | { rule: true } | { image: Buffer; w: number; h: number; gray: boolean; drawW: number; drawH: number };
+  type Row = { text: string; bold: boolean; x: number } | { rule: true } | { image: Buffer; w: number; h: number; gray: boolean; filter: string; drawW: number; drawH: number };
   const rows: Row[] = [];
   for (const l of lines) {
     if (l.kind === 'rule') { rows.push({ rule: true }); continue; }
     if (l.kind === 'image') {
       // A logo, not a poster: at most 42 mm across and 20 mm tall, centred. Unreadable input is
       // simply not drawn -- a bill with no logo beats no bill.
-      const img = jpegFromDataUrl(l.dataUrl);
+      const img = pictureOf(l.bytes);
       if (img) {
         const scale = Math.min((Math.min(widthPt - 2 * MARGIN, 42 * PT_PER_MM)) / img.w, (20 * PT_PER_MM) / img.h);
         rows.push({ ...img, image: img.data, drawW: img.w * scale, drawH: img.h * scale });
@@ -150,7 +230,7 @@ export function renderPdf(lines: DocLine[], opts: { widthMm?: number; qr?: strin
     `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}\nendstream`
   ];
   if (image) {
-    objects.push(`<< /Type /XObject /Subtype /Image /Width ${image.w} /Height ${image.h} /ColorSpace /${image.gray ? 'DeviceGray' : 'DeviceRGB'} /BitsPerComponent 8 /Filter /DCTDecode /Length ${image.image.length} >>
+    objects.push(`<< /Type /XObject /Subtype /Image /Width ${image.w} /Height ${image.h} /ColorSpace /${image.gray ? 'DeviceGray' : 'DeviceRGB'} /BitsPerComponent 8 /Filter /${image.filter} /Length ${image.image.length} >>
 stream
 ${image.image.toString('latin1')}
 endstream`);
