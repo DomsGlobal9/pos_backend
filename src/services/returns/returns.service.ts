@@ -14,6 +14,7 @@ import { shiftFor } from '../shifts';
 import { adjust, cameBack, StockChange } from '../stock';
 import { saleReturned, saleExchanged } from '../events';
 import { CreateExchangeInput, CreateReturnInput, RefundInput } from './returns.schema';
+import { verifyQrPayments } from '../inventory-link/upi-qr.service';
 import { holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
 
 /**
@@ -439,6 +440,9 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
    * A shop with no Inventory gets no holds and spends its own store credit, as on a sale.
    */
   let holds: Hold[] = [];
+  if (mode.kind === 'EXCHANGE' && mode.input.newSale.payments?.length) {
+    mode.input.newSale.payments = await verifyQrPayments(actor.clientId, mode.input.newSale.payments);
+  }
   if (mode.kind === 'EXCHANGE') {
     const owner = await prisma.sale.findFirst({ where: { id: saleId, clientId: actor.clientId }, select: { customerId: true } });
     holds = await holdForSale(actor, {

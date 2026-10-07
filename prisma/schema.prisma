@@ -154,6 +154,8 @@ model ShopSettings {
   /// The store's phone, printed under the address. From Inventory while connected (the till's store's
   /// own number when it has one, else the shop's).
   phone          String?
+  /// Self-confirming UPI (Razorpay QR), switched on by the owner in Inventory; read from /catalogue.
+  upiQrEnabled   Boolean @default(false) @map("upi_qr_enabled")
   logoUrl        String? @map("logo_url")
   receiptFooter  String? @map("receipt_footer")
   invoicePrefix  String  @default("INV") @map("invoice_prefix")
@@ -637,6 +639,8 @@ model Payment {
   /// and CREDIT rows of a connected shop. The hold is CONFIRMED by its own call the moment the sale
   /// commits, retried until Inventory answers -- never left to the sale event, which may arrive hours
   /// later. holdNote says why a confirm can never succeed (the hold was swept), so the retry stops.
+  /// A self-confirming UPI payment: the Razorpay QR (made by Inventory) it was paid to. PLAN-payments Step 2.
+  qrId String? @map("qr_id")
   holdId          String?   @map("hold_id")
   holdConfirmedAt DateTime? @map("hold_confirmed_at")
   holdNote        String?   @map("hold_note")

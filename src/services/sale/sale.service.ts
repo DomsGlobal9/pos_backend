@@ -18,6 +18,7 @@ import { may, PERMISSIONS } from '../../types/actor';
 import { CompleteSaleInput } from './sale.schema';
 import { heldQuote, quoteBasket, COULD_NOT_CHECK } from '../inventory-link/quote.service';
 import { holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
+import { verifyQrPayments } from '../inventory-link/upi-qr.service';
 import { documentKindFor, chargesGst } from '../shop/gst-document';
 
 /**
@@ -112,6 +113,8 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
       if (again.ok) input = { ...input, quoteId: again.quote.quoteId };
     }
 
+    // Self-confirming UPI: asked of Inventory here, never taken from the screen (PLAN-payments Step 2).
+    input = { ...input, payments: await verifyQrPayments(actor.clientId, input.payments) };
     holds = await holdForSale(actor, input);
 
     const written = await prisma.$transaction(
@@ -556,6 +559,7 @@ export async function writeSale(
           method: payment.method,
           amountPaise: payment.amountPaise,
           reference: payment.reference,
+          qrId: payment.qrId ?? null,
           tenderedPaise: payment.tenderedPaise,
           changePaise: payment.changePaise,
           status: payment.status,

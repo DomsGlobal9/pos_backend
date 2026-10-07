@@ -32,6 +32,7 @@ export interface PlannedPayment {
   method: PaymentMethod;
   amountPaise: number;
   reference: string | null;
+  qrId?: string | null;
   tenderedPaise: number | null;
   changePaise: number | null;
   status: PaymentStatus;
@@ -203,7 +204,9 @@ export function planPayments(
      */
     let status: PaymentStatus = payment.unconfirmed ? 'NEEDS_CHECKING' : 'COLLECTED';
 
-    const ref = referenceFor(payment as any);
+    // Checked with Razorpay by the server (verifyQrPayments), never set by a screen: zod drops it.
+    const verified = (payment as any).gatewayVerified === true;
+    const ref = verified ? { reference: payment.reference ?? null } : referenceFor(payment as any);
     if ('problem' in ref && status === 'COLLECTED') {
       // A sale made offline is never refused for it afterwards: it waits on Payment checks instead.
       if (!options.lenient) throw badRequest(ref.problem, { code: ref.code, method: payment.method });
@@ -237,6 +240,7 @@ export function planPayments(
       method: payment.method,
       amountPaise: payment.amountPaise,
       reference: keptReference,
+      qrId: payment.method === 'UPI' ? (payment as any).qrId ?? null : null,
       tenderedPaise: isCash ? payment.tenderedPaise ?? null : null,
       changePaise: isCash && payment.tenderedPaise != null
         ? changeDue(payment.tenderedPaise, payment.amountPaise)

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { search, variantsOf } from '../services/items';
 import { completeSale, getSale, completeSaleSchema } from '../services/sale';
-import { quoteBasket, walletFor } from '../services/inventory-link';
+import { quoteBasket, walletFor, createQr, qrStatus, closeQr } from '../services/inventory-link';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
 
@@ -69,6 +69,37 @@ router.get('/wallet', async (req, res, next) => {
     const q = z.object({ customerId: z.string().min(1), billPaise: z.coerce.number().int().nonnegative().max(2_000_000_000) }).safeParse(req.query);
     if (!q.success) throw badRequest('Say whose wallet, and for how much.');
     res.json({ success: true, data: await walletFor((req as any).actor, q.data.customerId, q.data.billPaise) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/*
+ * SELF-CONFIRMING UPI (PLAN-payments Step 2). A QR for exactly this amount from the shop's own Razorpay,
+ * through Inventory; its status while the customer pays; closing it when the cashier takes another way.
+ * Always 200 with { ok: false, reason } for "not here" -- the till then shows the shop's own QR.
+ */
+router.post('/upi-qr', async (req, res, next) => {
+  try {
+    const b = z.object({ amountPaise: z.number().int().positive().max(2_000_000_000), idempotencyKey: z.string().min(8).max(120), invoiceRef: z.string().max(60).optional() }).safeParse(req.body);
+    if (!b.success) throw badRequest('Say how much the QR is for.');
+    res.json({ success: true, data: await createQr((req as any).actor, b.data) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/upi-qr/:qrId', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await qrStatus((req as any).actor.clientId, req.params.qrId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/upi-qr/:qrId/close', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await closeQr((req as any).actor.clientId, req.params.qrId) });
   } catch (error) {
     next(error);
   }
