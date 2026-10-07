@@ -215,7 +215,7 @@ export async function saleExchanged(tx: Tx, clientId: string, returnId: string) 
     creditPaise: r.totalPaise,
     newTotalPaise: s.totalPaise,
     differencePaise: s.totalPaise - r.totalPaise,
-    payments: s.payments.filter(p => p.method !== 'EXCHANGE').map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status })),
+    payments: s.payments.filter(p => p.method !== 'EXCHANGE').map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status, ...(p.holdId ? { holdId: p.holdId } : {}) })),
     refunds: r.refunds.filter(x => x.method !== 'EXCHANGE').map(x => ({ method: x.method, amountPaise: x.amountPaise, reference: x.reference ?? null }))
   }, r.creditNoteNo);
 }

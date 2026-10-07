@@ -14,7 +14,7 @@ import { shiftFor } from '../shifts';
 import { adjust, cameBack, StockChange } from '../stock';
 import { saleReturned, saleExchanged } from '../events';
 import { CreateExchangeInput, CreateReturnInput, RefundInput } from './returns.schema';
-import { refuseUnheldBalances } from '../inventory-link/holds.service';
+import { refuseUnheldBalances, holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
 
 /**
  * Returns and exchanges. POS-RET-001..007, POS-EXC-001..005, POS-APR-004/005, POS-PAY-015.
@@ -432,7 +432,25 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
   const pendingAudit: AuditEntry[] = [];
   const saleAudit: AuditEntry[] = [];
 
-  if (mode.kind === 'EXCHANGE') await refuseUnheldBalances(actor.clientId, mode.input.newSale.payments ?? [], 'an exchange');
+  /*
+   * THE EXCHANGE'S NEW BILL, LIKE ANY SALE (contract §10, Inventory 7 Oct): points and store credit
+   * on it are held in Inventory first, confirmed the moment it commits, and let go if it does not.
+   * Inventory settles them from sale.exchanged exactly as from sale.completed.
+   *
+   * Still refused until Inventory says its side is live -- remove the refusal line below then, and
+   * nothing else changes. With the refusal in place holdForSale never sees points, and a shop with no
+   * Inventory gets no holds, so the wiring below is inert until that moment.
+   */
+  let holds: Hold[] = [];
+  if (mode.kind === 'EXCHANGE') {
+    await refuseUnheldBalances(actor.clientId, mode.input.newSale.payments ?? [], 'an exchange');
+    const owner = await prisma.sale.findFirst({ where: { id: saleId, clientId: actor.clientId }, select: { customerId: true } });
+    holds = await holdForSale(actor, {
+      onceKey: `${input.onceKey}:sale`,
+      customerId: owner?.customerId ?? (mode.input as any).customerId,
+      payments: mode.input.newSale.payments ?? []
+    });
+  }
 
   try {
     const returnId = await prisma.$transaction(async (tx) => {
@@ -564,7 +582,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
           // The new bill belongs to the same person, unless the original had nobody on it.
           customerId: customerId ?? undefined,
           approval: input.approval
-        }, saleAudit, { exchangeCreditPaise: computed.totalPaise });
+        }, saleAudit, { exchangeCreditPaise: computed.totalPaise, holds });
 
         exchangeInvoiceNo = written.invoiceNo;
         goingOut = written.stockChanges;
@@ -645,6 +663,8 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
     }, { timeout: 30_000, maxWait: 15_000 });
 
     const note = await getReturn(actor, returnId);
+    // The new bill's holds confirmed now, before the receipt; the loop retries any that fail.
+    const holdNotes = holds.length && note.exchangeSale ? await confirmSaleHolds(actor.clientId, note.exchangeSale.id) : [];
 
     // Committed. Now the audit trail may say so.
     for (const entry of pendingAudit) await record(actor, { ...entry, subject: note.creditNoteNo });
@@ -653,12 +673,14 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
     return {
       replayed: false,
       creditNote: note,
-      sale: note.exchangeSale ? await getSale(actor, note.exchangeSale.id) : null
+      sale: note.exchangeSale ? await getSale(actor, note.exchangeSale.id) : null,
+      ...(holdNotes.length ? { notes: holdNotes } : {})
     };
   } catch (error: any) {
     // Lost the race with the same key: the other request recorded it, and that is the answer.
     const winner = await findByOnceKey(input.onceKey).catch(() => null);
     if (winner) return replay(actor, winner, saleId, input.lines);
+    await releaseHolds(actor.clientId, holds);
     throw error;
   }
 }
