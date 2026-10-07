@@ -62,7 +62,8 @@ export function planPayments(
   enabledMethods: PaymentMethod[],
   mode: PaymentMode = 'EXACT'
 ): PlannedPayment[] {
-  if (payments.length === 0 && mode !== 'ADVANCE') throw badRequest('Nothing has been paid.');
+  // A bill discounted to nothing (a gift, a goodwill replacement) has nothing to pay, and is still a bill.
+  if (payments.length === 0 && mode !== 'ADVANCE' && !(mode === 'EXACT' && totalPaise === 0)) throw badRequest('Nothing has been paid.');
 
   // POS-SET-003. A shop that has turned card off should not be able to take one by any route,
   // including an older till that still shows the button.
