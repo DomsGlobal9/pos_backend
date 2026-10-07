@@ -244,6 +244,16 @@ export async function writeSale(
       const documentKind = documentKindFor(settings?.gstRegistration);
       if (!chargesGst(documentKind)) for (const line of basket) line.taxRate = 0;
 
+      /*
+       * A BILL TOO BIG TO WRITE DOWN. Money is stored as whole paise in 32-bit columns, so a bill over
+       * about Rs 2.1 crore does not fit -- and the first version answered a mistyped "1000000 pieces"
+       * with a raw 500 (found by check-nasty-ui, 7 Oct). Refused here in words, before anything else.
+       */
+      const tagsPaise = basket.reduce((n, l) => n + l.unitPricePaise * l.qty, 0);
+      if (tagsPaise > MAX_BILL_PAISE) {
+        throw badRequest('A bill this large cannot be taken in one go. Check the quantities, or split it across bills.', { code: 'BILL_TOO_LARGE' });
+      }
+
       // 2a. The offers, from Inventory's quote -- the one pricing engine. Contract §9.
       const offered = applyQuote(actor.clientId, input, basket, items, new Set(overridden.map(o => o.code)));
       if (offered.quoteId) {
@@ -567,6 +577,9 @@ export async function writeSale(
       };
   }
 }
+
+/** Rs 2 crore: under the 32-bit paise columns' ceiling with room for the tax and round-off beside it. */
+const MAX_BILL_PAISE = 2_000_000_000;
 
 /**
  * THE QUOTE, APPLIED. Contract §9.
