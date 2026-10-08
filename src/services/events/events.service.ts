@@ -29,7 +29,7 @@ type Tx = Prisma.TransactionClient;
 
 export const EVENT_VERSION = 1;
 
-export type EventType = 'sale.completed' | 'sale.returned' | 'sale.exchanged' | 'payment.updated' | 'day.closed';
+export type EventType = 'sale.completed' | 'sale.returned' | 'sale.exchanged' | 'payment.updated' | 'order.written_off' | 'day.closed';
 
 /**
  * One event, and a notice queued for each of the shop's own webhooks that wants it (POS-WEB-001) --
@@ -71,6 +71,24 @@ export async function paymentUpdated(
     occurredAt: new Date().toISOString(),
     payments: money.map(p => ({ method: p.method, amountPaise: p.amountPaise, ...(p.reference ? { reference: p.reference } : {}) }))
   }, sale.invoiceNo);
+}
+
+/**
+ * Owed money the shop gave up on (Inventory's shape, agreed 8 Oct). Not money: Inventory lowers the
+ * order's due by it without a payment row or day-book cash. One key per write-off; money collected
+ * later goes as an ordinary payment.updated, which Inventory also takes off the written-off amount.
+ */
+export async function orderWrittenOff(
+  tx: Tx, clientId: string, invoiceNo: string, key: string, amountPaise: number, reason: string, by: string | null
+) {
+  await write(tx, clientId, 'order.written_off', {
+    invoiceNo,
+    idempotencyKey: `${invoiceNo}:off:${key}`,
+    occurredAt: new Date().toISOString(),
+    amountPaise,
+    reason: reason.slice(0, 500),
+    ...(by ? { by: by.slice(0, 120) } : {})
+  }, invoiceNo);
 }
 
 /**

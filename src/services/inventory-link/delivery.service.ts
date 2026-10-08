@@ -39,7 +39,7 @@ import { confirmPendingHolds } from './holds.service';
  */
 
 // Everything Inventory is sent, in order. (The name is older than payment.updated.)
-export const STOCK_EVENTS = ['sale.completed', 'sale.returned', 'sale.exchanged', 'payment.updated'];
+export const STOCK_EVENTS = ['sale.completed', 'sale.returned', 'sale.exchanged', 'payment.updated', 'order.written_off'];
 
 /** How long a payment waits for its bill to be applied at Inventory before it is looked at again. */
 const BILL_FIRST_MS = 5_000;
@@ -61,7 +61,7 @@ export const backoffFor = (attempts: number) => BACKOFF_MS[Math.min(attempts, BA
  *                     sends as newInvoiceNo. Asking for the credit note would 404 forever.
  */
 function lookupKey(eventType: string, invoiceNo: string | null, payload: any): string {
-  if (eventType === 'payment.updated') return String(payload?.idempotencyKey ?? invoiceNo ?? '');
+  if (eventType === 'payment.updated' || eventType === 'order.written_off') return String(payload?.idempotencyKey ?? invoiceNo ?? '');
   if (eventType === 'sale.exchanged') return String(payload?.newInvoiceNo ?? invoiceNo ?? '');
   return invoiceNo ?? '';
 }
@@ -137,7 +137,7 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
    * does not wait (Inventory, 30 Sep). A UPI confirmed seconds after the sale would stop the queue.
    * Waiting here is not a failure -- no attempt is counted.
    */
-  if (event.eventType === 'payment.updated' && event.invoiceNo) {
+  if ((event.eventType === 'payment.updated' || event.eventType === 'order.written_off') && event.invoiceNo) {
     const billPending = await prisma.inventorySettlement.findFirst({
       where: { clientId, invoiceNo: event.invoiceNo, settledAt: null }, select: { id: true }
     });
@@ -162,7 +162,10 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   );
 
   const answer = reply.kind === 'ANSWERED' ? readAnswer(reply.body) : null;
-  if (reply.kind === 'ANSWERED' && reply.status >= 200 && reply.status < 300 && (!answer?.answer || ['APPLIED', 'ALREADY_APPLIED', 'ACCEPTED'].includes(answer.answer))) {
+  // NOTHING_DUE: a write-off of a bill Inventory already shows settled -- done, whatever the status
+  // code it came with, never a reason to stop the queue (Inventory, 8 Oct).
+  const nothingDue = reply.kind === 'ANSWERED' && answer?.answer === 'NOTHING_DUE';
+  if (nothingDue || (reply.kind === 'ANSWERED' && reply.status >= 200 && reply.status < 300 && (!answer?.answer || ['APPLIED', 'ALREADY_APPLIED', 'ACCEPTED'].includes(answer.answer)))) {
     if (answer?.answer === 'ACCEPTED') {
       // Written down at Inventory, not applied yet. Ask how it ended in a few seconds.
       await prisma.inventorySettlement.upsert({

@@ -10,7 +10,7 @@ import { PaymentInput } from '../sale/sale.schema';
 import { record } from '../audit';
 import { spendCredit } from '../store-credit';
 import { shiftFor } from '../shifts';
-import { paymentUpdated } from '../events';
+import { paymentUpdated, orderWrittenOff } from '../events';
 import { refuseUnheldBalances } from '../inventory-link/holds.service';
 import { verifyQrPayments } from '../inventory-link/upi-qr.service';
 
@@ -426,12 +426,15 @@ export async function writeOff(
     if (owed === 0) throw conflict('Nothing is owed on this order.', { code: 'NOTHING_OWED' });
 
     const detail = { invoiceNo: order.invoiceNo, owedPaise: owed, reason };
+    // Who said yes: the manager who approved, or whoever holds the right themselves.
+    let by: string | null = actor.name ?? null;
     if (!may(actor, PERMISSIONS.WRITE_OFF)) {
       if (!input.approval) {
         throw forbidden('A manager needs to approve writing off what is owed.', { code: 'APPROVAL_REQUIRED', kind: 'WRITE_OFF', owedPaise: owed });
       }
       const granted = await grant(actor, { kind: 'WRITE_OFF', pin: input.approval.pin, reason: input.approval.reason, detail }, tx);
       await tx.approval.update({ where: { id: granted.id }, data: { saleId } });
+      by = granted.approvedBy.name ?? null;
     }
 
     await tx.payment.create({
@@ -441,6 +444,8 @@ export async function writeOff(
       }
     });
     await refreshMoneyStatus(tx, saleId);
+    // Inventory's shape (agreed 8 Oct): its due drops by this, with no money row or day-book cash.
+    await orderWrittenOff(tx, actor.clientId, order.invoiceNo, input.onceKey, owed, reason, by);
     audit.push({ subject: order.invoiceNo, detail });
   });
   for (const a of audit) await record(actor, { action: 'order.written_off', ...a });
