@@ -3,6 +3,7 @@ import { confirmQrPayments } from './upi-qr.service';
 import { call } from './client';
 import { toInventory, readAnswer } from './wire';
 import { confirmPendingHolds } from './holds.service';
+import { sendPastWriteOffs } from '../orders/orders.service';
 
 /**
  * Sending the outbox to Inventory. POS-INV-006, -007, -008. Contract §4.
@@ -470,6 +471,7 @@ let timer: NodeJS.Timeout | null = null;
 let running = false;
 
 /** Started by the server unless DISABLE_BACKGROUND_JOBS. A run never overlaps the one before it. */
+let pastWriteOffsSent = false;
 export function startDeliveryLoop(everyMs = 15_000) {
   if (timer) return;
   timer = setInterval(async () => {
@@ -481,7 +483,15 @@ export function startDeliveryLoop(everyMs = 15_000) {
      * Uncaught, that one rejection took the whole server down -- till and all -- seen 30 Sep. The next
      * pass, 15 seconds later, simply tries again.
      */
-    try { await runOnce(); }
+    try {
+      // Once per start: write-offs made before Inventory could hear of them (sent after the bills).
+      if (!pastWriteOffsSent) {
+        const n = await sendPastWriteOffs();
+        pastWriteOffsSent = true;
+        if (n) console.log(`[inventory-link] queued ${n} earlier write-off(s) for Inventory`);
+      }
+      await runOnce();
+    }
     catch (error) { console.error('[inventory-link] pass failed:', (error as Error).message); }
     finally { running = false; }
   }, everyMs);

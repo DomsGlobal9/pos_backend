@@ -452,3 +452,30 @@ export async function writeOff(
 
   return { replayed: false, ...(await summary(actor, saleId)) };
 }
+
+/**
+ * WRITE-OFFS MADE BEFORE INVENTORY COULD HEAR OF THEM (one-off, asked by Inventory 8 Oct). A bill
+ * written off before order.written_off existed has no event, so Inventory still shows it due (INV/0026
+ * on pos-uitest). Run at start-up: each such bill gets one, for what is still written off now, with the
+ * reason from the audit trail. Safe to run again -- a bill with an event is skipped, a repeat answers
+ * ALREADY_APPLIED, and one paid up since answers NOTHING_DUE.
+ */
+export async function sendPastWriteOffs(): Promise<number> {
+  const bills = await prisma.sale.findMany({
+    where: { payments: { some: { status: 'WRITTEN_OFF' } } },
+    select: { id: true, clientId: true, invoiceNo: true, payments: { where: { status: 'WRITTEN_OFF' }, select: { id: true, amountPaise: true } } }
+  });
+  let sent = 0;
+  for (const b of bills) {
+    const told = await prisma.webhookEvent.count({ where: { clientId: b.clientId, invoiceNo: b.invoiceNo, eventType: 'order.written_off' } });
+    if (told > 0) continue;
+    const amount = b.payments.reduce((n, p) => n + p.amountPaise, 0);
+    const audit = await prisma.auditLog.findFirst({
+      where: { clientId: b.clientId, subject: b.invoiceNo, action: 'order.written_off' }, orderBy: { createdAt: 'desc' }, select: { detail: true }
+    });
+    const reason = String((audit?.detail as any)?.reason ?? 'Written off at the till');
+    await prisma.$transaction(tx => orderWrittenOff(tx, b.clientId, b.invoiceNo, `past-${b.payments[0].id}`, amount, reason, null));
+    sent++;
+  }
+  return sent;
+}
