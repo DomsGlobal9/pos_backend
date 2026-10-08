@@ -301,7 +301,8 @@ export function owedPaise(
   payments: { amountPaise: number; status: PaymentStatus }[]
 ) {
   const inOrPending = payments
-    .filter(p => p.status === 'COLLECTED' || p.status === 'NEEDS_CHECKING')
+    // A balance written off closes the bill too -- not as money in, as money given up on.
+    .filter(p => p.status === 'COLLECTED' || p.status === 'NEEDS_CHECKING' || p.status === 'WRITTEN_OFF')
     .reduce((sum, p) => sum + p.amountPaise, 0);
   return Math.max(0, totalPaise - inOrPending);
 }

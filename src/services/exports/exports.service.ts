@@ -23,7 +23,7 @@ const r = (paise: number) => Math.round(paise) / 100;
 const pad = (n: number) => String(n).padStart(2, '0');
 const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const localTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-const METHOD: Record<string, string> = { CASH: 'Cash', UPI: 'UPI', CARD: 'Card', CREDIT: 'Store credit', EXCHANGE: 'Exchange', POINTS: 'Points' };
+const METHOD: Record<string, string> = { CASH: 'Cash', UPI: 'UPI', CARD: 'Card', CREDIT: 'Store credit', EXCHANGE: 'Exchange', POINTS: 'Points', WRITTEN_OFF: 'Written off', VOID: 'Not received', NEEDS_CHECKING: 'Being checked' };
 
 export interface ExportRow {
   date: string; time: string; type: 'Sale' | 'Credit note'; number: string; against: string;
@@ -45,7 +45,7 @@ async function gather(actor: Actor, from: string, to: string) {
       invoiceNo: true, createdAt: true, roundOffPaise: true, totalPaise: true, buyerGstin: true,
       customer: { select: { name: true, phone: true, gstin: true } },
       lines: { select: { taxRate: true, lineTotalPaise: true, taxPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true } },
-      payments: { select: { method: true, amountPaise: true } }
+      payments: { select: { method: true, amountPaise: true, status: true } }
     }
   });
   const returns = await prisma.return.findMany({
@@ -71,7 +71,8 @@ export async function salesExport(actor: Actor, from: string, to: string) {
   for (const s of sales) {
     const sum = (f: (l: typeof s.lines[number]) => number) => s.lines.reduce((n, l) => n + f(l), 0);
     const methods = new Map<string, number>();
-    for (const p of s.payments) methods.set(p.method, (methods.get(p.method) ?? 0) + p.amountPaise);
+    // Money that never came in is named for what it is, never as a way the bill was paid.
+    for (const p of s.payments) { const k = p.status === 'COLLECTED' ? p.method : p.status; methods.set(k, (methods.get(k) ?? 0) + p.amountPaise); }
     rows.push({
       date: localDate(s.createdAt), time: localTime(s.createdAt), type: 'Sale', number: s.invoiceNo, against: '',
       customer: s.customer?.name ?? '', phone: s.customer?.phone ?? '', // The GSTIN the bill was ISSUED to (B2B), never the customer's today.

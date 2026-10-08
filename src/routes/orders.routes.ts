@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { list, collect, markReady, handOver } from '../services/orders';
+import { list, collect, writeOff, markReady, handOver } from '../services/orders';
 import { paymentSchema } from '../services/sale/sale.schema';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
@@ -36,6 +36,23 @@ router.post('/:id/collect', async (req, res, next) => {
     const body = collection.safeParse(req.body);
     if (!body.success) throw badRequest(body.error.issues[0].message);
     const result = await collect((req as any).actor, req.params.id, body.data);
+    res.status(result.replayed ? 200 : 201).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** POST /api/v1/orders/:id/write-off -- give up on what is owed. Idempotent on onceKey; a cashier needs a manager. */
+const writingOff = z.object({
+  onceKey: z.string().min(8).max(100),
+  reason: z.string().max(200),
+  approval: z.object({ pin: z.string().min(1), reason: z.string() }).optional()
+});
+router.post('/:id/write-off', async (req, res, next) => {
+  try {
+    const body = writingOff.safeParse(req.body);
+    if (!body.success) throw badRequest(body.error.issues[0].message);
+    const result = await writeOff((req as any).actor, req.params.id, body.data);
     res.status(result.replayed ? 200 : 201).json({ success: true, data: result });
   } catch (error) {
     next(error);
