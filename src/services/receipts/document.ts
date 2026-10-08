@@ -107,23 +107,26 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
     L.push({ kind: 'text', text: ascii(line.description) });
     L.push({
       kind: 'pair',
-      left: `  ${line.qty} x ${money(line.unitPricePaise)}${line.hsn ? ` HSN ${ascii(line.hsn)}` : ''}`,
+      left: `  ${line.qty} x ${money(line.unitPricePaise)}${line.hsn ? ` HSN ${ascii(line.hsn)}` : ''}${docKind === 'TAX_INVOICE' ? ` GST ${Number(line.taxRate)}%` : ''}`,
       right: money(line.lineTotalPaise)
     });
     if (line.discountPaise > 0) L.push({ kind: 'text', text: `  includes ${money(line.discountPaise)} off` });
   }
   L.push({ kind: 'rule' });
 
-  const cgst = (sale.lines ?? []).reduce((n: number, l: any) => n + (l.cgstPaise ?? 0), 0);
-  const sgst = (sale.lines ?? []).reduce((n: number, l: any) => n + (l.sgstPaise ?? 0), 0);
   const igst = (sale.lines ?? []).reduce((n: number, l: any) => n + (l.igstPaise ?? 0), 0);
   L.push({ kind: 'pair', left: 'Subtotal', right: money(sale.subtotalPaise) });
   if (sale.discountPaise > 0) L.push({ kind: 'pair', left: 'Discount', right: money(-sale.discountPaise) });
-  if (igst > 0) {
-    L.push({ kind: 'pair', left: 'IGST', right: money(igst) });
-  } else if (sale.taxPaise > 0) {
-    L.push({ kind: 'pair', left: 'CGST', right: money(cgst) });
-    L.push({ kind: 'pair', left: 'SGST', right: money(sgst) });
+  // Rule 46: the taxable value, and each tax with its RATE -- one CGST/SGST (or IGST) pair per rate.
+  if (sale.taxPaise > 0) {
+    L.push({ kind: 'pair', left: 'Taxable value', right: money(sale.totalPaise - sale.roundOffPaise - sale.taxPaise) });
+    for (const g of byRate(sale.lines ?? [])) {
+      if (igst > 0) L.push({ kind: 'pair', left: `IGST ${g.rate}%`, right: money(g.igst) });
+      else {
+        L.push({ kind: 'pair', left: `CGST ${g.rate / 2}%`, right: money(g.cgst) });
+        L.push({ kind: 'pair', left: `SGST ${g.rate / 2}%`, right: money(g.sgst) });
+      }
+    }
   }
   if (sale.roundOffPaise) L.push({ kind: 'pair', left: 'Round off', right: money(sale.roundOffPaise) });
   L.push({ kind: 'rule' });
@@ -174,4 +177,17 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
     L.push({ kind: 'text', text: ascii(opts.receiptUrl), center: true });
   }
   return L;
+}
+
+/** The tax charged, grouped by the rate each line was charged at; rates with no tax are left out. */
+function byRate(lines: any[]) {
+  const groups = new Map<number, { rate: number; cgst: number; sgst: number; igst: number }>();
+  for (const l of lines) {
+    if (!l.taxPaise) continue;
+    const rate = Number(l.taxRate);
+    const g = groups.get(rate) ?? { rate, cgst: 0, sgst: 0, igst: 0 };
+    g.cgst += l.cgstPaise ?? 0; g.sgst += l.sgstPaise ?? 0; g.igst += l.igstPaise ?? 0;
+    groups.set(rate, g);
+  }
+  return [...groups.values()].sort((a, b) => a.rate - b.rate);
 }
