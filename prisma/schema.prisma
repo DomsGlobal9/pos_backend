@@ -444,6 +444,12 @@ model Sale {
   buyerGstin   String? @map("buyer_gstin")
   buyerAddress String? @map("buyer_address")
 
+  /// WHO SERVED THE CUSTOMER -- the salesperson who showed the sarees, for incentives. Not the
+  /// cashier, who took the money. Picked from the staff, optional, never a reason to stop a sale.
+  /// The name is frozen here like the buyer: renaming or removing them later changes no bill.
+  salespersonId   String? @map("salesperson_id")
+  salespersonName String? @map("salesperson_name")
+
   /// IDEMPOTENCY. The till makes one key per basket. Pressing Complete twice, a retry after a
   /// timeout, and the offline outbox flushing the same bill are three names for one problem, and
   /// this is the answer to all three: unique, and the second attempt returns the first sale rather
