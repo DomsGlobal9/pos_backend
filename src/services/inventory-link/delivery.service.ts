@@ -80,6 +80,8 @@ function describe(code: string | null, detail: string | null) {
   return `${(code && known[code]) || 'Inventory refused this bill.'}${said}`;
 }
 
+const newerThanInventory = (code: string | null, detail: string | null) => code === 'BAD_PAYLOAD' && /Unknown event kind/i.test(detail ?? '');
+
 /** Why the queue stopped, as the owner will read it. Never a status code on its own. */
 function refusal(status: number, body: any): { code: string; message: string } | null {
   const { answer: code, detail } = readAnswer(body);
@@ -89,6 +91,10 @@ function refusal(status: number, body: any): { code: string; message: string } |
   // "Not now, try again" (contract §4, Inventory 27 Sep): a return that overtook its own sale while
   // Inventory is still applying the sale. A race, not a fault -- retried with the normal backoff.
   if (RETRYABLE.includes(code ?? '')) return null;
+  // An event kind Inventory does not know YET: the two were deployed in the wrong order. Not this
+  // bill's fault -- wait and send again, and the queue moves by itself once Inventory catches up
+  // (live 8 Oct: order.written_off sent before Inventory's d6ad322 was up stopped pos-uitest).
+  if (newerThanInventory(code, detail)) return null;
   if (status === 400 || status === 404 || status === 409 || status === 422) {
     return { code: code ?? `HTTP_${status}`, message: describe(code, detail) };
   }
@@ -196,7 +202,10 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   }
 
   const attempts = Number(link.attempts) + 1;
-  const why = reply.kind === 'UNREACHABLE' ? `Inventory could not be reached (${reply.reason}).` : `Inventory was busy (${reply.status}).`;
+  const said = reply.kind === 'ANSWERED' ? readAnswer(reply.body) : null;
+  const why = reply.kind === 'UNREACHABLE' ? `Inventory could not be reached (${reply.reason}).`
+    : newerThanInventory(said?.answer ?? null, said?.detail ?? null) ? 'Inventory does not take this kind of record yet -- it needs updating. Sent again by itself once it does.'
+    : `Inventory was busy (${reply.status}).`;
   await release({ attempts, nextAttemptAt: new Date(Date.now() + backoffFor(attempts)), lastError: why });
   return { outcome: 'RETRY_LATER', sequence: event.sequence };
 }
@@ -456,6 +465,14 @@ export async function runOnce() {
       // Holds first: a confirm is never left waiting behind the sale queue (contract §10).
       await confirmPendingHolds(l.clientId);
       await confirmQrPayments(l.clientId);
+      // A stop for an event kind Inventory did not know yet lifts itself: it is retried, not refused.
+      if (l.blockedSequence !== null) {
+        const lifted = await prisma.inventoryLink.updateMany({
+          where: { clientId: l.clientId, blockedCode: 'BAD_PAYLOAD', blockedMessage: { contains: 'Unknown event kind' } },
+          data: { blockedSequence: null, blockedCode: null, blockedMessage: null, attempts: 0, nextAttemptAt: null }
+        });
+        if (lifted.count) l.blockedSequence = null;
+      }
       if (l.blockedSequence === null) await drain(l.clientId);
       // Even a stopped queue has bills Inventory accepted before it stopped. Their endings still count.
       await checkSettlements(l.clientId);
