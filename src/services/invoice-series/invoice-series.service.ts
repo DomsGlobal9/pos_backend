@@ -73,8 +73,20 @@ export async function nextNumber(
 
   const sequence = Number(row.last_number);
   return {
-    number: `${row.prefix}/${financialYear}/${String(sequence).padStart(4, '0')}`,
+    number: formatNumber(row.prefix, financialYear, sequence),
     financialYear,
     sequence
   };
+}
+
+/**
+ * GST RULE 46(b): an invoice's serial number is at most SIXTEEN characters. "INV/2026-27/0042" is
+ * exactly sixteen, so a shop's 10,000th bill of a year ("INV/2026-27/10000") would break it -- about
+ * 30 bills a day does that. Past what fits, the year is written short ("INV/26-27/10000", fifteen,
+ * good to 999,999); the count itself carries on unbroken, so the series stays consecutive and unique.
+ */
+export function formatNumber(prefix: string, financialYear: string, sequence: number): string {
+  const seq = String(sequence).padStart(4, '0');
+  const long = `${prefix}/${financialYear}/${seq}`;
+  return long.length <= 16 ? long : `${prefix}/${financialYear.slice(2)}/${seq}`;
 }
