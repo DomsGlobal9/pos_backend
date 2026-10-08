@@ -487,6 +487,14 @@ export async function writeSale(
       const largeNote = bigConsumerBill && !(buyer as any).buyerGstin && !((buyer as any).buyerName && (buyer as any).buyerAddress)
         ? ['This bill is Rs 50,000 or more and went without the customer\'s name and address, which GST rule 46 asks for. Write them on the paper bill if the customer wants it, and add them before payment next time.']
         : [];
+      // Who served them. Someone since removed from the staff (an offline bill made yesterday) is
+      // left off the bill with a word to the cashier -- never a refused sale.
+      const salesperson = input.salespersonId
+        ? await tx.user.findFirst({ where: { id: input.salespersonId, clientId: actor.clientId, status: 'ACTIVE', deletedAt: null }, select: { id: true, name: true } })
+        : null;
+      const staffNote = input.salespersonId && !salesperson
+        ? ['The salesperson chosen is no longer on the staff list, so this bill names nobody as having served.']
+        : [];
 
       // 4. Inside this transaction, deliberately: a sale that fails takes its number with it, so
       // the series never gains a gap.
@@ -509,6 +517,8 @@ export async function writeSale(
           cashierId: actor.kind === 'USER' ? actor.id : null,
           shiftId,
           customerId: input.customerId ?? null,
+          salespersonId: salesperson?.id ?? null,
+          salespersonName: salesperson ? (salesperson.name ?? 'Staff') : null,
           kind: isKept ? 'KEPT' : 'COMPLETE',
           // The money view. A kept order with nothing owed is still kept -- it just is not due.
           status: owed > 0 ? 'BALANCE_DUE' : 'COMPLETED',
@@ -634,7 +644,7 @@ export async function writeSale(
         totalPaise: priced.totalPaise,
         appliedCreditPaise: applied,
         stockChanges: exchange ? stockChanges : [],
-        notes: [...offered.notes, ...largeNote]
+        notes: [...offered.notes, ...largeNote, ...staffNote]
       };
   }
 }
@@ -758,7 +768,7 @@ export async function getSale(actor: Actor, saleId: string) {
         subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true,
         totalPaise: true, savedPaise: true, madeOfflineAt: true, documentKind: true,
         pointsEarned: true, pointsUsed: true, pointsBalanceAfter: true,
-        buyerName: true, buyerGstin: true, buyerAddress: true,
+        buyerName: true, buyerGstin: true, buyerAddress: true, salespersonName: true,
         printCount: true, lastPrintedAt: true, receiptToken: true,
         fulfilment: true, promisedAt: true, note: true, readyAt: true,
         handedOverAt: true, handoverDuePaise: true,

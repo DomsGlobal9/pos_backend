@@ -87,6 +87,7 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
   L.push({ kind: 'pair', left: 'Bill', right: ascii(sale.invoiceNo), bold: true });
   L.push({ kind: 'pair', left: 'Date', right: when(sale.createdAt) });
   if (sale.cashier?.name) L.push({ kind: 'pair', left: 'Cashier', right: ascii(sale.cashier.name) });
+  if (sale.salespersonName) L.push({ kind: 'pair', left: 'Served by', right: ascii(sale.salespersonName) });
   if (sale.customer) {
     L.push({ kind: 'pair', left: 'Customer', right: ascii(`${sale.customer.name ? `${sale.customer.name} ` : ''}${sale.customer.phoneMasked ?? ''}`) });
   }

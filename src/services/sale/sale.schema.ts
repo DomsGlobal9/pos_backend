@@ -109,6 +109,8 @@ export const completeSaleSchema = z.object({
    * require a customer, which is why this is `.optional()` and not a nullable-with-default.
    */
   customerId: z.string().min(1).optional(),
+  /** Who served the customer, for incentives. A staff id; optional, and never a reason to refuse. */
+  salespersonId: z.string().min(1).max(64).optional(),
   billDiscountPaise: paise.nonnegative().optional(),
   /**
    * A manager's yes, typed at the till. POS-APR-001.

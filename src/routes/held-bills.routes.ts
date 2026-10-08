@@ -22,6 +22,7 @@ const parking = z.object({
   payload: z.object({
     lines: z.array(z.object({ id: z.string().min(1), qty: z.number().int().positive().max(9999) }).passthrough()),
     customer: z.object({ id: z.string() }).passthrough().nullable().optional(),
+    salesperson: z.object({ id: z.string().max(64), name: z.string().max(120) }).nullable().optional(),
     billDiscountPaise: z.number().int().nonnegative().max(2_000_000_000).optional(),
     onceKey: z.string().optional()
   })

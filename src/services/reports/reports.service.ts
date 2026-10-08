@@ -219,7 +219,7 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
   if (!full) return base;
 
   // The rest belongs to whoever runs the shop, not to one till.
-  const [shifts, dueOrders, closes, top] = await Promise.all([
+  const [shifts, dueOrders, closes, top, bySalesperson, returnedBySalesperson] = await Promise.all([
     // POS-RPT-008
     prisma.shift.findMany({
       where: { clientId, closedAt: inRange },
@@ -252,15 +252,37 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
       _sum: { qty: true, lineTotalPaise: true },
       orderBy: { _sum: { qty: 'desc' } },
       take: 10
+    }),
+    /*
+     * WHO SERVED THE CUSTOMER, for incentives. Sales by the salesperson on each bill; credit notes
+     * made in the period come off the salesperson whose bill they reverse. Before GST too: an
+     * incentive is usually a percentage of the goods, not of the tax collected on them.
+     */
+    prisma.sale.groupBy({ by: ['salespersonId'], where: saleWhere, _count: true, _sum: { totalPaise: true, taxPaise: true } }),
+    prisma.return.findMany({
+      where: { clientId, createdAt: inRange },
+      select: { totalPaise: true, taxPaise: true, originalSale: { select: { salespersonId: true } } }
     })
   ]);
 
-  const [closerNames, items] = await Promise.all([
+  const people = new Map<string | null, { bills: number; salesPaise: number; salesTaxPaise: number; returnsPaise: number; returnsTaxPaise: number }>();
+  const person = (id: string | null) => people.get(id) ?? people.set(id, { bills: 0, salesPaise: 0, salesTaxPaise: 0, returnsPaise: 0, returnsTaxPaise: 0 }).get(id)!;
+  for (const r of bySalesperson) {
+    const p = person(r.salespersonId);
+    p.bills += r._count; p.salesPaise += r._sum.totalPaise ?? 0; p.salesTaxPaise += r._sum.taxPaise ?? 0;
+  }
+  for (const r of returnedBySalesperson) {
+    const p = person(r.originalSale?.salespersonId ?? null);
+    p.returnsPaise += r.totalPaise; p.returnsTaxPaise += r.taxPaise;
+  }
+
+  const [closerNames, items, salespersonNames] = await Promise.all([
     names(closes.map(c => c.closedById), 'user'),
     prisma.item.findMany({
       where: { id: { in: top.map(t => t.itemId!).filter(Boolean) } },
       select: { id: true, code: true, name: true, colour: true, size: true }
-    })
+    }),
+    names([...people.keys()], 'user')
   ]);
   const itemById = new Map(items.map(i => [i.id, i]));
 
@@ -290,6 +312,14 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
       variancePaise: c.variancePaise, closedAt: c.closedAt, closedBy: c.closedById ? closerNames.get(c.closedById) ?? null : null,
       openShiftsAtClose: c.openShiftsAtClose
     })),
+    bySalesperson: [...people.entries()].map(([id, p]) => ({
+      name: id ? salespersonNames.get(id) || 'Former staff' : 'Not chosen',
+      bills: p.bills,
+      salesPaise: p.salesPaise,
+      returnsPaise: p.returnsPaise,
+      netPaise: p.salesPaise - p.returnsPaise,
+      netBeforeGstPaise: (p.salesPaise - p.salesTaxPaise) - (p.returnsPaise - p.returnsTaxPaise)
+    })).sort((a, b) => (a.name === 'Not chosen' ? 1 : 0) - (b.name === 'Not chosen' ? 1 : 0) || b.netPaise - a.netPaise),
     topProducts: top.map(t => {
       const i = itemById.get(t.itemId!);
       return {
