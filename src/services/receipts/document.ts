@@ -149,9 +149,13 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
   if (sale.kind === 'KEPT') {
     L.push({ kind: 'rule' });
     // A credit sale is a kept order that went home at once: it is owed, not waiting.
-    L.push({ kind: 'text', text: sale.handoverDuePaise ? 'ON CREDIT' : 'KEPT FOR COLLECTION', bold: true, center: true });
+    // Reprinted later it says where things stand now, not what they were (live, 8 Oct).
+    const heading = sale.handoverDuePaise
+      ? (sale.owedPaise > 0 ? 'ON CREDIT' : 'CREDIT PAID IN FULL')
+      : (sale.fulfilment === 'HANDED_OVER' ? 'COLLECTED' : 'KEPT FOR COLLECTION');
+    L.push({ kind: 'text', text: heading, bold: true, center: true });
     if (sale.note) L.push({ kind: 'text', text: ascii(sale.note) });
-    if (sale.promisedAt) {
+    if (sale.promisedAt && sale.fulfilment !== 'HANDED_OVER') {
       L.push({ kind: 'pair', left: 'Collect on', right: new Date(sale.promisedAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) });
     }
     if (sale.owedPaise > 0) L.push({ kind: 'pair', left: 'Balance due', right: money(sale.owedPaise), bold: true });
