@@ -191,14 +191,20 @@ export async function collect(
     const order = await loadOrder(tx, actor, saleId);
 
     const owed = owedPaise(order.totalPaise, order.payments);
-    if (owed === 0) {
+    /*
+     * A balance written off and then paid after all (the customer turns up): it can be taken, up to
+     * what was written off, and that much of the write-off goes away. Money is money -- it reaches
+     * the drawer and Inventory as an ordinary collection.
+     */
+    const writtenOff = order.payments.filter(p => p.status === 'WRITTEN_OFF').reduce((n, p) => n + p.amountPaise, 0);
+    if (owed === 0 && writtenOff === 0) {
       throw conflict('Nothing is owed on this order.', { code: 'NOTHING_OWED' });
     }
 
     const settings = await tx.shopSettings.findUnique({
       where: { clientId: actor.clientId }, select: { enabledPaymentMethods: true }
     });
-    const planned = planPayments(owed, input.payments, settings?.enabledPaymentMethods ?? [], 'COLLECT');
+    const planned = planPayments(owed + writtenOff, input.payments, settings?.enabledPaymentMethods ?? [], 'COLLECT');
     // One payment shown twice is stopped here too (PLAN-payments Step 1); a manager may allow it.
     const dupes = await duplicateReferences(tx, actor.clientId, planned);
     if (dupes.length > 0) {
@@ -235,6 +241,17 @@ export async function collect(
       await spendCredit(tx, actor, order.customerId, credit, { saleId });
     }
 
+    // Whatever came in beyond what was owed un-writes that much of the write-off.
+    let undo = planned.reduce((n, p) => n + p.amountPaise, 0) - owed;
+    if (undo > 0) {
+      for (const row of await tx.payment.findMany({ where: { saleId, status: 'WRITTEN_OFF' }, orderBy: { createdAt: 'desc' }, select: { id: true, amountPaise: true } })) {
+        const cut = Math.min(undo, row.amountPaise);
+        if (cut === row.amountPaise) await tx.payment.delete({ where: { id: row.id } });
+        else await tx.payment.update({ where: { id: row.id }, data: { amountPaise: row.amountPaise - cut } });
+        undo -= cut;
+        if (undo === 0) break;
+      }
+    }
     await refreshMoneyStatus(tx, saleId);
     // The balance, as takings for Inventory's day book. One key per collection (the once-key).
     await paymentUpdated(tx, actor.clientId, saleId, input.onceKey, planned);
