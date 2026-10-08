@@ -322,10 +322,24 @@ export async function checkSettlements(clientId: string, max = 8): Promise<{ che
        * they spent, and where that left them. Printed on the digital receipt and on any reprint; the
        * first paper copy has gone already. Nothing earned or spent prints nothing.
        */
-      const pts = data.points;
+      /*
+       * A COLLECTION is checked by its own key ("INV/..:pay:<key>"), but the points belong to the
+       * bill. Inventory earns a credit sale's points as the money comes in (8 Oct), so after each
+       * collection the bill's figure is asked for again -- by the key alone it matched no bill and
+       * the till kept the at-sale figure for ever.
+       */
+      const billNo = row.invoiceNo.split(':pay:')[0];
+      let pts = data.points;
+      if (billNo !== row.invoiceNo) {
+        const bill = await call(
+          { baseUrl: link.base_url, keyCipher: link.key_cipher },
+          'GET', `/events/status?invoiceNo=${encodeURIComponent(billNo)}`, undefined, 15_000
+        );
+        pts = bill.kind === 'ANSWERED' && bill.status < 300 ? (bill.body?.data?.points ?? null) : null;
+      }
       if (pts && (Number(pts.earned) > 0 || Number(pts.used) > 0)) {
         await prisma.sale.updateMany({
-          where: { clientId, invoiceNo: row.invoiceNo },
+          where: { clientId, invoiceNo: billNo },
           data: {
             pointsEarned: Number(pts.earned) || 0,
             pointsUsed: Number(pts.used) || 0,
