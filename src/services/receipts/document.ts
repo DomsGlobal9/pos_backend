@@ -108,9 +108,12 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
     L.push({ kind: 'text', text: ascii(line.description) });
     L.push({
       kind: 'pair',
-      left: `  ${line.qty} x ${money(line.unitPricePaise)}${line.hsn ? ` HSN ${ascii(line.hsn)}` : ''}${docKind === 'TAX_INVOICE' ? ` GST ${Number(line.taxRate)}%` : ''}`,
+      left: `  ${line.qty} x ${money(line.unitPricePaise)}`,
       right: money(line.lineTotalPaise)
     });
+    // On a line of its own: beside the price it ran past 80 mm and wrapped mid-phrase (live, 8 Oct).
+    const codes = [line.hsn ? `HSN ${ascii(line.hsn)}` : '', docKind === 'TAX_INVOICE' ? `GST ${Number(line.taxRate)}%` : ''].filter(Boolean).join('  ');
+    if (codes) L.push({ kind: 'text', text: `  ${codes}` });
     if (line.discountPaise > 0) L.push({ kind: 'text', text: `  includes ${money(line.discountPaise)} off` });
   }
   L.push({ kind: 'rule' });
