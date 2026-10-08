@@ -113,6 +113,13 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
       payments: (payload.payments ?? []).filter((p: any) => methods.includes(p.method))
     };
   }
+  if (eventType === 'order.written_off') {
+    return {
+      kind: 'order.written_off', invoiceNo: payload.invoiceNo, idempotencyKey: payload.idempotencyKey,
+      occurredAt: payload.occurredAt, amountPaise: payload.amountPaise, reason: payload.reason,
+      ...(payload.by ? { by: payload.by } : {})
+    };
+  }
   return { kind: eventType, ...payload };
 }
 
