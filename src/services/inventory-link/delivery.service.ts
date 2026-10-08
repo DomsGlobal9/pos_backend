@@ -80,7 +80,15 @@ function describe(code: string | null, detail: string | null) {
   return `${(code && known[code]) || 'Inventory refused this bill.'}${said}`;
 }
 
-const newerThanInventory = (code: string | null, detail: string | null) => code === 'BAD_PAYLOAD' && /Unknown event kind/i.test(detail ?? '');
+/*
+ * Inventory's door says "Unknown event kind" for a kind it does not take (Inventory, 8 Oct) -- not yet,
+ * or never: a typo'd or empty kind gets the same words. Only a kind THIS till sends is waited out (the
+ * two were deployed in the wrong order); anything else is a real fault and stops the queue.
+ */
+const newerThanInventory = (code: string | null, detail: string | null) => {
+  const kind = /Unknown event kind "([^"]*)"/i.exec(detail ?? '')?.[1] ?? '';
+  return code === 'BAD_PAYLOAD' && kind !== '' && STOCK_EVENTS.includes(kind);
+};
 
 /** Why the queue stopped, as the owner will read it. Never a status code on its own. */
 function refusal(status: number, body: any): { code: string; message: string } | null {
@@ -204,7 +212,7 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   const attempts = Number(link.attempts) + 1;
   const said = reply.kind === 'ANSWERED' ? readAnswer(reply.body) : null;
   const why = reply.kind === 'UNREACHABLE' ? `Inventory could not be reached (${reply.reason}).`
-    : newerThanInventory(said?.answer ?? null, said?.detail ?? null) ? 'Inventory does not take this kind of record yet -- it needs updating. Sent again by itself once it does.'
+    : newerThanInventory(said?.answer ?? null, said?.detail ?? null) ? `Inventory does not take "${event.eventType}" yet -- it needs updating. Waiting; sent again by itself once it does.`
     : `Inventory was busy (${reply.status}).`;
   await release({ attempts, nextAttemptAt: new Date(Date.now() + backoffFor(attempts)), lastError: why });
   return { outcome: 'RETRY_LATER', sequence: event.sequence };
@@ -270,7 +278,10 @@ export async function checkSettlements(clientId: string, max = 8): Promise<{ che
   try {
     const rows = await prisma.inventorySettlement.findMany({
       where: { clientId, settledAt: null, nextCheckAt: { lte: new Date() } },
-      orderBy: { sequence: 'asc' },
+      // Least-asked first: a new bill is never starved behind a pile that will not settle (found
+      // 8 Oct: 673 stale checks kept a fresh sale from ever being asked about). Order is not needed --
+      // each bill's ending is its own.
+      orderBy: [{ checks: 'asc' }, { sequence: 'asc' }],
       take: max
     });
     for (const row of rows) {
@@ -468,7 +479,7 @@ export async function runOnce() {
       // A stop for an event kind Inventory did not know yet lifts itself: it is retried, not refused.
       if (l.blockedSequence !== null) {
         const lifted = await prisma.inventoryLink.updateMany({
-          where: { clientId: l.clientId, blockedCode: 'BAD_PAYLOAD', blockedMessage: { contains: 'Unknown event kind' } },
+          where: { clientId: l.clientId, blockedCode: 'BAD_PAYLOAD', OR: STOCK_EVENTS.map(k => ({ blockedMessage: { contains: `Unknown event kind "${k}"` } })) },
           data: { blockedSequence: null, blockedCode: null, blockedMessage: null, attempts: 0, nextAttemptAt: null }
         });
         if (lifted.count) l.blockedSequence = null;
