@@ -65,6 +65,8 @@ export const PERMISSIONS = {
   /** Changing or clearing a GSTIN already on a customer: a swapped GSTIN sends a business's tax credit
    * to someone else. Adding one where there was none is anyone's job at the counter. */
   CUSTOMER_GSTIN: 'customer:gstin',
+  /** Giving up on a balance a customer will never pay. A cashier needs a manager's PIN. */
+  WRITE_OFF: 'order:write_off',
   /** The full reports: any period, every cashier and counter. Without it: your own sales today. POS-RPT. */
   REPORTS: 'report:view',
   SEE_COST: 'report:cost',

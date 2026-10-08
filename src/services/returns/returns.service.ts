@@ -156,6 +156,13 @@ function blockedReason(bill: Bill): { code: string; message: string } | null {
    * A payment still being checked might never have arrived. Refunding it now could pay out money
    * the shop never received -- so the check comes first, on Payment checks.
    */
+  /*
+   * A balance written off was never paid. Taking the goods back would refund it as store credit --
+   * money the customer never gave -- so a bill with a write-off takes no return or exchange.
+   */
+  if (bill.payments.some(p => p.status === 'WRITTEN_OFF')) {
+    return { code: 'WRITTEN_OFF', message: 'Part of this bill was written off as never paid, so it cannot be returned or exchanged. A manager can sort it out with the customer.' };
+  }
   if (bill.payments.some(p => p.status === 'NEEDS_CHECKING')) {
     return {
       code: 'PAYMENT_BEING_CHECKED',

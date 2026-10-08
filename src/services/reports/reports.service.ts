@@ -80,7 +80,7 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
     prisma.payment.groupBy({
       by: ['status'],
       where: {
-        clientId, createdAt: inRange, status: { in: ['NEEDS_CHECKING', 'VOID'] },
+        clientId, createdAt: inRange, status: { in: ['NEEDS_CHECKING', 'VOID', 'WRITTEN_OFF'] },
         ...(full ? {} : { sale: { cashierId: actor.id ?? '__nobody__' } })
       },
       _sum: { amountPaise: true },
@@ -191,6 +191,11 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
     beingChecked: {
       amountPaise: unsettled.find(r => r.status === 'NEEDS_CHECKING')?._sum.amountPaise ?? 0,
       count: unsettled.find(r => r.status === 'NEEDS_CHECKING')?._count ?? 0
+    },
+    // Owed money the shop gave up on (written off), dated when it was written off.
+    writtenOff: {
+      amountPaise: unsettled.find(r => r.status === 'WRITTEN_OFF')?._sum.amountPaise ?? 0,
+      count: unsettled.find(r => r.status === 'WRITTEN_OFF')?._count ?? 0
     },
     neverArrived: {
       amountPaise: unsettled.find(r => r.status === 'VOID')?._sum.amountPaise ?? 0,

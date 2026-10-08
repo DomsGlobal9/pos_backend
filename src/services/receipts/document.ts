@@ -138,7 +138,8 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
 
   for (const p of sale.payments ?? []) {
     const note = p.status === 'NEEDS_CHECKING' ? ' (being checked)' : p.status === 'VOID' ? ' (not received)' : '';
-    L.push({ kind: 'pair', left: `${METHOD[p.method] ?? p.method}${note}`, right: money(p.amountPaise) });
+    const label = p.status === 'WRITTEN_OFF' ? 'Written off' : `${METHOD[p.method] ?? p.method}${note}`;
+    L.push({ kind: 'pair', left: label, right: money(p.amountPaise) });
   }
   const change = (sale.payments ?? []).reduce((n: number, p: any) => n + (p.changePaise ?? 0), 0);
   if (change > 0) L.push({ kind: 'pair', left: 'Change', right: money(change) });
@@ -150,8 +151,9 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
     L.push({ kind: 'rule' });
     // A credit sale is a kept order that went home at once: it is owed, not waiting.
     // Reprinted later it says where things stand now, not what they were (live, 8 Oct).
+    const writtenOff = (sale.payments ?? []).some((p: any) => p.status === 'WRITTEN_OFF');
     const heading = sale.handoverDuePaise
-      ? (sale.owedPaise > 0 ? 'ON CREDIT' : 'CREDIT PAID IN FULL')
+      ? (sale.owedPaise > 0 ? 'ON CREDIT' : writtenOff ? 'BALANCE WRITTEN OFF' : 'CREDIT PAID IN FULL')
       : (sale.fulfilment === 'HANDED_OVER' ? 'COLLECTED' : 'KEPT FOR COLLECTION');
     L.push({ kind: 'text', text: heading, bold: true, center: true });
     if (sale.note) L.push({ kind: 'text', text: ascii(sale.note) });

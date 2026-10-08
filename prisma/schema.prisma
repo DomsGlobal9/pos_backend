@@ -678,6 +678,8 @@ enum PaymentStatus {
   NEEDS_CHECKING
   /// Checked, and the money never arrived. The bill is short by this much.
   VOID
+  /// A balance the shop gave up on (a BALANCE row): closes what is owed, but no money came in.
+  WRITTEN_OFF
 }
 
 enum PaymentMethod {
@@ -1195,6 +1197,7 @@ enum ApprovalKind {
   PAYMENT_VOID
   /// Goods handed over now with money still owed: a credit sale (udhaar). The shop is lending.
   PAY_LATER
+  WRITE_OFF
 }
 
 // ---------------------------------------------------------------------------------------------

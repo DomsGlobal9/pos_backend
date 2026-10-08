@@ -28,7 +28,8 @@ const REQUIRED_PERMISSION: Record<ApprovalKind, string> = {
   CASH_OUT: PERMISSIONS.CASH_OUT,
   PAYMENT_VOID: PERMISSIONS.PAYMENT_VOID,
   PAY_LATER: PERMISSIONS.PAY_LATER,
-  DUPLICATE_REFERENCE: PERMISSIONS.PAYMENT_VOID
+  DUPLICATE_REFERENCE: PERMISSIONS.PAYMENT_VOID,
+  WRITE_OFF: PERMISSIONS.WRITE_OFF
 };
 
 const HUMAN_KIND: Record<ApprovalKind, string> = {
@@ -39,7 +40,8 @@ const HUMAN_KIND: Record<ApprovalKind, string> = {
   CASH_OUT: 'taking cash out of the drawer',
   PAYMENT_VOID: 'marking a payment as never arrived',
   PAY_LATER: 'selling on credit',
-  DUPLICATE_REFERENCE: 'a payment reference already on another bill'
+  DUPLICATE_REFERENCE: 'a payment reference already on another bill',
+  WRITE_OFF: 'writing off what a customer owes'
 };
 
 /**

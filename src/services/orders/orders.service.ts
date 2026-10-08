@@ -1,6 +1,6 @@
 import { Fulfilment, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { Actor } from '../../types/actor';
+import { Actor, PERMISSIONS, may } from '../../types/actor';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { literal, phoneDigits } from '../../utils/likeText';
 import { rupees } from '../money';
@@ -43,6 +43,8 @@ const LIMIT = 100;
 
 export interface OrderRow {
   id: string;
+  /** Owed money the shop gave up on -- shown as written off, never as paid. */
+  writtenOffPaise: number;
   invoiceNo: string;
   customerName: string | null;
   customerPhone: string | null;
@@ -81,6 +83,7 @@ function toRow(sale: any): OrderRow {
     itemCount: sale._count.lines,
     totalPaise: sale.totalPaise,
     owedPaise: owedPaise(sale.totalPaise, sale.payments),
+    writtenOffPaise: sale.payments.filter((p: any) => p.status === 'WRITTEN_OFF').reduce((n: number, p: any) => n + p.amountPaise, 0),
     fulfilment: sale.fulfilment,
     promisedAt: sale.promisedAt,
     overdue: Boolean(sale.promisedAt && sale.promisedAt < today && sale.fulfilment !== 'HANDED_OVER'),
@@ -368,4 +371,62 @@ export async function owedByCustomer(clientId: string, customerId: string): Prom
     select: { totalPaise: true, payments: { select: { amountPaise: true, status: true } } }
   });
   return orders.reduce((sum, o) => sum + owedPaise(o.totalPaise, o.payments), 0);
+}
+
+/**
+ * WRITING OFF what a customer will never pay (owner's go-ahead, 8 Oct). The bill and its GST stay
+ * exactly as issued -- the goods went, the tax is owed either way. What changes is the debt: a
+ * BALANCE row marked WRITTEN_OFF closes it, so the order leaves Due, without pretending money came
+ * in (cash, takings and Inventory's day book see nothing). A cashier needs a manager's PIN. A bill
+ * with a write-off takes no return: the store credit it would give back was never paid for.
+ */
+export async function writeOff(
+  actor: Actor,
+  saleId: string,
+  input: { onceKey: string; reason: string; approval?: { pin: string; reason: string } }
+) {
+  if (!input.onceKey || input.onceKey.length < 8) throw badRequest('This write-off needs a key.');
+  const reason = (input.reason ?? '').trim();
+  if (reason.length < 3) throw badRequest('Say why the balance is being written off. A few words is enough.', { code: 'REASON_REQUIRED' });
+
+  const already = await prisma.payment.findFirst({ where: { clientId: actor.clientId, onceKey: `${input.onceKey}:off` }, select: { saleId: true } });
+  if (already) {
+    if (already.saleId !== saleId) throw conflict('That write-off was already recorded against a different order.');
+    return { replayed: true, ...(await summary(actor, saleId)) };
+  }
+
+  const audit: { subject: string; detail: { invoiceNo: string; owedPaise: number; reason: string } }[] = [];
+  await prisma.$transaction(async (tx) => {
+    await lock(tx, saleId);
+    const order = await loadOrder(tx, actor, saleId);
+    if (order.payments.some(p => p.status === 'NEEDS_CHECKING')) {
+      throw conflict('A payment on this order is still being checked. Settle it on Payment checks first.', { code: 'PAYMENT_BEING_CHECKED' });
+    }
+    if (order.fulfilment !== 'HANDED_OVER') {
+      throw conflict('The goods are still in the shop. Write off only what went home unpaid.', { code: 'NOT_HANDED_OVER' });
+    }
+    const owed = owedPaise(order.totalPaise, order.payments);
+    if (owed === 0) throw conflict('Nothing is owed on this order.', { code: 'NOTHING_OWED' });
+
+    const detail = { invoiceNo: order.invoiceNo, owedPaise: owed, reason };
+    if (!may(actor, PERMISSIONS.WRITE_OFF)) {
+      if (!input.approval) {
+        throw forbidden('A manager needs to approve writing off what is owed.', { code: 'APPROVAL_REQUIRED', kind: 'WRITE_OFF', owedPaise: owed });
+      }
+      const granted = await grant(actor, { kind: 'WRITE_OFF', pin: input.approval.pin, reason: input.approval.reason, detail }, tx);
+      await tx.approval.update({ where: { id: granted.id }, data: { saleId } });
+    }
+
+    await tx.payment.create({
+      data: {
+        clientId: actor.clientId, saleId, method: 'BALANCE', amountPaise: owed, status: 'WRITTEN_OFF',
+        collectedAt: new Date(), onceKey: `${input.onceKey}:off`
+      }
+    });
+    await refreshMoneyStatus(tx, saleId);
+    audit.push({ subject: order.invoiceNo, detail });
+  });
+  for (const a of audit) await record(actor, { action: 'order.written_off', ...a });
+
+  return { replayed: false, ...(await summary(actor, saleId)) };
 }
