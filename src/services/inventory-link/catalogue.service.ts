@@ -97,7 +97,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
       throw conflict(`Inventory could not be reached (${reply.reason}). The item list is unchanged; try again shortly.`, { code: 'UNREACHABLE' });
     }
     if (reply.status === 401 || reply.status === 403) {
-      throw conflict('Inventory no longer accepts this till\'s key -- it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again.', { code: 'KEY_REFUSED' });
+      throw conflict('Inventory no longer accepts this till\'s key — it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again.', { code: 'KEY_REFUSED' });
     }
     if (reply.status >= 400) {
       throw conflict(`Inventory answered with an error (${reply.status}). The item list is unchanged.`, { code: 'INVENTORY_ERROR' });
@@ -298,7 +298,7 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
     const bps = noRate ? 0 : Number(v.taxRateBps);
     if (!Number.isInteger(bps) || bps < 0 || bps % 100 !== 0) {
       counts.skipped++;
-      problems.push(`${label} (${code}): GST ${Number.isFinite(bps) ? bps / 100 : '?'}% is not a whole percent -- not taken until the till supports it.`);
+      problems.push(`${label} (${code}): GST ${Number.isFinite(bps) ? bps / 100 : '?'}% is not a whole percent — not taken until the till supports it.`);
       continue;
     }
     const pricePaise = Number(v.pricePaise);
@@ -308,7 +308,7 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
       continue;
     }
     const exclusive = v.priceIsExclusive === true;
-    if (exclusive) problems.push(`${label} (${code}): priced before GST in Inventory -- not sold at the till until it is priced including GST.`);
+    if (exclusive) problems.push(`${label} (${code}): priced before GST in Inventory — not sold at the till until it is priced including GST.`);
     if (v.taxSlabbed && pricePaise > 250_000 && bps === 500) {
       problems.push(`${label} (${code}): stitched and over Rs 2,500 but set to 5% GST. Check the rate with the accountant.`);
     }
@@ -318,7 +318,7 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
     if (barcode) {
       const clash = await prisma.item.findFirst({ where: { clientId, barcode, NOT: { code } }, select: { code: true } });
       if (clash) {
-        problems.push(`${label} (${code}): barcode ${barcode} is already on ${clash.code} -- left off this item.`);
+        problems.push(`${label} (${code}): barcode ${barcode} is already on ${clash.code} — left off this item.`);
         barcode = null;
       }
     }

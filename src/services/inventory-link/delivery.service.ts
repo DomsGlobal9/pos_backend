@@ -94,7 +94,7 @@ const newerThanInventory = (code: string | null, detail: string | null) => {
 function refusal(status: number, body: any): { code: string; message: string } | null {
   const { answer: code, detail } = readAnswer(body);
   if (status === 401 || status === 403) {
-    return { code: 'KEY_REFUSED', message: 'Inventory no longer accepts this till\'s key -- it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again below.' };
+    return { code: 'KEY_REFUSED', message: 'Inventory no longer accepts this till\'s key — it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again below.' };
   }
   // "Not now, try again" (contract §4, Inventory 27 Sep): a return that overtook its own sale while
   // Inventory is still applying the sale. A race, not a fault -- retried with the normal backoff.
@@ -212,7 +212,7 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   const attempts = Number(link.attempts) + 1;
   const said = reply.kind === 'ANSWERED' ? readAnswer(reply.body) : null;
   const why = reply.kind === 'UNREACHABLE' ? `Inventory could not be reached (${reply.reason}).`
-    : newerThanInventory(said?.answer ?? null, said?.detail ?? null) ? `Inventory does not take "${event.eventType}" yet -- it needs updating. Waiting; sent again by itself once it does.`
+    : newerThanInventory(said?.answer ?? null, said?.detail ?? null) ? `Inventory does not take "${event.eventType}" yet — it needs updating. Waiting; sent again by itself once it does.`
     : `Inventory was busy (${reply.status}).`;
   await release({ attempts, nextAttemptAt: new Date(Date.now() + backoffFor(attempts)), lastError: why });
   return { outcome: 'RETRY_LATER', sequence: event.sequence };

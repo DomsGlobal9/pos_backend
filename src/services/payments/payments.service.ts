@@ -82,7 +82,7 @@ export async function duplicateReferences(
 export function duplicateMessage(d: { method: PaymentMethod; reference: string; invoiceNo: string | null }) {
   const what = d.method === 'UPI' ? `UPI reference ${d.reference}` : `card payment ${d.reference}`;
   return d.invoiceNo
-    ? `This ${what} is already on bill ${d.invoiceNo}. One payment cannot pay for two bills -- ask the customer for the right one, or a manager can allow it.`
+    ? `This ${what} is already on bill ${d.invoiceNo}. One payment cannot pay for two bills — ask the customer for the right one, or a manager can allow it.`
     : `The ${what} is typed twice on this bill. Check it, or a manager can allow it.`;
 }
 
@@ -392,7 +392,7 @@ export async function resolve(
   }
   const why = (input.approval?.reason ?? input.note ?? '').trim();
   if (!input.arrived && why.length < REASON_MIN) {
-    throw badRequest('Say why the money never arrived -- for example "not in the bank statement". A few words is enough.', { code: 'REASON_REQUIRED' });
+    throw badRequest('Say why the money never arrived — for example "not in the bank statement". A few words is enough.', { code: 'REASON_REQUIRED' });
   }
 
   const data: Prisma.PaymentUpdateInput = {
@@ -407,7 +407,7 @@ export async function resolve(
     const ref = referenceFor({ method: payment.method, reference: input.reference });
     if ('problem' in ref) throw badRequest(ref.problem, { code: ref.code });
     const dupes = await duplicateReferences(prisma as any, actor.clientId, [{ method: payment.method, reference: ref.reference }], payment.id);
-    if (dupes.length) throw conflict(duplicateMessage(dupes[0]).replace(' -- ask the customer for the right one, or a manager can allow it.', '.'), { code: 'DUPLICATE_REFERENCE', invoiceNo: dupes[0].invoiceNo });
+    if (dupes.length) throw conflict(duplicateMessage(dupes[0]).replace(' — ask the customer for the right one, or a manager can allow it.', '.'), { code: 'DUPLICATE_REFERENCE', invoiceNo: dupes[0].invoiceNo });
     data.reference = ref.reference;
   }
 

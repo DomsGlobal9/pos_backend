@@ -87,7 +87,7 @@ export function checkRow(raw: Record<string, unknown>, from: 'sheet' | 'api'): {
   if (from === 'sheet') {
     const p = String(raw.price ?? '').trim();
     if (!p) problems.push('the price is missing');
-    else if ((pricePaise = rupeesToPaise(p)) === null) problems.push(`"${p}" is not a price -- write it like 1299 or 1299.50`);
+    else if ((pricePaise = rupeesToPaise(p)) === null) problems.push(`"${p}" is not a price — write it like 1299 or 1299.50`);
   } else {
     const p = raw.pricePaise;
     if (p === undefined || p === null) problems.push('pricePaise is missing');
@@ -95,7 +95,7 @@ export function checkRow(raw: Record<string, unknown>, from: 'sheet' | 'api'): {
     else pricePaise = p as number;
   }
   if (pricePaise !== null && pricePaise <= 0) problems.push('the price must be more than zero');
-  if (pricePaise !== null && pricePaise > 100_00_000_00) problems.push('the price is over Rs 1 crore -- check it');
+  if (pricePaise !== null && pricePaise > 100_00_000_00) problems.push('the price is over Rs 1 crore — check it');
 
   const gstRaw = from === 'sheet' ? String(raw.gst ?? '').replace('%', '').trim() : raw.taxRate;
   let taxRate = 0;
@@ -106,7 +106,7 @@ export function checkRow(raw: Record<string, unknown>, from: 'sheet' | 'api'): {
     else if (!RATES.includes(n)) problems.push(`GST ${n}% is not a rate in use (${RATES.join(', ')})`);
     else {
       taxRate = n;
-      if (OLD_SLABS.includes(n)) notes.push(`GST ${n}%: this slab was removed on 22 Sep 2025 for most goods -- check with your accountant`);
+      if (OLD_SLABS.includes(n)) notes.push(`GST ${n}%: this slab was removed on 22 Sep 2025 for most goods — check with your accountant`);
     }
   }
 

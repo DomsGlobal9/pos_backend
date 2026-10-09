@@ -42,7 +42,7 @@ type Db = Prisma.TransactionClient | typeof prisma;
  * column into a server error. Now it is one sentence.
  */
 const DRAWER_MAX_PAISE = 1_000_000_000;
-const TOO_MUCH = 'That is more than Rs 1 crore -- check the amount you typed.';
+const TOO_MUCH = 'That is more than Rs 1 crore — check the amount you typed.';
 
 export const NOTE_MIN = 3;
 
@@ -235,7 +235,7 @@ async function namesOf(ids: (string | null)[]) {
 /** POS-SHIFT-001. Count the float in. */
 export async function open(actor: Actor, input: { counterId: string; openingCashPaise: number }) {
   if (!Number.isInteger(input.openingCashPaise) || input.openingCashPaise < 0) {
-    throw badRequest('Enter the cash in the drawer. Nothing at all is fine -- type 0.');
+    throw badRequest('Enter the cash in the drawer. Nothing at all is fine — type 0.');
   }
   if (input.openingCashPaise > DRAWER_MAX_PAISE) {
     throw badRequest(TOO_MUCH, { code: 'AMOUNT_TOO_LARGE' });
@@ -317,7 +317,7 @@ export async function move(actor: Actor, input: MoveInput) {
   if (!Number.isInteger(input.amountPaise) || input.amountPaise <= 0) throw badRequest('Enter an amount.');
   if (input.amountPaise > DRAWER_MAX_PAISE) throw badRequest(TOO_MUCH, { code: 'AMOUNT_TOO_LARGE' });
   if (reason.length < NOTE_MIN) {
-    throw badRequest(`Say what the cash was ${input.direction === 'IN' ? 'for' : 'taken for'} -- "courier", "change float".`);
+    throw badRequest(`Say what the cash was ${input.direction === 'IN' ? 'for' : 'taken for'} — "courier", "change float".`);
   }
 
   const existing = await prisma.cashMovement.findUnique({ where: { onceKey: input.onceKey }, select: { id: true, clientId: true } });
@@ -338,7 +338,7 @@ export async function move(actor: Actor, input: MoveInput) {
          FOR UPDATE`;
       const shift = rows[0];
       if (!shift) {
-        throw conflict('No shift is open on this counter. Open one first -- cash in and out belongs to a drawer.', { code: 'NO_SHIFT' });
+        throw conflict('No shift is open on this counter. Open one first — cash in and out belongs to a drawer.', { code: 'NO_SHIFT' });
       }
 
       let approvedById: string | null = null;
@@ -348,7 +348,7 @@ export async function move(actor: Actor, input: MoveInput) {
           throw conflict(
             figures.expectedPaise <= 0
               ? 'The drawer should be empty, so no cash can come out of it.'
-              : `Only ${rupees(figures.expectedPaise)} should be in the drawer. Count it -- if there is more, record the extra as cash in first.`,
+              : `Only ${rupees(figures.expectedPaise)} should be in the drawer. Count it — if there is more, record the extra as cash in first.`,
             { code: 'MORE_THAN_DRAWER' }
           );
         }
@@ -469,7 +469,7 @@ export async function close(actor: Actor, shiftId: string, input: { countedCashP
     // Recorded because it happened, even though nothing was closed.
     await record(actor, { action: 'shift.count_mismatch', detail: { shiftId, ...m } });
     throw conflict(
-      "That count doesn't match what the till expects. Count again -- or, if you're sure, add a note saying what happened.",
+      "That count doesn't match what the till expects. Count again — or, if you're sure, add a note saying what happened.",
       { code: 'COUNT_MISMATCH' }
     );
   }
