@@ -44,7 +44,7 @@ const view = (k: { id: string; name: string; keyPrefix: string; scopes: string[]
 export async function create(actor: Actor, input: { name?: string; scopes?: string[] }) {
   mustManage(actor);
   const name = (input.name ?? '').trim();
-  if (name.length < 2) throw badRequest('Name the key after the software that will use it -- "Tally sync", "Website".');
+  if (name.length < 2) throw badRequest('Name the key after the software that will use it — "Tally sync", "Website".');
   const scopes = [...new Set(input.scopes ?? [])];
   if (scopes.length === 0) throw badRequest('Choose at least one thing this key may do.');
   const unknown = scopes.filter(s => !(SCOPES as readonly string[]).includes(s));
@@ -89,7 +89,7 @@ export async function authenticate(raw: string | undefined): Promise<Actor> {
   }
   const row = await prisma.apiKey.findUnique({ where: { keyHash: hash(key) } });
   if (!row || row.revokedAt) {
-    throw unauthorized('This API key is not valid. It may have been revoked -- ask the shop owner for a new one.', { code: 'BAD_KEY' });
+    throw unauthorized('This API key is not valid. It may have been revoked — ask the shop owner for a new one.', { code: 'BAD_KEY' });
   }
   // Last used, at most once a minute: a busy integration must not turn every read into a write.
   if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 60_000) {

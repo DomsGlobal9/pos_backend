@@ -83,7 +83,7 @@ function checkPeople(owner: NewShop['owner'], staff: NewPerson[]) {
     if (!STAFF_ROLES.includes(p.role)) throw badRequest(`${p.who}: choose Owner, Manager or Cashier.`);
     let pin: string;
     try { pin = cleanPin(p.pin ?? ''); } catch (e) { throw badRequest(`${p.who}: ${(e as Error).message}`); }
-    if (pins.has(pin)) throw badRequest(`${p.who} and ${pins.get(pin)} have the same PIN. Each person needs their own -- a PIN approves as one person.`);
+    if (pins.has(pin)) throw badRequest(`${p.who} and ${pins.get(pin)} have the same PIN. Each person needs their own — a PIN approves as one person.`);
     pins.set(pin, p.who);
     let email: string | null; let phone: string | null;
     try { email = cleanEmail(p.email); phone = cleanPhone(p.phone); } catch (e) { throw badRequest(`${p.who}: ${(e as Error).message}`); }

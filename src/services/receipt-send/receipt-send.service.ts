@@ -116,8 +116,8 @@ export async function sendReceipt(actor: Actor, saleId: string, input: { onceKey
     }
   } catch (error: any) {
     failReason = error?.name === 'AbortError'
-      ? 'WhatsApp took too long to answer. The bill is saved -- try sending again.'
-      : 'WhatsApp could not be reached. The bill is saved -- try sending again.';
+      ? 'WhatsApp took too long to answer. The bill is saved — try sending again.'
+      : 'WhatsApp could not be reached. The bill is saved — try sending again.';
   }
 
   const saved = await prisma.receiptSend.update({ where: { id: row.id }, data: { status, providerId, failReason } });

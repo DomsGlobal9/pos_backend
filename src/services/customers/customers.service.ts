@@ -385,7 +385,7 @@ export async function updateDetails(
   const gstinAfter = patch.gstin !== undefined ? patch.gstin : row.gstin;
   const addressAfter = patch.address !== undefined ? patch.address : row.address;
   if (gstinAfter && !addressAfter) {
-    throw badRequest('Add the business address too -- a tax invoice to a GST-registered buyer shows their address.', { code: 'ADDRESS_REQUIRED' });
+    throw badRequest('Add the business address too — a tax invoice to a GST-registered buyer shows their address.', { code: 'ADDRESS_REQUIRED' });
   }
   const updated = Object.keys(patch).length ? await prisma.customer.update({ where: { id: row.id }, data: patch, select: SELECT }) : row;
   if (Object.keys(patch).length) {

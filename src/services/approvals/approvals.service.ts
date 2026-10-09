@@ -203,7 +203,7 @@ export async function grant(
    */
   if (actor.id && manager.id === actor.id) {
     throw badRequest(
-      'You can do this yourself -- no approval needed. Ask someone else if a second person should agree.',
+      'You can do this yourself — no approval needed. Ask someone else if a second person should agree.',
       { code: 'SELF_APPROVAL' }
     );
   }

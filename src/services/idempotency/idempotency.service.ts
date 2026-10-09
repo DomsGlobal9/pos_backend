@@ -42,7 +42,7 @@ export async function once<T>(
     return { ...r, replayed: false };
   }
   const k = key.trim();
-  if (k.length < 8 || k.length > 200) throw badRequest('Idempotency-Key must be 8 to 200 characters -- a UUID is ideal.');
+  if (k.length < 8 || k.length > 200) throw badRequest('Idempotency-Key must be 8 to 200 characters — a UUID is ideal.');
 
   // Old claims are cleared as we go; a table nobody reads should not grow forever.
   await prisma.apiRequestOnce.deleteMany({ where: { clientId, createdAt: { lt: new Date(Date.now() - KEEP_MS) } } });

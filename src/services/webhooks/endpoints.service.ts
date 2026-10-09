@@ -78,7 +78,7 @@ function cleanEvents(events: string[] | undefined) {
 export async function create(actor: Actor, input: { name?: string; url?: string; events?: string[] }) {
   mustManage(actor);
   const name = (input.name ?? '').trim();
-  if (name.length < 2) throw badRequest('Name it after the software it goes to -- "Tally bridge", "Website".');
+  if (name.length < 2) throw badRequest('Name it after the software it goes to — "Tally bridge", "Website".');
   const url = await checkAddress(input.url ?? '');
   const events = cleanEvents(input.events);
   const secret = 'whsec_' + crypto.randomBytes(32).toString('base64url');
@@ -160,7 +160,7 @@ function outcomeText(status: string, code: number | null, body: string | null) {
   const why = code === null
     ? (body ? `Could not reach it (${body}).` : 'Not sent yet.')
     : `Their software answered with an error (${code}).`;
-  if (status === 'FAILED') return `${why} Gave up after 8 tries -- send it again once their software is fixed.`;
+  if (status === 'FAILED') return `${why} Gave up after 8 tries — send it again once their software is fixed.`;
   return why;
 }
 

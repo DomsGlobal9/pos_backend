@@ -77,7 +77,7 @@ export async function update(actor: Actor, deviceId: string, input: { name?: str
   const data: Record<string, unknown> = {};
   if (input.name !== undefined) {
     const name = input.name.trim();
-    if (name.length < 2) throw badRequest('Give the device a name people will recognise -- "Counter 1 PC", "Ravi\'s phone".');
+    if (name.length < 2) throw badRequest('Give the device a name people will recognise — "Counter 1 PC", "Ravi\'s phone".');
     data.name = name.slice(0, 60);
   }
   if (input.counterId !== undefined) {

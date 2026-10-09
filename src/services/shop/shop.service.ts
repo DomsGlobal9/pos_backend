@@ -67,7 +67,7 @@ export async function setUpiId(actor: Actor, raw: string | null) {
   if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change where UPI payments go.');
   const upiId = raw === null ? null : String(raw).trim().toLowerCase();
   if (upiId !== null && !/^[a-z0-9._-]{2,256}@[a-z][a-z0-9]{1,63}$/.test(upiId)) {
-    throw badRequest('That is not a UPI ID. It looks like name@bank -- for example lakshmisilks@okhdfcbank.');
+    throw badRequest('That is not a UPI ID. It looks like name@bank — for example lakshmisilks@okhdfcbank.');
   }
   await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { upiId } });
   await record(actor, { action: 'shop.upi_set', detail: { upiId } });

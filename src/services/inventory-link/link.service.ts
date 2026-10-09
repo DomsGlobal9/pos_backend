@@ -40,7 +40,7 @@ async function tryKey(baseUrl: string, keyCipher: string) {
     throw badRequest('That is a website key, not a till key. In Inventory, open Settings → Money → POS (billing counter) and create a till key.', { code: 'WEBSITE_KEY' });
   }
   if (reply.status === 401 || reply.status === 403) {
-    throw badRequest('Inventory did not accept that key. It may have been replaced or disconnected -- make a new one in Inventory: Settings → Money → POS (billing counter).', { code: 'KEY_REFUSED' });
+    throw badRequest('Inventory did not accept that key. It may have been replaced or disconnected — make a new one in Inventory: Settings → Money → POS (billing counter).', { code: 'KEY_REFUSED' });
   }
   if (reply.status === 404) {
     throw conflict('That Inventory does not have the POS link yet. It needs the update that adds it.', { code: 'NO_POS_LINK' });
@@ -141,7 +141,7 @@ export async function leaveOut(actor: Actor, input: { document: string; reason: 
     throw badRequest('Write why this bill is being left out of Inventory, in a sentence. You will want it when the stock is counted.', { code: 'REASON_REQUIRED' });
   }
   const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId } });
-  if (!link?.blockedSequence) throw conflict('Sending to Inventory is not stopped -- there is nothing to leave out.', { code: 'NOT_BLOCKED' });
+  if (!link?.blockedSequence) throw conflict('Sending to Inventory is not stopped — there is nothing to leave out.', { code: 'NOT_BLOCKED' });
   if (NOT_A_BILL_PROBLEM.includes(link.blockedCode ?? '')) {
     throw conflict('This stop is about the connection key, not a bill. Connect again with a new key from Inventory.', { code: 'NOT_A_BILL' });
   }

@@ -237,7 +237,7 @@ export async function closeDay(actor: Actor, date: string, input: { acceptOpenSh
    * -- not overwritten. It says why, and only when something has actually changed since.
    */
   if (existing && input.again && (input.note ?? '').trim().length < 4) {
-    throw badRequest('Say why the day is being closed again -- for example, "late customer after closing".', { code: 'REASON_REQUIRED' });
+    throw badRequest('Say why the day is being closed again — for example, "late customer after closing".', { code: 'REASON_REQUIRED' });
   }
 
   const stillOpen = (await openShifts(actor.clientId)).filter(s => s.openedAt.getTime() < end.getTime());
