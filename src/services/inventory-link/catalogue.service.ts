@@ -75,6 +75,8 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
    * owner's choice (contract §9). { unlimited: true } becomes 100; { maxPercent } is taken as is.
    */
   let manualDiscount: { maxPercent?: number; unlimited?: boolean } | null = null;
+  // Inventory's return rule (9 Oct): whole days, or null for no limit. Absent: the till's own stays.
+  let returnWindow: number | null | undefined = undefined;
   // The shop's GST registration, owned by Inventory's Settings while connected (it decides what a bill is).
   let registration: string | null = null;
   // The shop's logo as Inventory keeps it (Settings -> Name, logo and bill details), an https address.
@@ -110,6 +112,11 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
     }
     if (['REGULAR', 'COMPOSITION', 'UNREGISTERED'].includes(data.gst?.registration)) registration = data.gst.registration;
     if (data.manualDiscount && typeof data.manualDiscount === 'object') manualDiscount = data.manualDiscount;
+    if (data.returns && typeof data.returns === 'object' && 'windowDays' in data.returns) {
+      const w = data.returns.windowDays;
+      if (w === null) returnWindow = null;
+      else if (Number.isInteger(w) && w >= 0 && w <= 3650) returnWindow = w;
+    }
     if (data.shop && typeof data.shop === 'object' && 'logoUrl' in data.shop) {
       logoSaid = true;
       inventoryLogo = typeof data.shop.logoUrl === 'string' && /^https:\/\//.test(data.shop.logoUrl) ? data.shop.logoUrl : null;
@@ -195,6 +202,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   if ('receiptFooter' in details) header.receiptFooter = text(details.receiptFooter, 300);
   if (Object.keys(header).length) await prisma.shopSettings.updateMany({ where: { clientId }, data: header });
   if (upiQrEnabled !== undefined) await prisma.shopSettings.updateMany({ where: { clientId }, data: { upiQrEnabled } });
+  if (returnWindow !== undefined) await prisma.shopSettings.updateMany({ where: { clientId }, data: { returnWindowDays: returnWindow } });
   if (manualDiscount) {
     const percent = manualDiscount.unlimited === true ? 100 : Number(manualDiscount.maxPercent);
     if (Number.isFinite(percent) && percent >= 0 && percent <= 100) {

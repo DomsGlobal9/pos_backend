@@ -67,9 +67,14 @@ export function shareOf(total: number, qty: number, from: number, to: number): n
  * "Seven days" means a saree bought on Monday can come back until the Monday after, all day --
  * not until the minute it was bought. That is how a shop says it and how a customer hears it.
  */
-export function windowFor(soldAt: Date, days: number, now: Date = new Date()) {
+export function windowFor(soldAt: Date, days: number | null, now: Date = new Date()) {
   const start = new Date(soldAt);
   start.setHours(0, 0, 0, 0);
+  // No limit (Inventory's rule, empty): never late. 0 is the same day only.
+  if (days === null) {
+    const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
+    return { days: null, lastDay: null, daysSince: Math.round((today0.getTime() - start.getTime()) / 86_400_000), outside: false };
+  }
   const lastDay = new Date(start);
   lastDay.setDate(lastDay.getDate() + days);
   const today = new Date(now);
@@ -328,7 +333,8 @@ async function shopSettings(db: Tx | typeof prisma, clientId: string) {
     select: { returnWindowDays: true, creditNotePrefix: true, enabledPaymentMethods: true }
   });
   return {
-    returnWindowDays: settings?.returnWindowDays ?? 7,
+    // From Inventory when linked (null = no limit); 7 for a shop that has never said.
+    returnWindowDays: settings ? settings.returnWindowDays : 7,
     creditNotePrefix: settings?.creditNotePrefix ?? 'CN',
     enabledPaymentMethods: settings?.enabledPaymentMethods ?? []
   };

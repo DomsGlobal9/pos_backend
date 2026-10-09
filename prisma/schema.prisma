@@ -167,7 +167,8 @@ model ShopSettings {
   /// The most a cashier may take off a bill by hand without a manager. Percent.
   manualDiscountMaxPercent Int @default(0) @map("manual_discount_max_percent")
   /// Days after a sale within which a return needs no approval.
-  returnWindowDays         Int @default(7) @map("return_window_days")
+  /// Days a return is taken without a manager. Empty = no limit (Inventory's rule, from the catalogue).
+  returnWindowDays         Int? @default(7) @map("return_window_days")
 
   /// At or below this many on hand, the till takes a live hold from Inventory before it commits;
   /// above it, it sells optimistically and lets Inventory reconcile. One number, deliberately,
