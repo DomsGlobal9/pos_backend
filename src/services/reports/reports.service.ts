@@ -236,7 +236,8 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
     }),
     // POS-RPT-009. As of now, whatever the period -- a debt does not belong to a date range.
     prisma.sale.findMany({
-      where: { clientId, kind: 'KEPT', status: 'BALANCE_DUE' },
+      // Any bill that owes -- a counter sale whose UPI never arrived too, not only kept orders.
+      where: { clientId, status: 'BALANCE_DUE' },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true, invoiceNo: true, createdAt: true, totalPaise: true, promisedAt: true,
