@@ -46,6 +46,7 @@ export type AuditAction =
   | 'inventory.catalogue_synced'
   | 'receipt.sent'
   | 'shop.upi_set'
+  | 'shop.payment_methods_set'
   | 'shop.logo_set'
   | 'sale.offers_applied'
   | 'shop.gst_registration_set'
