@@ -75,6 +75,26 @@ export async function setUpiId(actor: Actor, raw: string | null) {
 }
 
 /**
+ * Which ways of paying the shop takes at the counter: cash, UPI, card (POS-SET-003). Owner-only.
+ * There was no way to change them -- fixed at setup (found 9 Oct, writing the help). Points and store
+ * credit are not here: they are the customer's own balance. At least one stays on, or nothing could be
+ * sold. Turned off, a way is refused by every route, an older till included (planPayments).
+ */
+export const COUNTER_METHODS = ['CASH', 'UPI', 'CARD'] as const;
+export async function setPaymentMethods(actor: Actor, raw: unknown) {
+  if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change how the shop is paid.');
+  const asked = Array.isArray(raw) ? raw.map(m => String(m).toUpperCase()) : [];
+  const methods = COUNTER_METHODS.filter(m => asked.includes(m));
+  if (asked.some(m => !(COUNTER_METHODS as readonly string[]).includes(m))) {
+    throw badRequest('Only cash, UPI and card are switched on or off here.', { code: 'BAD_METHOD' });
+  }
+  if (methods.length === 0) throw badRequest('Keep at least one way to pay switched on.', { code: 'NO_METHOD' });
+  await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { enabledPaymentMethods: [...methods] } });
+  await record(actor, { action: 'shop.payment_methods_set', detail: { methods } });
+  return forTill(actor);
+}
+
+/**
  * The logo on the bill. POS-RCPT-011. Owner-only.
  *
  * Taken as a JPEG data URL, which the Settings screen makes from whatever picture the owner picks:

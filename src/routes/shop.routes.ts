@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { forTill, setUpiId, setLogo, setGstRegistration } from '../services/shop';
+import { forTill, setUpiId, setLogo, setGstRegistration, setPaymentMethods } from '../services/shop';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 const router = Router();
@@ -19,6 +19,15 @@ router.put('/upi', async (req, res, next) => {
   try {
     const upiId = req.body?.upiId === null ? null : String(req.body?.upiId ?? '');
     res.json({ success: true, data: await setUpiId((req as any).actor, upiId) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** PUT /api/v1/shop/payment-methods -- POS-SET-003. `{ methods: ['CASH','UPI','CARD'] }`, at least one. Owner-only. */
+router.put('/payment-methods', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await setPaymentMethods((req as any).actor, req.body?.methods) });
   } catch (error) {
     next(error);
   }
