@@ -62,29 +62,15 @@ export function shareOf(total: number, qty: number, from: number, to: number): n
 }
 
 /**
- * The shop's return window, by calendar day in the shop's own time. POS-RET-004.
+ * The shop's return window. POS-RET-004.
  *
- * "Seven days" means a saree bought on Monday can come back until the Monday after, all day --
- * not until the minute it was bought. That is how a shop says it and how a customer hears it.
+ * Whole 24-hour periods since the bill's own time, Inventory's count exactly (9 Oct), so both counters
+ * agree: 7 is anything under 8 x 24 h old, 0 is within 24 hours. Late (a manager) only when past it.
+ * Null is no limit. The money is the same either way: being late asks a manager, it never refuses.
  */
 export function windowFor(soldAt: Date, days: number | null, now: Date = new Date()) {
-  const start = new Date(soldAt);
-  start.setHours(0, 0, 0, 0);
-  // No limit (Inventory's rule, empty): never late. 0 is the same day only.
-  if (days === null) {
-    const today0 = new Date(now); today0.setHours(0, 0, 0, 0);
-    return { days: null, lastDay: null, daysSince: Math.round((today0.getTime() - start.getTime()) / 86_400_000), outside: false };
-  }
-  const lastDay = new Date(start);
-  lastDay.setDate(lastDay.getDate() + days);
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-  return {
-    days,
-    lastDay,
-    daysSince: Math.round((today.getTime() - start.getTime()) / 86_400_000),
-    outside: today.getTime() > lastDay.getTime()
-  };
+  const daysSince = Math.floor((now.getTime() - soldAt.getTime()) / 86_400_000);
+  return { days, daysSince, outside: days !== null && daysSince > days };
 }
 
 type Window = ReturnType<typeof windowFor>;
