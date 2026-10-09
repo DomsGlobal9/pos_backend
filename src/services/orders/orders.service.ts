@@ -95,6 +95,11 @@ function toRow(sale: any): OrderRow {
 /** WF-ORDERS-01. POS-ORD-006..010. */
 export async function list(actor: Actor, tab: OrderTab = 'ALL', rawQuery?: unknown): Promise<OrderRow[]> {
   const where: Prisma.SaleWhereInput = { clientId: actor.clientId, kind: 'KEPT' };
+  /*
+   * DUE is any bill with money owed, kept order or not: a counter sale whose UPI "never arrived" owes
+   * too, and was on no list anywhere -- nobody could chase it or take the money (found 9 Oct).
+   */
+  if (tab === 'DUE') delete where.kind;
 
   // A kept order that was returned before collection is not waiting for anything any more.
   if (tab === 'WAITING') { where.fulfilment = 'WAITING'; where.status = { not: 'RETURNED' }; }
@@ -139,7 +144,8 @@ async function loadOrder(db: Prisma.TransactionClient | typeof prisma, actor: Ac
     }
   });
   if (!sale) throw notFound('That order was not found.');
-  if (sale.kind !== 'KEPT') {
+  // A counter sale is collected on only when it owes (a UPI that never arrived); otherwise there is nothing to do.
+  if (sale.kind !== 'KEPT' && sale.status !== 'BALANCE_DUE') {
     throw badRequest('That bill was paid for and taken at the counter, so there is nothing to collect or hand over.');
   }
   if (sale.status === 'RETURNED') throw conflict('That order was returned.');
@@ -367,7 +373,7 @@ export async function needsAttention(actor: Actor): Promise<NeedsAttention> {
       }
     }),
     prisma.sale.findMany({
-      where: { clientId: actor.clientId, kind: 'KEPT', status: 'BALANCE_DUE' },
+      where: { clientId: actor.clientId, status: 'BALANCE_DUE' },
       select: { totalPaise: true, payments: { select: { amountPaise: true, status: true } } },
       take: 500
     })
@@ -384,7 +390,7 @@ export async function needsAttention(actor: Actor): Promise<NeedsAttention> {
 /** POS-CUST-011. What one customer owes across all their kept orders. */
 export async function owedByCustomer(clientId: string, customerId: string): Promise<number> {
   const orders = await prisma.sale.findMany({
-    where: { clientId, customerId, kind: 'KEPT', status: 'BALANCE_DUE' },
+    where: { clientId, customerId, status: 'BALANCE_DUE' },
     select: { totalPaise: true, payments: { select: { amountPaise: true, status: true } } }
   });
   return orders.reduce((sum, o) => sum + owedPaise(o.totalPaise, o.payments), 0);
