@@ -131,13 +131,15 @@ export function referenceFor(payment: { method: PaymentMethod; reference?: strin
   return { reference: payment.reference?.trim() || null };
 }
 
+export const CASH_LIMIT_PAISE = 20_000_000;
+
 export function planPayments(
   totalPaise: number,
   payments: PaymentInput[],
   enabledMethods: PaymentMethod[],
   mode: PaymentMode = 'EXACT',
   /** A sale made offline, saved now: a reference that does not look right waits to be checked. */
-  options: { lenient?: boolean } = {}
+  options: { lenient?: boolean; cashBeforePaise?: number } = {}
 ): PlannedPayment[] {
   // A bill discounted to nothing (a gift, a goodwill replacement) has nothing to pay, and is still a bill.
   if (payments.length === 0 && mode !== 'ADVANCE' && !(mode === 'EXACT' && totalPaise === 0)) throw badRequest('Nothing has been paid.');
@@ -182,6 +184,22 @@ export function planPayments(
     throw conflict(
       `Only ${rupees(totalPaise)} is still owed on this order.`,
       { code: 'OVERPAYMENT', owedPaise: totalPaise, paidPaise: paid }
+    );
+  }
+
+  /*
+   * INCOME-TAX 269ST (10 Oct): no ₹2,00,000 or more in cash for one bill -- the penalty is the whole
+   * amount. Instalments on one bill count together (cashBeforePaise: cash already taken on it). A sale
+   * made offline has happened already: it is recorded, never refused.
+   */
+  const cashNow = payments.filter(p => p.method === 'CASH').reduce((n, p) => n + p.amountPaise, 0);
+  const cashOnBill = cashNow + (options.cashBeforePaise ?? 0);
+  if (cashNow > 0 && cashOnBill >= CASH_LIMIT_PAISE && !options.lenient) {
+    const room = Math.max(0, CASH_LIMIT_PAISE - 100 - (options.cashBeforePaise ?? 0));
+    throw badRequest(
+      `The law (Income Tax, section 269ST) does not allow ₹2,00,000 or more in cash for one bill. ` +
+      (room > 0 ? `Take at most ${rupees(room)} in cash and the rest by UPI or card.` : 'This bill has had its cash: take the rest by UPI or card.'),
+      { code: 'CASH_LIMIT', cashPaise: cashOnBill, mostCashPaise: room }
     );
   }
 

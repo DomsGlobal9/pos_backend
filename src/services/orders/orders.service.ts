@@ -140,7 +140,7 @@ async function loadOrder(db: Prisma.TransactionClient | typeof prisma, actor: Ac
     select: {
       id: true, kind: true, status: true, fulfilment: true, totalPaise: true, invoiceNo: true,
       customerId: true,
-      payments: { select: { amountPaise: true, status: true } }
+      payments: { select: { amountPaise: true, status: true, method: true } }
     }
   });
   if (!sale) throw notFound('That order was not found.');
@@ -210,7 +210,8 @@ export async function collect(
     const settings = await tx.shopSettings.findUnique({
       where: { clientId: actor.clientId }, select: { enabledPaymentMethods: true }
     });
-    const planned = planPayments(owed + writtenOff, input.payments, settings?.enabledPaymentMethods ?? [], 'COLLECT');
+    const cashBeforePaise = order.payments.filter(p => p.method === 'CASH' && p.status === 'COLLECTED').reduce((n, p) => n + p.amountPaise, 0);
+    const planned = planPayments(owed + writtenOff, input.payments, settings?.enabledPaymentMethods ?? [], 'COLLECT', { cashBeforePaise });
     // One payment shown twice is stopped here too (PLAN-payments Step 1); a manager may allow it.
     const dupes = await duplicateReferences(tx, actor.clientId, planned);
     if (dupes.length > 0) {
