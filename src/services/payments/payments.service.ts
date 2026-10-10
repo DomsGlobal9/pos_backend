@@ -27,6 +27,13 @@ import { PaymentInput } from '../sale/sale.schema';
 
 /** Which methods need a reference to be worth anything afterwards. */
 const NEEDS_REFERENCE: PaymentMethod[] = ['UPI', 'CARD'];
+/** Whose reference must not turn up on two bills. */
+const CHECKED_REFS: PaymentMethod[] = ['UPI', 'CARD', 'BANK_TRANSFER', 'CHEQUE'];
+/**
+ * Money that is only real once the bank says so (10 Oct): a transfer arrives, a cheque clears. Always
+ * NEEDS_CHECKING at the counter, so it is never on the bill Inventory counts until the owner marks it.
+ */
+export const CLEARS_LATER: PaymentMethod[] = ['BANK_TRANSFER', 'CHEQUE'];
 
 export interface PlannedPayment {
   method: PaymentMethod;
@@ -55,7 +62,7 @@ export async function duplicateReferences(
   planned: { method: PaymentMethod; reference: string | null }[],
   exceptPaymentId?: string
 ): Promise<{ method: PaymentMethod; reference: string; invoiceNo: string | null }[]> {
-  const mine = planned.filter(p => (p.method === 'UPI' || p.method === 'CARD') && p.reference);
+  const mine = planned.filter(p => CHECKED_REFS.includes(p.method) && p.reference);
   if (mine.length === 0) return [];
   const found: { method: PaymentMethod; reference: string; invoiceNo: string | null }[] = [];
   const seen = new Set<string>();
@@ -80,7 +87,10 @@ export async function duplicateReferences(
 
 /** The cashier's sentence for a reference already used. */
 export function duplicateMessage(d: { method: PaymentMethod; reference: string; invoiceNo: string | null }) {
-  const what = d.method === 'UPI' ? `UPI reference ${d.reference}` : `card payment ${d.reference}`;
+  const what = d.method === 'UPI' ? `UPI reference ${d.reference}`
+    : d.method === 'CHEQUE' ? `cheque ${d.reference}`
+    : d.method === 'BANK_TRANSFER' ? `bank transfer ${d.reference}`
+    : `card payment ${d.reference}`;
   return d.invoiceNo
     ? `This ${what} is already on bill ${d.invoiceNo}. One payment cannot pay for two bills — ask the customer for the right one, or a manager can allow it.`
     : `The ${what} is typed twice on this bill. Check it, or a manager can allow it.`;
@@ -120,6 +130,19 @@ export function referenceFor(payment: { method: PaymentMethod; reference?: strin
       return { problem: 'A UPI reference is the 12-digit number (UTR) in the customer\'s UPI app. Check it, or save the payment as not confirmed yet.', code: 'BAD_UPI_REFERENCE' };
     }
     return { reference: ref };
+  }
+  if (payment.method === 'BANK_TRANSFER') {
+    // The bank's UTR: 12 digits (IMPS) up to 22 letters and digits (RTGS). Optional at the counter.
+    const ref = (payment.reference ?? '').replace(/\s+/g, '').toUpperCase();
+    if (!ref) return { reference: null };
+    if (!/^[A-Z0-9]{12,22}$/.test(ref)) return { problem: 'A bank transfer reference is the UTR from the bank: 12 to 22 letters and numbers.', code: 'BAD_TRANSFER_REFERENCE' };
+    return { reference: ref };
+  }
+  if (payment.method === 'CHEQUE') {
+    // "004512 / HDFC": Inventory takes letters, digits, spaces and . / @ _ -, up to 40.
+    const m = (payment.reference ?? '').trim().match(/^(\d{6})\s*\/\s*([A-Za-z0-9 .@_-]{2,30})$/);
+    if (!m) return { problem: 'Type the 6-digit cheque number and the bank, for example 004512 / HDFC.', code: 'BAD_CHEQUE_REFERENCE' };
+    return { reference: `${m[1]} / ${m[2].trim().replace(/\s+/g, ' ')}` };
   }
   if (payment.method === 'CARD' && (payment.cardLast4 || payment.approvalCode)) {
     const last4 = (payment.cardLast4 ?? '').replace(/\s+/g, '');
@@ -220,11 +243,15 @@ export function planPayments(
      * write down yet -- demanding the reference there would force them to either invent one or
      * mark a real payment as failed, and the second is the thing this whole file exists to prevent.
      */
-    let status: PaymentStatus = payment.unconfirmed ? 'NEEDS_CHECKING' : 'COLLECTED';
+    let status: PaymentStatus = payment.unconfirmed || CLEARS_LATER.includes(payment.method) ? 'NEEDS_CHECKING' : 'COLLECTED';
 
     // Checked with Razorpay by the server (verifyQrPayments), never set by a screen: zod drops it.
     const verified = (payment as any).gatewayVerified === true;
     const ref = verified ? { reference: payment.reference ?? null } : referenceFor(payment as any);
+    // A cheque needs its number and bank, and a transfer's UTR must look like one, though both wait to be checked.
+    if ('problem' in ref && CLEARS_LATER.includes(payment.method) && !options.lenient) {
+      throw badRequest(ref.problem, { code: ref.code, method: payment.method });
+    }
     if ('problem' in ref && status === 'COLLECTED') {
       // A sale made offline is never refused for it afterwards: it waits on Payment checks instead.
       if (!options.lenient) throw badRequest(ref.problem, { code: ref.code, method: payment.method });
@@ -465,6 +492,6 @@ export async function resolve(
 }
 
 export const pretty = (m: PaymentMethod) => ({
-  CASH: 'cash', UPI: 'UPI', CARD: 'card',
+  CASH: 'cash', UPI: 'UPI', CARD: 'card', BANK_TRANSFER: 'bank transfer', CHEQUE: 'cheque',
   CREDIT: 'store credit', POINTS: 'points', BALANCE: 'balance', EXCHANGE: 'exchange'
 }[m] ?? m);

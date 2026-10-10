@@ -697,6 +697,10 @@ enum PaymentMethod {
   /// Never sent by a till: only the exchange path writes it, and the return it came from is the
   /// credit note that says so.
   EXCHANGE
+  /// NEFT, IMPS or RTGS into the shop's account (10 Oct). Starts NEEDS_CHECKING; counted when it arrives.
+  BANK_TRANSFER
+  /// Starts NEEDS_CHECKING; counted when it clears. A bounce is VOID, so it was never money taken.
+  CHEQUE
 }
 
 // ---------------------------------------------------------------------------------------------

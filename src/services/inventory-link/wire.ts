@@ -102,9 +102,10 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
     };
   }
   if (eventType === 'payment.updated') {
-    // Inventory takes CASH, UPI, CARD, POINTS and CREDIT. A line in anything else is not money it
-    // counts (BALANCE and EXCHANGE are bookkeeping) and is left out.
-    const methods = ['CASH', 'UPI', 'CARD', 'POINTS', 'CREDIT'];
+    // Inventory takes CASH, UPI, CARD, POINTS, CREDIT, and BANK_TRANSFER / CHEQUE once arrived or
+    // cleared (10 Oct). A line in anything else is not money it counts (BALANCE and EXCHANGE are
+    // bookkeeping) and is left out.
+    const methods = ['CASH', 'UPI', 'CARD', 'POINTS', 'CREDIT', 'BANK_TRANSFER', 'CHEQUE'];
     return {
       kind: 'payment.updated',
       invoiceNo: payload.invoiceNo,

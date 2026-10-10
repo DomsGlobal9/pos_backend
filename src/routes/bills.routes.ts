@@ -14,7 +14,7 @@ const filters = z.object({
   q: z.string().trim().max(60).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
-  method: z.enum(['CASH', 'UPI', 'CARD', 'CREDIT', 'POINTS', 'BALANCE']).optional(),
+  method: z.enum(['CASH', 'UPI', 'CARD', 'CREDIT', 'POINTS', 'BALANCE', 'BANK_TRANSFER', 'CHEQUE']).optional(),
   status: z.enum(['COMPLETED', 'BALANCE_DUE', 'RETURNED', 'PENDING_SYNC']).optional(),
   after: z.string().min(1).optional()
 });
