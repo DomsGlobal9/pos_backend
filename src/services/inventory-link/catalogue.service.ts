@@ -331,7 +331,8 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
       }
     }
 
-    const available = Number(v.stock?.available);
+    // A service has no stock: null, which Number() would make 0 -- "none left" on fall & pico (10 Oct).
+    const available = v.stock?.available === null ? NaN : Number(v.stock?.available);
     const data = {
       name: title,
       colour: v.colour ?? null,
