@@ -41,7 +41,8 @@ import { holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-
 type Tx = Prisma.TransactionClient;
 
 const MONEY: RefundMethod[] = ['CASH', 'UPI', 'CARD'];
-const MONEY_PAID: PaymentMethod[] = ['CASH', 'UPI', 'CARD'];
+// A cleared cheque and an arrived transfer are money (10 Oct); one still waiting holds the return anyway.
+const MONEY_PAID: PaymentMethod[] = ['CASH', 'UPI', 'CARD', 'BANK_TRANSFER', 'CHEQUE'];
 
 // ------------------------------------------------------------------------------------------------
 // Pure arithmetic
