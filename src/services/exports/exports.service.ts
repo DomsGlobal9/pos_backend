@@ -199,7 +199,7 @@ export async function salesXlsx(actor: Actor, from: string, to: string): Promise
 
   const hsn = book.addWorksheet('HSN summary', { views: [{ state: 'frozen', ySplit: 1 }] });
   hsn.columns = [
-    { header: 'B2B / B2C', key: 'supply', width: 10 }, { header: 'HSN', key: 'hsn', width: 10 }, { header: 'Description', key: 'description', width: 30 },
+    { header: 'B2B / B2C', key: 'supply', width: 10 }, { header: 'HSN/SAC', key: 'hsn', width: 10 }, { header: 'Description', key: 'description', width: 30 },
     { header: 'UQC', key: 'uqc', width: 6 }, { header: 'Total quantity', key: 'qty', width: 13 }, { header: 'Total value', key: 'value', width: 14 },
     { header: 'Rate %', key: 'rate', width: 8 }, { header: 'Taxable value', key: 'taxable', width: 14 },
     { header: 'IGST', key: 'igst', width: 12 }, { header: 'CGST', key: 'cgst', width: 12 }, { header: 'SGST', key: 'sgst', width: 12 }

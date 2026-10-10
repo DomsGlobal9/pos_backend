@@ -112,7 +112,8 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
       right: money(line.lineTotalPaise)
     });
     // On a line of its own: beside the price it ran past 80 mm and wrapped mid-phrase (live, 8 Oct).
-    const codes = [line.hsn ? `HSN ${ascii(line.hsn)}` : '', docKind === 'TAX_INVOICE' ? `GST ${Number(line.taxRate)}%` : ''].filter(Boolean).join('  ');
+    // A service's code is a SAC, and every SAC starts 99.
+    const codes = [line.hsn ? `${String(line.hsn).startsWith('99') ? 'SAC' : 'HSN'} ${ascii(line.hsn)}` : '', docKind === 'TAX_INVOICE' ? `GST ${Number(line.taxRate)}%` : ''].filter(Boolean).join('  ');
     if (codes) L.push({ kind: 'text', text: `  ${codes}` });
     if (line.discountPaise > 0) L.push({ kind: 'text', text: `  includes ${money(line.discountPaise)} off` });
   }
