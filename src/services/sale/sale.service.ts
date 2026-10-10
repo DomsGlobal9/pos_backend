@@ -316,7 +316,15 @@ export async function writeSale(
        * someone allowed to lend -- a manager's PIN for a cashier -- and is recorded either way.
        */
       const owingNow = input.payLater ? priced.totalPaise - input.payments.reduce((n, p) => n + p.amountPaise, 0) : 0;
-      if (owingNow > 0) needs.push({ kind: 'PAY_LATER', detail: { owedPaise: owingNow, totalPaise: priced.totalPaise } });
+      if (owingNow > 0) {
+        // What they owe already, on other bills (10 Oct): the manager is lending more to someone who may not have paid.
+        const earlier = input.customerId ? await prisma.sale.findMany({
+          where: { clientId: actor.clientId, customerId: input.customerId, status: 'BALANCE_DUE' },
+          select: { totalPaise: true, payments: { select: { amountPaise: true, status: true } } }
+        }) : [];
+        const alreadyOwedPaise = earlier.reduce((n, o) => n + owedPaise(o.totalPaise, o.payments), 0);
+        needs.push({ kind: 'PAY_LATER', detail: { owedPaise: owingNow, totalPaise: priced.totalPaise, alreadyOwedPaise, alreadyOwedBills: earlier.length } });
+      }
 
       if (discountOverLimit) {
         needs.push({
