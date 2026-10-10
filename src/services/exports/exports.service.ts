@@ -23,7 +23,7 @@ const r = (paise: number) => Math.round(paise) / 100;
 const pad = (n: number) => String(n).padStart(2, '0');
 const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const localTime = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-const METHOD: Record<string, string> = { CASH: 'Cash', UPI: 'UPI', CARD: 'Card', CREDIT: 'Store credit', EXCHANGE: 'Exchange', POINTS: 'Points', WRITTEN_OFF: 'Written off', VOID: 'Not received', NEEDS_CHECKING: 'Being checked' };
+const METHOD: Record<string, string> = { CASH: 'Cash', UPI: 'UPI', CARD: 'Card', BANK_TRANSFER: 'Bank transfer', CHEQUE: 'Cheque', CREDIT: 'Store credit', EXCHANGE: 'Exchange', POINTS: 'Points', WRITTEN_OFF: 'Written off', VOID: 'Not received', NEEDS_CHECKING: 'Being checked' };
 
 export interface ExportRow {
   date: string; time: string; type: 'Sale' | 'Credit note'; number: string; against: string;

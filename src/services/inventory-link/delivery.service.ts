@@ -87,8 +87,10 @@ function describe(code: string | null, detail: string | null) {
  */
 const newerThanInventory = (code: string | null, detail: string | null) => {
   const kind = /Unknown event kind "([^"]*)"/i.exec(detail ?? '')?.[1] ?? '';
-  return code === 'BAD_PAYLOAD' && kind !== '' && STOCK_EVENTS.includes(kind);
+  return code === 'BAD_PAYLOAD' && ((kind !== '' && STOCK_EVENTS.includes(kind)) || NEWER_METHODS.test(detail ?? ''));
 };
+/* The same for a way to pay Inventory does not take yet (10 Oct: BANK_TRANSFER, CHEQUE): waited out. */
+const NEWER_METHODS = /\b(BANK_TRANSFER|CHEQUE)\b/;
 
 /** Why the queue stopped, as the owner will read it. Never a status code on its own. */
 function refusal(status: number, body: any): { code: string; message: string } | null {
@@ -479,7 +481,7 @@ export async function runOnce() {
       // A stop for an event kind Inventory did not know yet lifts itself: it is retried, not refused.
       if (l.blockedSequence !== null) {
         const lifted = await prisma.inventoryLink.updateMany({
-          where: { clientId: l.clientId, blockedCode: 'BAD_PAYLOAD', OR: STOCK_EVENTS.map(k => ({ blockedMessage: { contains: `Unknown event kind "${k}"` } })) },
+          where: { clientId: l.clientId, blockedCode: 'BAD_PAYLOAD', OR: [...STOCK_EVENTS.map(k => ({ blockedMessage: { contains: `Unknown event kind "${k}"` } })), { blockedMessage: { contains: 'BANK_TRANSFER' } }, { blockedMessage: { contains: 'CHEQUE' } }] },
           data: { blockedSequence: null, blockedCode: null, blockedMessage: null, attempts: 0, nextAttemptAt: null }
         });
         if (lifted.count) l.blockedSequence = null;

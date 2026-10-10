@@ -54,7 +54,8 @@ export function ascii(text: string): string {
 }
 
 const METHOD: Record<string, string> = {
-  CASH: 'Cash', UPI: 'UPI', CARD: 'Card', CREDIT: 'Store credit', EXCHANGE: 'Exchange credit', POINTS: 'Points', BALANCE: 'Balance'
+  CASH: 'Cash', UPI: 'UPI', CARD: 'Card', CREDIT: 'Store credit', EXCHANGE: 'Exchange credit', POINTS: 'Points', BALANCE: 'Balance',
+  BANK_TRANSFER: 'Bank transfer', CHEQUE: 'Cheque'
 };
 
 const when = (d: Date | string) => {
@@ -141,6 +142,8 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
     const note = p.status === 'NEEDS_CHECKING' ? ' (being checked)' : p.status === 'VOID' ? ' (not received)' : '';
     const label = p.status === 'WRITTEN_OFF' ? 'Written off' : `${METHOD[p.method] ?? p.method}${note}`;
     L.push({ kind: 'pair', left: label, right: money(p.amountPaise) });
+    // A cheque names itself, on a line of its own so nothing wraps: the customer's proof of which cheque it was.
+    if (p.method === 'CHEQUE' && p.reference) L.push({ kind: 'text', text: `  Cheque ${ascii(p.reference)}` });
   }
   const change = (sale.payments ?? []).reduce((n: number, p: any) => n + (p.changePaise ?? 0), 0);
   if (change > 0) L.push({ kind: 'pair', left: 'Change', right: money(change) });

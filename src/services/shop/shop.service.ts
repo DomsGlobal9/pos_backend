@@ -80,7 +80,7 @@ export async function setUpiId(actor: Actor, raw: string | null) {
  * credit are not here: they are the customer's own balance. At least one stays on, or nothing could be
  * sold. Turned off, a way is refused by every route, an older till included (planPayments).
  */
-export const COUNTER_METHODS = ['CASH', 'UPI', 'CARD'] as const;
+export const COUNTER_METHODS = ['CASH', 'UPI', 'CARD', 'BANK_TRANSFER', 'CHEQUE'] as const;
 export async function setPaymentMethods(actor: Actor, raw: unknown) {
   if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change how the shop is paid.');
   const asked = Array.isArray(raw) ? raw.map(m => String(m).toUpperCase()) : [];
