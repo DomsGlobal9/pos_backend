@@ -167,6 +167,8 @@ export interface WrittenSale {
   totalPaise: number;
   /** How much of the exchange credit this bill used. Zero outside an exchange. */
   appliedCreditPaise: number;
+  /** Inventory's quote whose offers this bill took, for the exchange's event. Null when none applied. */
+  quoteId: string | null;
   /**
    * In an exchange, the stock this bill takes out -- NOT yet applied. The exchange applies it
    * together with the pieces coming back, in one ordered pass (see services/stock), and writes one
@@ -647,6 +649,7 @@ export async function writeSale(
       }
 
       return {
+        quoteId: offered.quoteId,
         saleId: sale.id,
         invoiceNo: allocated.number,
         totalPaise: priced.totalPaise,
