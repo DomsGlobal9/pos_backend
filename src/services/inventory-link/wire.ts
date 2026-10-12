@@ -78,6 +78,7 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
       creditNoteNo: payload.creditNoteNo,
       againstInvoiceNo: payload.originalInvoiceNo,
       newInvoiceNo: payload.newInvoiceNo,
+      ...(payload.quoteId ? { quoteId: payload.quoteId } : {}),
       occurredAt: payload.occurredAt,
       customer: payload.customer ?? null,
       /*

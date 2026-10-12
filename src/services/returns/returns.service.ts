@@ -568,6 +568,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
       // The points share goes back as points, by Inventory. The till refunds the money share only.
       let leftover = moneyBackPaise;
       let exchangeInvoiceNo: string | null = null;
+      let exchangeQuoteId: string | null = null;
       let goingOut: StockChange[] = [];
 
       if (mode.kind === 'EXCHANGE') {
@@ -580,6 +581,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
         }, saleAudit, { exchangeCreditPaise: moneyBackPaise, holds });
 
         exchangeInvoiceNo = written.invoiceNo;
+        exchangeQuoteId = written.quoteId;
         goingOut = written.stockChanges;
         await tx.return.update({ where: { id: created.id }, data: { exchangeSaleId: written.saleId } });
         if (written.appliedCreditPaise > 0) {
@@ -632,7 +634,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
         ...cameBack(computed.lines.map(l => ({ itemId: l.itemId, qty: l.qty }))),
         ...goingOut
       ]);
-      if (mode.kind === 'EXCHANGE') await saleExchanged(tx, actor.clientId, created.id);
+      if (mode.kind === 'EXCHANGE') await saleExchanged(tx, actor.clientId, created.id, { quoteId: exchangeQuoteId });
       else await saleReturned(tx, actor.clientId, created.id);
 
       // Everything is back: the bill says so. A partly returned bill stays as it was -- its

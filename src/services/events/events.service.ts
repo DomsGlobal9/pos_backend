@@ -232,7 +232,7 @@ export async function saleReturned(tx: Tx, clientId: string, returnId: string) {
  * `returned` is what came back into the shop; `taken` is what went out. `differencePaise` is what
  * the customer paid on top (positive) or was given back (negative).
  */
-export async function saleExchanged(tx: Tx, clientId: string, returnId: string) {
+export async function saleExchanged(tx: Tx, clientId: string, returnId: string, extra: { quoteId?: string | null } = {}) {
   const r = await loadReturn(tx, returnId);
   if (!r.exchangeSaleId) throw new Error('saleExchanged called for a return that is not an exchange');
   const s = await loadSale(tx, r.exchangeSaleId);
@@ -240,6 +240,8 @@ export async function saleExchanged(tx: Tx, clientId: string, returnId: string) 
     creditNoteNo: r.creditNoteNo,
     originalInvoiceNo: r.originalSale.invoiceNo,
     newInvoiceNo: s.invoiceNo,
+    // The quote whose offers the new goods took (12 Oct); Inventory claims it for the new bill.
+    ...(extra.quoteId ? { quoteId: extra.quoteId } : {}),
     occurredAt: r.createdAt.toISOString(),
     reason: r.reason,
     counter: s.counter.name,

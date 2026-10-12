@@ -72,6 +72,8 @@ export const createExchangeSchema = z.object({
   newSale: completeSaleSchema.pick({
     counterId: true,
     lines: true,
+    // Inventory's quote for the new goods (12 Oct): their offers, as at the counter.
+    quoteId: true,
     payments: true,
     billDiscountPaise: true,
     interState: true
