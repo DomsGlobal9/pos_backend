@@ -96,6 +96,8 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
       exchangeNo: payload.newInvoiceNo,
       returned: (payload.returned ?? []).map(line),
       sold: (payload.taken ?? []).map(line),
+      // As on sale.completed (Inventory, 12 Oct): the new bill's round-off.
+      totals: { roundOffPaise: payload.totals?.roundOffPaise ?? 0 },
       differencePaise: payload.differencePaise,
       payments: collected(payload.payments),
       // New goods cheaper than what came back: the rest was given back, and how.

@@ -252,6 +252,9 @@ export async function saleExchanged(tx: Tx, clientId: string, returnId: string, 
     // What came back pays only its money share; a points share goes back as points.
     creditPaise: r.totalPaise - r.pointsBackPaise,
     newTotalPaise: s.totalPaise,
+    // The new bill's round-off (12 Oct: Rs 11,699.10 less Rs 2,700 was taken as Rs 8,999; without it
+    // Inventory saw 10 paise still due).
+    totals: { roundOffPaise: s.roundOffPaise ?? 0 },
     differencePaise: s.totalPaise - (r.totalPaise - r.pointsBackPaise),
     ...(r.pointsBack ? { pointsRefunded: r.pointsBack } : {}),
     payments: s.payments.filter(p => p.method !== 'EXCHANGE').map(p => ({ method: p.method, amountPaise: p.amountPaise, status: p.status, ...(p.reference ? { reference: p.reference } : {}), ...(p.holdId ? { holdId: p.holdId } : {}), ...(p.qrId ? { qrId: p.qrId } : {}) })),
