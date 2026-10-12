@@ -165,6 +165,9 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
       L.push({ kind: 'pair', left: 'Collect on', right: new Date(sale.promisedAt).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) });
     }
     if (sale.owedPaise > 0) L.push({ kind: 'pair', left: 'Balance due', right: money(sale.owedPaise), bold: true });
+  } else if (sale.owedPaise > 0) {
+    // A counter bill still owed: a cheque that bounced, a UPI that never arrived (live 12 Oct: it said nothing).
+    L.push({ kind: 'pair', left: 'Balance due', right: money(sale.owedPaise), bold: true });
   }
 
   if (sale.savedPaise > 0) {
