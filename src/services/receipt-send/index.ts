@@ -3,3 +3,4 @@
  * press, to the bill's own customer, never able to damage the sale. See receipt-send.service.
  */
 export { sendReceipt, sendsFor, whatsappConfig, whatsappAccount, platformClientId } from './receipt-send.service';
+export { handleWhatsAppEvent, nextStatus } from './whatsapp-events';

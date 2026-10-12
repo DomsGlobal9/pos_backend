@@ -43,6 +43,8 @@ export interface WhatsAppAccount { status: string; phone: string | null; linkedA
  * per shop, so the screens that need it cost nothing. Null: the service is not set up, or did not answer.
  */
 const accounts = new Map<string, { at: number; value: WhatsAppAccount | null }>();
+/** The service said a number connected or dropped: ask again next time. */
+export const forgetAccounts = () => accounts.clear();
 export async function whatsappAccount(ownClientId: string): Promise<WhatsAppAccount | null> {
   const config = whatsappConfig();
   if (!config) return null;

@@ -9,6 +9,7 @@ import apiRoutes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { startDeliveryLoop, startCatalogueLoop } from './services/inventory-link';
 import { startWebhookLoop } from './services/webhooks';
+import { handleWhatsAppEvent } from './services/receipt-send';
 
 /**
  * ScaleEzy POS -- the till's server.
@@ -29,6 +30,18 @@ app.use(cors({
   origin: env.FRONTEND_URL.split(',').map(s => s.trim()),
   credentials: true
 }));
+
+/*
+ * The WhatsApp service's events (12 Oct): a raw body, so the signature is checked on the exact bytes,
+ * and BEFORE the JSON parser, the rate limiter and sign-in -- the service is not a person at a till.
+ */
+app.post('/api/v1/whatsapp/events', express.raw({ type: 'application/json', limit: '100kb' }), async (req, res) => {
+  try {
+    res.status(await handleWhatsAppEvent(req.body as Buffer, req.header('x-signature'))).end();
+  } catch {
+    res.status(500).end(); // the service tries again in 10 s, then 60 s
+  }
+});
 
 // 1 MB for everything but the item import, which carries a spreadsheet (up to 5 MB, base64).
 const smallJson = express.json({ limit: '1mb' });

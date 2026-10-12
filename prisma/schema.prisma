@@ -1239,6 +1239,14 @@ model AuditLog {
 /// `deliveredSequence`. Events are sent one at a time, in order, so a return can never overtake the
 /// sale it is against. A failure that needs a person (an unknown item, a bad key) sets `blocked*`
 /// and holds everything behind it -- sending the return of a sale Inventory refused would be wrong.
+/// A WhatsApp service event already handled (12 Oct): they come at least once. Kept 7 days.
+model WhatsappEventSeen {
+  id     String   @id
+  seenAt DateTime @default(now()) @map("seen_at")
+
+  @@map("whatsapp_events_seen")
+}
+
 model InventoryLink {
   clientId String @id @map("client_id")
 
