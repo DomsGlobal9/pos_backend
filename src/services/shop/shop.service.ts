@@ -4,7 +4,7 @@ import { Actor } from '../../types/actor';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { may, PERMISSIONS } from '../../types/actor';
 import { record } from '../audit';
-import { whatsappConfig, whatsappAccount } from '../receipt-send';
+import { whatsappConfig, whatsappAccount, platformClientId } from '../receipt-send';
 
 /**
  * What the till needs to know before it can sell: which shop it is, and which counters it has.
@@ -51,7 +51,7 @@ export async function forTill(actor: Actor) {
      */
     whatsappReady: whatsappConfig() !== null && (account === null || account.status === 'CONNECTED'),
     // For Settings -> WhatsApp: what this till sends from. Sent by a person, one per press (12 Oct).
-    whatsapp: { configured: whatsappConfig() !== null, account },
+    whatsapp: { configured: whatsappConfig() !== null, account, sendsAs: await platformClientId(actor.clientId) },
     counters,
     cashier: { id: actor.id, name: actor.name ?? null },
     permissions: actor.permissions
