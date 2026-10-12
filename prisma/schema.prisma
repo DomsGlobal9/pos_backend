@@ -156,8 +156,6 @@ model ShopSettings {
   phone          String?
   /// Self-confirming UPI (Razorpay QR), switched on by the owner in Inventory; read from /catalogue.
   upiQrEnabled   Boolean @default(false) @map("upi_qr_enabled")
-  /// The bill goes to the customer on WhatsApp by itself after each sale (12 Oct). Owner switches it on.
-  whatsappAutoBill Boolean @default(false) @map("whatsapp_auto_bill")
   logoUrl        String? @map("logo_url")
   receiptFooter  String? @map("receipt_footer")
   invoicePrefix  String  @default("INV") @map("invoice_prefix")
@@ -1245,6 +1243,9 @@ model InventoryLink {
   clientId String @id @map("client_id")
 
   connected Boolean @default(false)
+  /// Inventory's platform id for this shop (catalogue shop.clientId, 12 Oct): "sphl", "pos-e2e-...". What
+  /// the WhatsApp service knows the shop by; the till's own id can differ. Null until Inventory says.
+  platformClientId String? @map("platform_client_id")
   /// Where this shop's Inventory is. Defaults to the deployment's INVENTORY_BASE_URL.
   baseUrl   String  @map("base_url")
   /// The connection credential, encrypted (AES-256-GCM, CREDENTIAL_ENCRYPTION_KEY). Never returned.

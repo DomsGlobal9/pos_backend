@@ -75,6 +75,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
    * owner's choice (contract §9). { unlimited: true } becomes 100; { maxPercent } is taken as is.
    */
   let manualDiscount: { maxPercent?: number; unlimited?: boolean } | null = null;
+  let platformClientId: string | null = null;
   // Inventory's return rule (9 Oct): whole days, or null for no limit. Absent: the till's own stays.
   let returnWindow: number | null | undefined = undefined;
   // The shop's GST registration, owned by Inventory's Settings while connected (it decides what a bill is).
@@ -123,6 +124,8 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
     }
     if (data.upiQr && typeof data.upiQr === 'object') upiQrEnabled = data.upiQr.enabled === true;
     if (data.shop && typeof data.shop === 'object') {
+      // Inventory's platform id for this shop (12 Oct), for the WhatsApp service. A plain id or nothing.
+      if (typeof data.shop.clientId === 'string' && /^[\w.-]{1,80}$/.test(data.shop.clientId)) platformClientId = data.shop.clientId;
       for (const key of ['name', 'address', 'phone', 'gstin', 'receiptFooter'] as const) {
         if (key in data.shop) details[key] = data.shop[key];
       }
@@ -202,6 +205,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   if ('receiptFooter' in details) header.receiptFooter = text(details.receiptFooter, 300);
   if (Object.keys(header).length) await prisma.shopSettings.updateMany({ where: { clientId }, data: header });
   if (upiQrEnabled !== undefined) await prisma.shopSettings.updateMany({ where: { clientId }, data: { upiQrEnabled } });
+  if (platformClientId) await prisma.inventoryLink.updateMany({ where: { clientId }, data: { platformClientId } });
   if (returnWindow !== undefined) await prisma.shopSettings.updateMany({ where: { clientId }, data: { returnWindowDays: returnWindow } });
   if (manualDiscount) {
     const percent = manualDiscount.unlimited === true ? 100 : Number(manualDiscount.maxPercent);

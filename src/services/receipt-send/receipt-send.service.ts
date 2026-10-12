@@ -43,9 +43,10 @@ export interface WhatsAppAccount { status: string; phone: string | null; linkedA
  * per shop, so the screens that need it cost nothing. Null: the service is not set up, or did not answer.
  */
 const accounts = new Map<string, { at: number; value: WhatsAppAccount | null }>();
-export async function whatsappAccount(clientId: string): Promise<WhatsAppAccount | null> {
+export async function whatsappAccount(ownClientId: string): Promise<WhatsAppAccount | null> {
   const config = whatsappConfig();
   if (!config) return null;
+  const clientId = await platformClientId(ownClientId);
   const cached = accounts.get(clientId);
   if (cached && Date.now() - cached.at < 60_000) return cached.value;
   let value: WhatsAppAccount | null = null;
@@ -63,21 +64,13 @@ export async function whatsappAccount(clientId: string): Promise<WhatsAppAccount
 }
 
 /*
- * THE BILL, SENT BY ITSELF after a sale with a customer, when the owner has switched it on (12 Oct).
- * The service's rule is a person pressing Send for each message to a customer; the owner switching
- * this on is that decision, as with Inventory's points notice after a sale (C9). Everything else is
- * the same as the button: the bill's own customer, from the shop's linked number, the service's daily
- * limits and STOP list. Never in the sale's way: after the bill is saved, and a failure is only a row.
+ * WHO THE SHOP IS to the WhatsApp service: Inventory's platform id ("sphl"), which the till's own id
+ * may not be (pos-uitest is "pos-e2e-..." there). From the catalogue; the till's own id until it says.
+ * A different id is "a second shop with no link" (the service's rule 6).
  */
-export async function autoSendBill(actor: Actor, saleId: string) {
-  try {
-    const on = await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { whatsappAutoBill: true } });
-    if (!on?.whatsappAutoBill || !whatsappConfig()) return;
-    const sale = await prisma.sale.findFirst({ where: { id: saleId, clientId: actor.clientId }, select: { customer: { select: { phone: true } } } });
-    if (!sale?.customer?.phone) return;
-    if ((await whatsappAccount(actor.clientId))?.status !== 'CONNECTED') return;
-    await sendReceipt(actor, saleId, { onceKey: `auto-bill-${saleId}` });
-  } catch { /* the send's own row says what happened; the sale is done either way */ }
+export async function platformClientId(clientId: string) {
+  const link = await prisma.inventoryLink.findUnique({ where: { clientId }, select: { platformClientId: true } });
+  return link?.platformClientId ?? clientId;
 }
 
 export async function sendReceipt(actor: Actor, saleId: string, input: { onceKey: string; channel?: string }) {
@@ -143,7 +136,7 @@ export async function sendReceipt(actor: Actor, saleId: string, input: { onceKey
       signal: controller.signal,
       headers: { 'content-type': 'application/json', 'x-module-key': config.key },
       body: JSON.stringify({
-        from: { clientId: actor.clientId },
+        from: { clientId: await platformClientId(actor.clientId) },
         to: phone,
         text,
         document: { fileName: `${sale.invoiceNo.replace(/[^\w-]+/g, '-')}.pdf`, mimeType: 'application/pdf', base64: pdf.toString('base64') },

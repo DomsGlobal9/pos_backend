@@ -20,7 +20,7 @@ export async function forTill(actor: Actor) {
       select: {
         shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true, upiQrEnabled: true,
         enabledPaymentMethods: true, manualDiscountMaxPercent: true, returnWindowDays: true,
-        holdThresholdQty: true, upiId: true, gstRegistration: true, whatsappAutoBill: true
+        holdThresholdQty: true, upiId: true, gstRegistration: true
       }
     }),
     prisma.counter.findMany({
@@ -50,8 +50,8 @@ export async function forTill(actor: Actor) {
      * link a number is Inventory's Settings -> WhatsApp.
      */
     whatsappReady: whatsappConfig() !== null && (account === null || account.status === 'CONNECTED'),
-    // For Settings -> WhatsApp: what this till sends from, and whether bills go by themselves.
-    whatsapp: { configured: whatsappConfig() !== null, account, autoBill: settings.whatsappAutoBill },
+    // For Settings -> WhatsApp: what this till sends from. Sent by a person, one per press (12 Oct).
+    whatsapp: { configured: whatsappConfig() !== null, account },
     counters,
     cashier: { id: actor.id, name: actor.name ?? null },
     permissions: actor.permissions
@@ -92,16 +92,6 @@ export async function setPaymentMethods(actor: Actor, raw: unknown) {
   if (methods.length === 0) throw badRequest('Keep at least one way to pay switched on.', { code: 'NO_METHOD' });
   await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { enabledPaymentMethods: [...methods] } });
   await record(actor, { action: 'shop.payment_methods_set', detail: { methods } });
-  return forTill(actor);
-}
-
-/** Bills sent on WhatsApp by themselves after each sale with a customer (12 Oct). Owner-only. */
-export async function setWhatsappAutoBill(actor: Actor, on: unknown) {
-  if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change how bills are sent.');
-  if (typeof on !== 'boolean') throw badRequest('Say on or off.');
-  if (on && !whatsappConfig()) throw conflict('WhatsApp is not set up for this till yet, so bills cannot go by themselves.', { code: 'NOT_CONFIGURED' });
-  await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { whatsappAutoBill: on } });
-  await record(actor, { action: 'shop.whatsapp_auto_bill_set', detail: { on } });
   return forTill(actor);
 }
 
