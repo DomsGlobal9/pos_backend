@@ -2,7 +2,6 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { search, variantsOf } from '../services/items';
 import { completeSale, getSale, completeSaleSchema } from '../services/sale';
-import { autoSendBill } from '../services/receipt-send';
 import { quoteBasket, walletFor, createQr, qrStatus, closeQr } from '../services/inventory-link';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
@@ -119,8 +118,6 @@ router.post('/', async (req, res, next) => {
     // 200 rather than 201 on a replay: nothing was created the second time, and a till that
     // branches on the status code should see the difference.
     res.status(result.replayed ? 200 : 201).json({ success: true, data: result });
-    // After the answer, never in its way: the bill on WhatsApp, if the owner switched that on.
-    if (!result.replayed) void autoSendBill((req as any).actor, result.sale.id);
   } catch (error) {
     next(error);
   }
