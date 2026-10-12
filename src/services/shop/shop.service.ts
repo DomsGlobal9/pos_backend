@@ -4,7 +4,7 @@ import { Actor } from '../../types/actor';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { may, PERMISSIONS } from '../../types/actor';
 import { record } from '../audit';
-import { whatsappConfig } from '../receipt-send';
+import { whatsappConfig, whatsappAccount } from '../receipt-send';
 
 /**
  * What the till needs to know before it can sell: which shop it is, and which counters it has.
@@ -20,7 +20,7 @@ export async function forTill(actor: Actor) {
       select: {
         shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true, upiQrEnabled: true,
         enabledPaymentMethods: true, manualDiscountMaxPercent: true, returnWindowDays: true,
-        holdThresholdQty: true, upiId: true, gstRegistration: true
+        holdThresholdQty: true, upiId: true, gstRegistration: true, whatsappAutoBill: true
       }
     }),
     prisma.counter.findMany({
@@ -32,6 +32,7 @@ export async function forTill(actor: Actor) {
   ]);
 
   if (!settings) throw notFound('This shop is not set up yet.');
+  const account = await whatsappAccount(actor.clientId);
 
   return {
     shop: settings,
@@ -43,14 +44,14 @@ export async function forTill(actor: Actor) {
     inventoryConnected: link?.connected === true,
     /*
      * Whether this till can send a receipt itself, or whether the cashier sends it from their own
-     * WhatsApp instead. Only the settings, not whether the shop's number is linked -- that is a
-     * question for the WhatsApp service and not worth a network call on every screen load; a send
-     * to an unlinked number comes back with the service's own sentence.
-     *
-     * It is false for every shop that does not use Inventory, because the only place to link a
-     * number today is Inventory's own settings. Those shops get Share, which needs nothing.
+     * WhatsApp instead (Share). Set up AND the shop's number linked (12 Oct: the button used to show
+     * for a shop with nothing linked). If the service did not answer, the button stays and a send
+     * comes back with the service's own sentence. Shops without Inventory get Share: the only place to
+     * link a number is Inventory's Settings -> WhatsApp.
      */
-    whatsappReady: whatsappConfig() !== null,
+    whatsappReady: whatsappConfig() !== null && (account === null || account.status === 'CONNECTED'),
+    // For Settings -> WhatsApp: what this till sends from, and whether bills go by themselves.
+    whatsapp: { configured: whatsappConfig() !== null, account, autoBill: settings.whatsappAutoBill },
     counters,
     cashier: { id: actor.id, name: actor.name ?? null },
     permissions: actor.permissions
@@ -86,11 +87,21 @@ export async function setPaymentMethods(actor: Actor, raw: unknown) {
   const asked = Array.isArray(raw) ? raw.map(m => String(m).toUpperCase()) : [];
   const methods = COUNTER_METHODS.filter(m => asked.includes(m));
   if (asked.some(m => !(COUNTER_METHODS as readonly string[]).includes(m))) {
-    throw badRequest('Only cash, UPI and card are switched on or off here.', { code: 'BAD_METHOD' });
+    throw badRequest('Only cash, UPI, card, bank transfer and cheque are switched on or off here.', { code: 'BAD_METHOD' });
   }
   if (methods.length === 0) throw badRequest('Keep at least one way to pay switched on.', { code: 'NO_METHOD' });
   await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { enabledPaymentMethods: [...methods] } });
   await record(actor, { action: 'shop.payment_methods_set', detail: { methods } });
+  return forTill(actor);
+}
+
+/** Bills sent on WhatsApp by themselves after each sale with a customer (12 Oct). Owner-only. */
+export async function setWhatsappAutoBill(actor: Actor, on: unknown) {
+  if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change how bills are sent.');
+  if (typeof on !== 'boolean') throw badRequest('Say on or off.');
+  if (on && !whatsappConfig()) throw conflict('WhatsApp is not set up for this till yet, so bills cannot go by themselves.', { code: 'NOT_CONFIGURED' });
+  await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { whatsappAutoBill: on } });
+  await record(actor, { action: 'shop.whatsapp_auto_bill_set', detail: { on } });
   return forTill(actor);
 }
 
