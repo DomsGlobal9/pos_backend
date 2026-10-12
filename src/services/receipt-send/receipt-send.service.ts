@@ -34,6 +34,52 @@ export function whatsappConfig() {
 
 const DOCS = 'the bill';
 
+export interface WhatsAppAccount { status: string; phone: string | null; linkedAt: string | null; lastSeenAt: string | null }
+
+/*
+ * THE SHOP'S LINKED NUMBER, as the WhatsApp service knows it (12 Oct: Settings showed nothing, and the
+ * WhatsApp button appeared for a shop with no number linked). One link per shop, made in Inventory's
+ * Settings -> WhatsApp and shared by every module; the till only reads it. Asked at most once a minute
+ * per shop, so the screens that need it cost nothing. Null: the service is not set up, or did not answer.
+ */
+const accounts = new Map<string, { at: number; value: WhatsAppAccount | null }>();
+export async function whatsappAccount(clientId: string): Promise<WhatsAppAccount | null> {
+  const config = whatsappConfig();
+  if (!config) return null;
+  const cached = accounts.get(clientId);
+  if (cached && Date.now() - cached.at < 60_000) return cached.value;
+  let value: WhatsAppAccount | null = null;
+  try {
+    const res = await fetch(`${config.url}/v1/accounts/client/${encodeURIComponent(clientId)}`, {
+      headers: { 'x-module-key': config.key }, signal: AbortSignal.timeout(3_000)
+    });
+    if (res.ok) {
+      const body: any = await res.json();
+      value = { status: String(body?.status ?? 'NOT_LINKED'), phone: body?.phone ?? null, linkedAt: body?.linkedAt ?? null, lastSeenAt: body?.lastSeenAt ?? null };
+    }
+  } catch { /* unknown: left null, and not cached, so the next screen asks again */ }
+  if (value) accounts.set(clientId, { at: Date.now(), value });
+  return value;
+}
+
+/*
+ * THE BILL, SENT BY ITSELF after a sale with a customer, when the owner has switched it on (12 Oct).
+ * The service's rule is a person pressing Send for each message to a customer; the owner switching
+ * this on is that decision, as with Inventory's points notice after a sale (C9). Everything else is
+ * the same as the button: the bill's own customer, from the shop's linked number, the service's daily
+ * limits and STOP list. Never in the sale's way: after the bill is saved, and a failure is only a row.
+ */
+export async function autoSendBill(actor: Actor, saleId: string) {
+  try {
+    const on = await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { whatsappAutoBill: true } });
+    if (!on?.whatsappAutoBill || !whatsappConfig()) return;
+    const sale = await prisma.sale.findFirst({ where: { id: saleId, clientId: actor.clientId }, select: { customer: { select: { phone: true } } } });
+    if (!sale?.customer?.phone) return;
+    if ((await whatsappAccount(actor.clientId))?.status !== 'CONNECTED') return;
+    await sendReceipt(actor, saleId, { onceKey: `auto-bill-${saleId}` });
+  } catch { /* the send's own row says what happened; the sale is done either way */ }
+}
+
 export async function sendReceipt(actor: Actor, saleId: string, input: { onceKey: string; channel?: string }) {
   /*
    * A PERSON, every time. The service's rule is one message per press and never automatic, because

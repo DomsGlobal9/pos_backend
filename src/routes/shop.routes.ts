@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { forTill, setUpiId, setLogo, setGstRegistration, setPaymentMethods } from '../services/shop';
+import { forTill, setUpiId, setLogo, setGstRegistration, setPaymentMethods, setWhatsappAutoBill } from '../services/shop';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 const router = Router();
@@ -28,6 +28,15 @@ router.put('/upi', async (req, res, next) => {
 router.put('/payment-methods', async (req, res, next) => {
   try {
     res.json({ success: true, data: await setPaymentMethods((req as any).actor, req.body?.methods) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** PUT /api/v1/shop/whatsapp-auto-bill -- `{ on: true|false }`. Bills go on WhatsApp by themselves after each sale. Owner-only. */
+router.put('/whatsapp-auto-bill', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await setWhatsappAutoBill((req as any).actor, req.body?.on) });
   } catch (error) {
     next(error);
   }
