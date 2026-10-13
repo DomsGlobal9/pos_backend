@@ -20,7 +20,9 @@ router.get('/', handle(req => status(req.actor)));
 
 /** POST /api/v1/inventory-link/connect -- the key is tried against Inventory before it is kept. */
 router.post('/connect', handle(req => {
-  const body = z.object({ key: z.string().min(1, 'Paste the connection key'), baseUrl: z.string().optional(), whenDown: z.string().optional() })
+  // No address from the request: Inventory's address is this deployment's (13 Oct audit -- an owner
+  // pointing it at their own server could reach inside ours, and borrow another shop's WhatsApp).
+  const body = z.object({ key: z.string().min(1, 'Paste the connection key'), whenDown: z.string().optional() })
     .safeParse(req.body);
   if (!body.success) throw badRequest(body.error.issues[0].message);
   return connect(req.actor, body.data);

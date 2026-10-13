@@ -4,7 +4,7 @@ import {
   quoteSchema, createReturnSchema, createExchangeSchema
 } from '../services/returns';
 import { badRequest } from '../utils/httpError';
-import { sendCreditNote } from '../services/receipt-send';
+import { sendCreditNote, sendsFor } from '../services/receipt-send';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 /**
@@ -65,6 +65,15 @@ router.post('/bill/:saleId/exchange', async (req, res, next) => {
 router.post('/:id/send', async (req, res, next) => {
   try {
     res.json({ success: true, data: await sendCreditNote((req as any).actor, req.params.id, { onceKey: String(req.body?.onceKey ?? '') }) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** GET /api/v1/returns/:id/sends -- the credit note's WhatsApp sends, and how far each got. */
+router.get('/:id/sends', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await sendsFor((req as any).actor, req.params.id) });
   } catch (error) {
     next(error);
   }

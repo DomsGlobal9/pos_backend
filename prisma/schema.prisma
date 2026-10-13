@@ -1362,7 +1362,7 @@ model ReceiptSend {
   clientId String @map("client_id")
   saleId   String @map("sale_id")
 
-  /// WHATSAPP today. EMAIL and SMS when a provider is chosen.
+  /// WHATSAPP today. EMAIL and SMS when a provider is chosen. (saleId is the document: a bill, or since 13 Oct a credit note -- no foreign key.)
   channel String
   /// Last four digits only -- the full number stays on the customer record.
   toLast4 String @map("to_last4")

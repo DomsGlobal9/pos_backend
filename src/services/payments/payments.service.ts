@@ -413,7 +413,7 @@ export async function resolve(
 ) {
   const payment = await prisma.payment.findFirst({
     where: { id: paymentId, clientId: actor.clientId },
-    select: { id: true, status: true, method: true, amountPaise: true, saleId: true, sale: { select: { invoiceNo: true } } }
+    select: { id: true, status: true, method: true, amountPaise: true, saleId: true, reference: true, sale: { select: { invoiceNo: true } } }
   });
   if (!payment) throw notFound('That payment was not found.');
 
@@ -457,6 +457,22 @@ export async function resolve(
   }
 
   /*
+   * 13 Oct audit: "arrived" was the way round the counter's checks -- a sale sent as made offline
+   * parks a reused UTR here instead of refusing it, and "arrived" with nothing typed made it takings.
+   * Now: a cashier needs the reference in hand (a manager or the owner, who checks the bank, may
+   * confirm without one), and a reference already on another bill takes a manager, as at the counter.
+   */
+  const keptRef = input.arrived && !input.reference?.trim() ? payment.reference : null;
+  if (input.arrived && !input.reference?.trim() && !keptRef && NEEDS_REFERENCE.includes(payment.method) && !may(actor, PERMISSIONS.PAYMENT_VOID)) {
+    throw badRequest(`Type the ${pretty(payment.method)} reference from the bank or the slip. Without one, a manager has to confirm it.`, { code: 'REFERENCE_REQUIRED' });
+  }
+  const keptDupes = keptRef ? await duplicateReferences(prisma as any, actor.clientId, [{ method: payment.method, reference: keptRef }], payment.id) : [];
+  const dupeDetail = { references: keptDupes.map(d => ({ method: d.method, reference: d.reference, invoiceNo: d.invoiceNo })) };
+  if (keptDupes.length && !input.approval) {
+    throw forbidden(duplicateMessage(keptDupes[0]), { code: 'APPROVAL_REQUIRED', kind: 'DUPLICATE_REFERENCE', ...dupeDetail });
+  }
+
+  /*
    * The payment and the sale's money status change together. Checking a UPI and finding it never
    * arrived means the customer owes that money again, and the bill has to say so -- otherwise the
    * Orders screen shows nothing due on a bill that is short.
@@ -467,6 +483,9 @@ export async function resolve(
       // The PIN is checked inside the same transaction: an approval for a void that never happened
       // would be a manager's name against something they did not agree to.
       approvedBy = (await grant(actor, { kind: 'PAYMENT_VOID', pin: input.approval!.pin, reason: why, detail: voidDetail }, tx)).approvedBy;
+    }
+    if (keptDupes.length) {
+      approvedBy = (await grant(actor, { kind: 'DUPLICATE_REFERENCE', pin: input.approval!.pin, reason: input.approval!.reason, detail: dupeDetail }, tx)).approvedBy;
     }
     const saved = await tx.payment.update({ where: { id: paymentId }, data, select: { method: true, amountPaise: true, reference: true, status: true } });
     await refreshMoneyStatus(tx, payment.saleId);

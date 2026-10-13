@@ -31,7 +31,8 @@ export async function devActor(req: Request, res: Response, next: NextFunction) 
       return next();
     }
 
-    if (env.NODE_ENV === 'production' || env.REQUIRE_SIGN_IN) {
+    // RENDER is set by the host itself: a deploy that forgot NODE_ENV still never hands out the dev user.
+    if (env.NODE_ENV === 'production' || env.REQUIRE_SIGN_IN || process.env.RENDER) {
       return res.status(401).json({ success: false, message: 'Please sign in.', details: { code: 'NO_STAFF' } });
     }
 

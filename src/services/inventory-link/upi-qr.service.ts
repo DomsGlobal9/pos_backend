@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
 import { call } from './client';
-import { refreshMoneyStatus } from '../payments';
+import { refreshMoneyStatus, duplicateReferences } from '../payments';
 import { paymentUpdated } from '../events';
 
 /**
@@ -122,6 +122,8 @@ export async function confirmQrPayments(clientId: string): Promise<number> {
   for (const p of waiting) {
     const s = await qrStatus(clientId, p.qrId!);
     if (s.status !== 'PAID' || s.paidPaise !== p.amountPaise || !(s.utr || s.paymentId)) continue;
+    // One QR payment settles one bill: a QR already counted on another bill waits for a person (13 Oct audit).
+    if ((await duplicateReferences(prisma as any, clientId, [{ method: 'UPI', reference: s.utr ?? s.paymentId! }], p.id)).length) continue;
     await prisma.$transaction(async (tx) => {
       const saved = await tx.payment.update({
         where: { id: p.id },

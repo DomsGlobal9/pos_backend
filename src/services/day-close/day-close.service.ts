@@ -164,6 +164,12 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
  * and what has happened since.
  */
 export async function day(actor: Actor, date: string) {
+  // The whole shop's day, the drawer's cash in it: what Reports keeps from a cashier, and what a blind
+  // count hides (13 Oct audit).
+  // People only: the shop's own software reaches this through its key's day:read scope.
+  if (actor.kind === 'USER' && !may(actor, PERMISSIONS.CLOSE_DAY) && !may(actor, PERMISSIONS.REPORTS)) {
+    throw forbidden('Only a manager or the owner can see the day\'s figures.', { code: 'NOT_PERMITTED' });
+  }
   const { key, end } = dayRange(date);
   const [live, snapshot, shifts] = await Promise.all([
     figures(actor, date),
