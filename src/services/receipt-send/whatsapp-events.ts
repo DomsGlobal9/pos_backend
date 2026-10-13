@@ -37,24 +37,27 @@ export async function handleWhatsAppEvent(raw: Buffer, signature: string | undef
   try { event = JSON.parse(raw.toString('utf8')); } catch { return 400; }
   if (!event?.id || typeof event.id !== 'string') return 400;
 
-  const fresh = await prisma.whatsappEventSeen.createMany({ data: [{ id: event.id }], skipDuplicates: true });
-  if (fresh.count === 0) return 204;
-
   const data = event.data ?? {};
-  if (event.type === 'message.status' && data.messageId) {
-    const incoming = String(data.status ?? '').toUpperCase();
-    const row = await prisma.receiptSend.findFirst({ where: { providerId: String(data.messageId) }, select: { id: true, status: true } });
-    const next = row ? nextStatus(row.status, incoming) : null;
-    if (row && next) {
-      await prisma.receiptSend.update({
-        where: { id: row.id },
-        // A delivered or read tick clears an earlier failure: it proves the bill arrived.
-        data: { status: next, failReason: FINAL.has(next) ? (data.failReason ?? null) : null }
-      });
+  // Seen and applied together: a failure in between rolls both back and the service's retry lands.
+  const fresh = await prisma.$transaction(async (tx) => {
+    const seen = await tx.whatsappEventSeen.createMany({ data: [{ id: event.id }], skipDuplicates: true });
+    if (seen.count === 0) return false;
+    if (event.type === 'message.status' && data.messageId) {
+      const incoming = String(data.status ?? '').toUpperCase();
+      const row = await tx.receiptSend.findFirst({ where: { providerId: String(data.messageId) }, select: { id: true, status: true } });
+      const next = row ? nextStatus(row.status, incoming) : null;
+      if (row && next) {
+        await tx.receiptSend.update({
+          where: { id: row.id },
+          // A delivered or read tick clears an earlier failure: it proves the bill arrived.
+          data: { status: next, failReason: FINAL.has(next) ? (data.failReason ?? null) : null }
+        });
+      }
     }
-  } else if (String(event.type ?? '').startsWith('account.')) {
-    forgetAccounts();
-  }
+    return true;
+  });
+  if (!fresh) return 204;
+  if (String(event.type ?? '').startsWith('account.')) forgetAccounts();
 
   // Housekeeping: the service never repeats an event after a few minutes; a week is plenty.
   await prisma.whatsappEventSeen.deleteMany({ where: { seenAt: { lt: new Date(Date.now() - 7 * 86_400_000) } } });

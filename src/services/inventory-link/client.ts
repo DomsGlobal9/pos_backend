@@ -1,4 +1,5 @@
 import { open } from '../../utils/credential';
+import { checkAddress } from '../webhooks/endpoints.service';
 
 /**
  * The one place the POS speaks HTTP to Inventory. Contract: docs/product/INVENTORY-CONTRACT.md.
@@ -55,8 +56,12 @@ export async function call(
  */
 export async function fetchBytes(url: string, link?: LinkTarget, timeoutMs = 3_000): Promise<Buffer | null> {
   try {
+    // An owner's own logo address: the public internet only, and no redirect inward (13 Oct audit --
+    // anyone can make the server fetch it, by opening a public receipt's PDF).
+    if (!link) await checkAddress(url);
     const res = await fetch(link ? `${link.baseUrl.replace(/\/+$/, '')}${url}` : url, {
       signal: AbortSignal.timeout(timeoutMs),
+      redirect: link ? 'follow' : 'manual',
       headers: link ? { 'x-storefront-key': open(link.keyCipher) } : {}
     });
     if (res.status !== 200) return null;

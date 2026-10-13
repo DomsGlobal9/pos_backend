@@ -76,7 +76,10 @@ router.post('/:id/ready', async (req, res, next) => {
  */
 router.post('/:id/hand-over', async (req, res, next) => {
   try {
-    const body = z.object({ acceptDue: z.boolean().optional() }).safeParse(req.body ?? {});
+    const body = z.object({
+      acceptDue: z.boolean().optional(),
+      approval: z.object({ pin: z.string().min(1), reason: z.string().trim().min(1) }).optional()
+    }).safeParse(req.body ?? {});
     if (!body.success) throw badRequest('Say whether to hand over with money owed.');
     res.json({ success: true, data: await handOver((req as any).actor, req.params.id, body.data) });
   } catch (error) {

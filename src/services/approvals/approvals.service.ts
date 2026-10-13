@@ -66,7 +66,13 @@ export const REASON_MIN = 4;
  */
 const LOCKOUT_AFTER = 5;
 const LOCKOUT_MS = 60_000;
-const attempts = new Map<string, { count: number; until: number }>();
+/*
+ * Each lockout doubles, up to an hour, until an approval actually goes through or the till has been
+ * quiet for an hour (13 Oct audit: a flat minute let 7,200 guesses a day through -- every 4-digit
+ * PIN in under two days). After the seventh lockout it is five guesses an hour.
+ */
+const LOCKOUT_MAX_MS = 3_600_000;
+const attempts = new Map<string, { count: number; until: number; lockouts: number; last: number }>();
 
 function checkLockout(clientId: string) {
   const record = attempts.get(clientId);
@@ -80,10 +86,14 @@ function checkLockout(clientId: string) {
 }
 
 function noteFailure(clientId: string) {
-  const record = attempts.get(clientId) ?? { count: 0, until: 0 };
+  const now = Date.now();
+  const old = attempts.get(clientId);
+  const record = old && now - old.last < LOCKOUT_MAX_MS ? old : { count: 0, until: 0, lockouts: 0, last: now };
   record.count += 1;
+  record.last = now;
   if (record.count >= LOCKOUT_AFTER) {
-    record.until = Date.now() + LOCKOUT_MS;
+    record.until = now + Math.min(LOCKOUT_MS * 2 ** record.lockouts, LOCKOUT_MAX_MS);
+    record.lockouts += 1;
     record.count = 0;
   }
   attempts.set(clientId, record);
@@ -180,7 +190,6 @@ export async function grant(
   }
 
   const manager = matches[0];
-  clearFailures(actor.clientId);
 
   const roles = manager.roles.map(r => r.role.name);
   const permissions = manager.roles.flatMap(r => r.role.permissions.map(p => p.permission.key));
@@ -188,10 +197,13 @@ export async function grant(
   const allowed = holdsEverything({ ...actor, roles } as Actor) || permissions.includes(required);
 
   if (!allowed) {
-    throw forbidden(
-      `${manager.name ?? 'That person'} is not allowed to approve ${HUMAN_KIND[request.kind]}.`,
-      { code: 'NOT_PERMITTED' }
-    );
+    /*
+     * A real PIN that may not approve -- usually a cashier's own. It counts as a wrong try and never
+     * clears the count (13 Oct audit: typing your own PIN after every four guesses reset the lockout
+     * for good), and it does not name whose PIN it was.
+     */
+    noteFailure(actor.clientId);
+    throw forbidden(`That PIN cannot approve ${HUMAN_KIND[request.kind]}. A manager or the owner has to enter theirs.`, { code: 'NOT_PERMITTED' });
   }
 
   /*
@@ -207,6 +219,9 @@ export async function grant(
       { code: 'SELF_APPROVAL' }
     );
   }
+
+  // Only an approval that goes through clears the count.
+  clearFailures(actor.clientId);
 
   const approval = await db.approval.create({
     data: {

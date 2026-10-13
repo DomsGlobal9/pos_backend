@@ -30,14 +30,24 @@ function mustManage(actor: Actor) {
 }
 
 /** Private, loopback and link-local addresses -- our own network, which a webhook must never reach. */
-function isPrivate(ip: string) {
+export function isPrivate(ip: string) {
   if (net.isIPv4(ip)) {
     const [a, b] = ip.split('.').map(Number);
     return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
   }
   const v = ip.toLowerCase();
-  return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80') || v.startsWith('::ffff:127.') || v.startsWith('::ffff:10.') || v.startsWith('::ffff:192.168.');
+  // An IPv4 address written as IPv6 -- "::ffff:169.254.169.254", which Node prints as
+  // "::ffff:a9fe:a9fe" (13 Oct audit) -- is checked as the IPv4 address it is.
+  const mapped = /^(?:::ffff:|64:ff9b::)(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(v);
+  if (mapped) {
+    if (mapped[1]) return isPrivate(mapped[1]);
+    const hi = parseInt(mapped[2], 16), lo = parseInt(mapped[3], 16);
+    return isPrivate(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`);
+  }
+  return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80') || v.startsWith('::ffff:');
 }
+// shortcut: the address is checked, then fetch looks it up again, so a DNS answer that changes in between
+// (rebinding) gets through; pin the checked IP with an undici Agent's connect.lookup if a shop ever abuses it.
 
 /**
  * Is this an address we may send a shop's data to?

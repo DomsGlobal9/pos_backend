@@ -25,6 +25,16 @@ export const errorHandler = (err: any, req: Request, res: Response, _next: NextF
     });
   }
 
+  // The body could not be read (body-parser): the sender's fault, so say so -- and keep a stack out of
+  // the log for what anyone on the internet can send at will.
+  if (err?.type === 'entity.parse.failed' || err?.type === 'entity.too.large') {
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.type === 'entity.too.large' ? 'That request is too large.' : 'That request could not be read. Refresh the till and try again.',
+      details: { code: err.type === 'entity.too.large' ? 'TOO_LARGE' : 'BAD_JSON' }
+    });
+  }
+
   // Everything that reaches here is unexpected, and worth the noise in the log: the method, the
   // path, and the whole error. Without the path, an error at a till is untraceable after the fact.
   console.error(`[error] ${req.method} ${req.originalUrl}`, err);

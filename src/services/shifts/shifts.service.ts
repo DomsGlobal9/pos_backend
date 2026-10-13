@@ -343,16 +343,8 @@ export async function move(actor: Actor, input: MoveInput) {
 
       let approvedById: string | null = null;
       if (input.direction === 'OUT') {
-        const figures = await cashFigures(tx, shift.id, Number(shift.opening_cash_paise));
-        if (input.amountPaise > figures.expectedPaise) {
-          throw conflict(
-            figures.expectedPaise <= 0
-              ? 'The drawer should be empty, so no cash can come out of it.'
-              : `Only ${rupees(figures.expectedPaise)} should be in the drawer. Count it — if there is more, record the extra as cash in first.`,
-            { code: 'MORE_THAN_DRAWER' }
-          );
-        }
-
+        // The manager first, the drawer second: "Only Rs X should be in the drawer" told a cashier the
+        // figure a blind count hides (13 Oct audit). Refused after the PIN, the approval rolls back.
         if (!may(actor, PERMISSIONS.CASH_OUT)) {
           const detail = { amountPaise: input.amountPaise, forWhat: reason };
           if (!input.approval) {
@@ -366,6 +358,16 @@ export async function move(actor: Actor, input: MoveInput) {
             action: 'approval.granted',
             detail: { kind: 'CASH_OUT', reason: granted.reason, approvedBy: granted.approvedBy.name, approvedById, ...detail }
           });
+        }
+
+        const figures = await cashFigures(tx, shift.id, Number(shift.opening_cash_paise));
+        if (input.amountPaise > figures.expectedPaise) {
+          throw conflict(
+            figures.expectedPaise <= 0
+              ? 'The drawer should be empty, so no cash can come out of it.'
+              : `Only ${rupees(figures.expectedPaise)} should be in the drawer. Count it — if there is more, record the extra as cash in first.`,
+            { code: 'MORE_THAN_DRAWER' }
+          );
         }
       }
 

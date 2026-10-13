@@ -294,7 +294,7 @@ export async function markReady(actor: Actor, saleId: string) {
  * Straight from WAITING is allowed: a customer who arrives early for goods that are, in fact,
  * ready should not wait while someone presses "ready" first.
  */
-export async function handOver(actor: Actor, saleId: string, input: { acceptDue?: boolean } = {}) {
+export async function handOver(actor: Actor, saleId: string, input: { acceptDue?: boolean; approval?: { pin: string; reason: string } } = {}) {
   let dueAtHandover = 0;
   let invoiceNo = '';
 
@@ -314,6 +314,17 @@ export async function handOver(actor: Actor, saleId: string, input: { acceptDue?
         `${rupees(dueAtHandover)} is still owed on this order. Collect it first, or confirm you are handing over with money due.`,
         { code: 'HANDOVER_WITH_DUE', owedPaise: dueAtHandover }
       );
+    }
+
+    /*
+     * Goods out with money owed IS selling on credit, so it takes what credit at the counter takes
+     * (13 Oct audit: a kept order with no advance, then "hand over anyway", was credit with no manager).
+     */
+    if (dueAtHandover > 0 && !may(actor, PERMISSIONS.PAY_LATER)) {
+      const detail = { owedPaise: dueAtHandover, totalPaise: order.totalPaise, invoiceNo: order.invoiceNo };
+      if (!input.approval) throw forbidden('A manager needs to approve handing it over with money owed.', { code: 'APPROVAL_REQUIRED', kind: 'PAY_LATER', ...detail });
+      const granted = await grant(actor, { kind: 'PAY_LATER', pin: input.approval.pin, reason: input.approval.reason, detail }, tx);
+      await tx.approval.update({ where: { id: granted.id }, data: { saleId } });
     }
 
     await tx.sale.update({

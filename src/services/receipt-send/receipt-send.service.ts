@@ -56,6 +56,7 @@ export async function sendCreditNote(actor: Actor, returnId: string, input: { on
   const text = `${note.shop?.shopName ?? 'The shop'}: credit note ${note.creditNoteNo} against bill ${note.originalSale?.invoiceNo ?? ''}, ` +
     `${rupees(note.totalPaise)} returned` + (back ? ` (${back})` : '') + (note.pointsBack > 0 ? `, ${note.pointsBack} points back` : '') + '.';
   let failReason: string | null = null;
+  let providerId: string | null = null;
   try {
     const res = await fetch(`${config.url}/v1/messages`, {
       method: 'POST',
@@ -68,9 +69,18 @@ export async function sendCreditNote(actor: Actor, returnId: string, input: { on
     });
     const body: any = await res.json().catch(() => null);
     if (res.status !== 202 && res.status !== 200) failReason = body?.error?.message ?? `WhatsApp did not take the credit note (${res.status}).`;
+    else providerId = body?.id ?? null;
   } catch (error: any) {
     failReason = error?.name === 'TimeoutError' ? 'WhatsApp took too long to answer. Try sending again.' : 'WhatsApp could not be reached. Try sending again.';
   }
+  // Kept like a bill's send, under the credit note's own id, so its ticks (and a late "not on
+  // WhatsApp") reach the credit note's screen too (13 Oct).
+  await prisma.receiptSend.create({
+    data: {
+      clientId: actor.clientId, saleId: note.id, channel: 'WHATSAPP', toLast4: phone.slice(-4), status: failReason ? 'FAILED' : 'QUEUED',
+      providerId, failReason, byId: actor.id ?? null, onceKey: `cn-${input.onceKey}`
+    }
+  }).catch(() => null);
   await record(actor, { action: 'receipt.sent', subject: note.creditNoteNo, detail: { channel: 'WHATSAPP', document: 'CREDIT_NOTE', status: failReason ? 'FAILED' : 'QUEUED', toLast4: phone.slice(-4) } });
   if (failReason) throw conflict(failReason, { code: 'SEND_FAILED' });
   return { to: `••••${phone.slice(-4)}`, status: 'QUEUED' };
