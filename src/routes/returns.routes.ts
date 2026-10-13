@@ -4,6 +4,7 @@ import {
   quoteSchema, createReturnSchema, createExchangeSchema
 } from '../services/returns';
 import { badRequest } from '../utils/httpError';
+import { sendCreditNote } from '../services/receipt-send';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 /**
@@ -55,6 +56,15 @@ router.post('/bill/:saleId/exchange', async (req, res, next) => {
     if (!body.success) throw badRequest(body.error.issues[0].message);
     const result = await createExchange((req as any).actor, req.params.saleId, body.data);
     res.status(result.replayed ? 200 : 201).json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** POST /api/v1/returns/:id/send -- `{ onceKey }`. The credit note on WhatsApp from the shop's number, one per press. */
+router.post('/:id/send', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await sendCreditNote((req as any).actor, req.params.id, { onceKey: String(req.body?.onceKey ?? '') }) });
   } catch (error) {
     next(error);
   }

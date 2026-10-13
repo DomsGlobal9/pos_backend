@@ -3,6 +3,8 @@ import { Actor } from '../../types/actor';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { record } from '../audit';
 import { pdfFor, money } from '../receipts';
+import { getReturn } from '../returns';
+import { rupees } from '../money';
 
 /**
  * Sending a customer their bill. POS-RCPT-006 (WhatsApp). Email and SMS wait on a provider.
@@ -33,6 +35,46 @@ export function whatsappConfig() {
 }
 
 const DOCS = 'the bill';
+
+/*
+ * A CREDIT NOTE ON WHATSAPP, from the shop's own number (13 Oct: on a shop with its number linked, the
+ * credit note could only be shared from the cashier's own phone). The service's kind C5. The same rules
+ * as a bill: a person presses it, one message per press, to the note's own customer, and the text is
+ * made here. A plain message with the figures -- the till has no credit-note PDF.
+ */
+const HOW: Record<string, string> = { CASH: 'cash', UPI: 'UPI', CARD: 'card', STORE_CREDIT: 'store credit', EXCHANGE: 'towards the new bill' };
+export async function sendCreditNote(actor: Actor, returnId: string, input: { onceKey: string }) {
+  if (actor.kind !== 'USER') throw forbidden('A credit note is sent by someone at the till, not by other software.', { code: 'NOT_PERMITTED' });
+  if (!input.onceKey || input.onceKey.length < 8) throw badRequest('This send needs a key.');
+  const note: any = await getReturn(actor, returnId);
+  const phone: string | undefined = note.customer?.phone ?? undefined;
+  if (!phone) throw badRequest('This credit note has no customer on it, so there is no number to send it to.', { code: 'NO_CUSTOMER' });
+  const config = whatsappConfig();
+  if (!config) throw conflict('WhatsApp is not set up for this till yet. Print the credit note instead.', { code: 'NOT_CONFIGURED' });
+
+  const back = (note.refunds ?? []).map((r: any) => `${rupees(r.amountPaise)} ${HOW[r.method] ?? r.method}`).join(', ');
+  const text = `${note.shop?.shopName ?? 'The shop'}: credit note ${note.creditNoteNo} against bill ${note.originalSale?.invoiceNo ?? ''}, ` +
+    `${rupees(note.totalPaise)} returned` + (back ? ` (${back})` : '') + (note.pointsBack > 0 ? `, ${note.pointsBack} points back` : '') + '.';
+  let failReason: string | null = null;
+  try {
+    const res = await fetch(`${config.url}/v1/messages`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(15_000),
+      headers: { 'content-type': 'application/json', 'x-module-key': config.key },
+      body: JSON.stringify({
+        from: { clientId: await platformClientId(actor.clientId) }, to: phone, text,
+        kind: 'C5', reference: note.creditNoteNo, idempotencyKey: `pos-cn-${input.onceKey}`
+      })
+    });
+    const body: any = await res.json().catch(() => null);
+    if (res.status !== 202 && res.status !== 200) failReason = body?.error?.message ?? `WhatsApp did not take the credit note (${res.status}).`;
+  } catch (error: any) {
+    failReason = error?.name === 'TimeoutError' ? 'WhatsApp took too long to answer. Try sending again.' : 'WhatsApp could not be reached. Try sending again.';
+  }
+  await record(actor, { action: 'receipt.sent', subject: note.creditNoteNo, detail: { channel: 'WHATSAPP', document: 'CREDIT_NOTE', status: failReason ? 'FAILED' : 'QUEUED', toLast4: phone.slice(-4) } });
+  if (failReason) throw conflict(failReason, { code: 'SEND_FAILED' });
+  return { to: `••••${phone.slice(-4)}`, status: 'QUEUED' };
+}
 
 export interface WhatsAppAccount { status: string; phone: string | null; linkedAt: string | null; lastSeenAt: string | null }
 
