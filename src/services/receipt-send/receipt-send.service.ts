@@ -4,6 +4,7 @@ import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError
 import { record } from '../audit';
 import { pdfFor, money } from '../receipts';
 import { getReturn } from '../returns';
+import { nextStatus } from './whatsapp-events';
 import { rupees } from '../money';
 
 /**
@@ -234,16 +235,17 @@ export async function sendsFor(actor: Actor, saleId: string) {
   const rows = await prisma.receiptSend.findMany({ where: { clientId: actor.clientId, saleId }, orderBy: { createdAt: 'desc' }, take: 10 });
   const config = whatsappConfig();
   if (config) {
-    for (const r of rows.filter(x => x.providerId && ['QUEUED', 'SENT'].includes(x.status)).slice(0, 3)) {
+    // DELIVERED too (13 Oct, live: it never became "read" when the service's webhook did not reach us).
+    for (const r of rows.filter(x => x.providerId && ['QUEUED', 'SENT', 'DELIVERED'].includes(x.status)).slice(0, 3)) {
       try {
         const res = await fetch(`${config.url}/v1/messages/${r.providerId}`, { headers: { 'x-module-key': config.key }, signal: AbortSignal.timeout(3_000) });
         if (!res.ok) continue;
         const body: any = await res.json();
-        const next = String(body?.status ?? '').toUpperCase();
-        if (['SENT', 'DELIVERED', 'READ', 'FAILED', 'EXPIRED'].includes(next) && next !== r.status) {
+        const moved = nextStatus(r.status, String(body?.status ?? '').toUpperCase());
+        if (moved) {
           const updated = await prisma.receiptSend.update({
             where: { id: r.id },
-            data: { status: next, failReason: body?.failReason ?? r.failReason }
+            data: { status: moved, failReason: body?.failReason ?? r.failReason }
           });
           Object.assign(r, updated);
         }
