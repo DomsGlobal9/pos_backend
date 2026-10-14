@@ -3,6 +3,7 @@ import { ApprovalKind, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Actor, PERMISSIONS, holdsEverything } from '../../types/actor';
 import { badRequest, forbidden } from '../../utils/httpError';
+import { record as audit } from '../audit';
 
 /**
  * A manager saying yes, without the cashier logging out. POS-APR-001..006.
@@ -85,7 +86,8 @@ function checkLockout(clientId: string) {
   }
 }
 
-function noteFailure(clientId: string) {
+function noteFailure(actor: Actor, kind: ApprovalKind) {
+  const clientId = actor.clientId;
   const now = Date.now();
   const old = attempts.get(clientId);
   const record = old && now - old.last < LOCKOUT_MAX_MS ? old : { count: 0, until: 0, lockouts: 0, last: now };
@@ -95,6 +97,9 @@ function noteFailure(clientId: string) {
     record.until = now + Math.min(LOCKOUT_MS * 2 ** record.lockouts, LOCKOUT_MAX_MS);
     record.lockouts += 1;
     record.count = 0;
+    // Who was typing, in the activity log: a lockout stops every approval in the shop, and the owner
+    // should know whose guessing did it (14 Oct). Outside the caller's transaction, so it stays.
+    void audit(actor, { action: 'approval.refused', detail: { kind, wrongTries: LOCKOUT_AFTER, lockedForSeconds: Math.round((record.until - now) / 1000), lockoutNumber: record.lockouts } });
   }
   attempts.set(clientId, record);
 }
@@ -172,7 +177,7 @@ export async function grant(
   }
 
   if (matches.length === 0) {
-    noteFailure(actor.clientId);
+    noteFailure(actor, request.kind);
     // Deliberately does not say whether the PIN exists but lacks permission -- that would let
     // someone map which PINs are real by trying them.
     throw forbidden('That PIN was not recognised.', { code: 'PIN_NOT_RECOGNISED' });
@@ -202,7 +207,7 @@ export async function grant(
      * clears the count (13 Oct audit: typing your own PIN after every four guesses reset the lockout
      * for good), and it does not name whose PIN it was.
      */
-    noteFailure(actor.clientId);
+    noteFailure(actor, request.kind);
     throw forbidden(`That PIN cannot approve ${HUMAN_KIND[request.kind]}. A manager or the owner has to enter theirs.`, { code: 'NOT_PERMITTED' });
   }
 
