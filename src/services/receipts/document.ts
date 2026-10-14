@@ -122,7 +122,11 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
 
   const igst = (sale.lines ?? []).reduce((n: number, l: any) => n + (l.igstPaise ?? 0), 0);
   L.push({ kind: 'pair', left: 'Subtotal', right: money(sale.subtotalPaise) });
-  if (sale.discountPaise > 0) L.push({ kind: 'pair', left: 'Discount', right: money(-sale.discountPaise) });
+  // Offers apart from a discount by hand, and the hand one as a percent of what the offers left (14 Oct).
+  const offers = sale.offersPaise ?? 0;
+  const byHand = sale.discountPaise - offers;
+  if (offers > 0) L.push({ kind: 'pair', left: 'Offers', right: money(-offers) });
+  if (byHand > 0) L.push({ kind: 'pair', left: discountLabel(byHand, sale.subtotalPaise - offers, offers > 0, money), right: money(-byHand) });
   // Rule 46: the taxable value, and each tax with its RATE -- one CGST/SGST (or IGST) pair per rate.
   if (sale.taxPaise > 0) {
     L.push({ kind: 'pair', left: 'Taxable value', right: money(sale.totalPaise - sale.roundOffPaise - sale.taxPaise) });
@@ -207,4 +211,14 @@ function byRate(lines: any[]) {
     groups.set(rate, g);
   }
   return [...groups.values()].sort((a, b) => a.rate - b.rate);
+}
+
+/**
+ * "Discount 10% (on Rs 9,000)" when the amount is a whole or half percent of what it came off, to
+ * the paisa; plain "Discount" otherwise. The base is named only when offers came first.
+ */
+export function discountLabel(byHand: number, base: number, afterOffers: boolean, fmt: (p: number) => string) {
+  const pct = base > 0 ? Math.round((byHand * 200) / base) / 2 : 0;
+  if (!pct || Math.round((base * pct) / 100) !== byHand) return 'Discount';
+  return `Discount ${pct}%${afterOffers ? ` (on ${fmt(base)})` : ''}`;
 }

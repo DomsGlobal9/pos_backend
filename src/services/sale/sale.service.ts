@@ -298,12 +298,12 @@ export async function writeSale(
        *   - a discount larger than the shop's cashier limit (POS-SET-005)
        *   - any price override at all
        *
-       * The limit is a percentage of what the tags come to, because that is how a shop owner
-       * thinks about it -- "nobody gives away more than a tenth" -- and it is checked against the
-       * bill as priced here, never against the figure the screen was showing.
+       * The limit is a percentage of what the bill comes to AFTER the offers -- the order Inventory
+       * keeps (offers first, then a hand discount on what is left; owner's decision 14 Oct). It is
+       * checked against the bill as priced here, never against the figure the screen was showing.
        */
       const limitPercent = settings?.manualDiscountMaxPercent ?? 0;
-      const allowedDiscount = applyPercent(priced.subtotalPaise, limitPercent);
+      const allowedDiscount = applyPercent(priced.subtotalPaise - offered.offersPaise, limitPercent);
       /*
        * MEASURED ON THE MANUAL PART ONLY (contract §9). An automatic offer is not a cashier giving
        * money away: a shop with a 10% limit running "10% off" must never ask for a manager's PIN.
@@ -793,7 +793,7 @@ export async function getSale(actor: Actor, saleId: string) {
       select: {
         id: true, itemId: true, description: true, hsn: true, qty: true, unitPricePaise: true,
         discountPaise: true, taxRate: true, taxPaise: true, lineTotalPaise: true,
-        cgstPaise: true, sgstPaise: true, igstPaise: true
+        cgstPaise: true, sgstPaise: true, igstPaise: true, appliedOffers: true
       }
     }),
     prisma.payment.findMany({
@@ -847,7 +847,13 @@ export async function getSale(actor: Actor, saleId: string) {
       // The receipt goes home with the customer and is often left on the counter.
       phoneMasked: phone ? `••••${phone.slice(-4)}` : null
     },
-    lines: lines.map(line => ({ ...line, returnedQty: returned.get(line.id) ?? 0 })),
+    /*
+     * What Inventory's offers took off, apart from a discount given by hand: the receipt prints them
+     * as two rows, the hand one as "10% (on what was left)" (14 Oct). Each line's discountPaise holds
+     * both, the bill discount spread across lines for GST; the offers are frozen per line.
+     */
+    offersPaise: lines.reduce((n, l) => n + (Array.isArray(l.appliedOffers) ? (l.appliedOffers as any[]).reduce((m, o) => m + (Number(o?.discountPaise) || 0), 0) : 0), 0),
+    lines: lines.map(({ appliedOffers, ...line }) => ({ ...line, returnedQty: returned.get(line.id) ?? 0 })),
     payments,
     returns: returns.map(r => ({
       id: r.id,
