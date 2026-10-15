@@ -68,7 +68,9 @@ router.patch('/:id', async (req, res, next) => {
     const body = z.object({
       name: z.string().max(120).nullable().optional(),
       gstin: z.string().max(20).nullable().optional(),
-      address: z.string().max(300).nullable().optional()
+      address: z.string().max(300).nullable().optional(),
+      // Credit allowed, in paise (15 Oct). null: none, a manager every time.
+      creditLimitPaise: z.number().int().min(0).max(2_000_000_000).nullable().optional()
     }).safeParse(req.body);
     if (!body.success) throw badRequest(body.error.issues[0].message);
     res.json({ success: true, data: await updateDetails((req as any).actor, req.params.id, body.data) });

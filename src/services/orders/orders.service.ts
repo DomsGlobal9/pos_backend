@@ -320,8 +320,13 @@ export async function handOver(actor: Actor, saleId: string, input: { acceptDue?
      * Goods out with money owed IS selling on credit, so it takes what credit at the counter takes
      * (13 Oct audit: a kept order with no advance, then "hand over anyway", was credit with no manager).
      */
-    if (dueAtHandover > 0 && !may(actor, PERMISSIONS.PAY_LATER)) {
-      const detail = { owedPaise: dueAtHandover, totalPaise: order.totalPaise, invoiceNo: order.invoiceNo };
+    // Within the customer's credit allowed (15 Oct), no manager; this order's balance is already in their total.
+    const customerLimit = dueAtHandover > 0 && order.customerId
+      ? (await tx.customer.findFirst({ where: { id: order.customerId, clientId: actor.clientId }, select: { creditLimitPaise: true } }))?.creditLimitPaise ?? null
+      : null;
+    const withinLimit = customerLimit !== null && (await owedByCustomer(actor.clientId, order.customerId!)) <= customerLimit;
+    if (dueAtHandover > 0 && !may(actor, PERMISSIONS.PAY_LATER) && !withinLimit) {
+      const detail = { owedPaise: dueAtHandover, totalPaise: order.totalPaise, invoiceNo: order.invoiceNo, creditLimitPaise: customerLimit };
       if (!input.approval) throw forbidden('A manager needs to approve handing it over with money owed.', { code: 'APPROVAL_REQUIRED', kind: 'PAY_LATER', ...detail });
       const granted = await grant(actor, { kind: 'PAY_LATER', pin: input.approval.pin, reason: input.approval.reason, detail }, tx);
       await tx.approval.update({ where: { id: granted.id }, data: { saleId } });
