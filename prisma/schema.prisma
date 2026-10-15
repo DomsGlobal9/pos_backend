@@ -271,6 +271,11 @@ model Customer {
   loyaltyPoints    Int @default(0) @map("loyalty_points")
   storeCreditPaise Int @default(0) @map("store_credit_paise")
 
+  /// CREDIT ALLOWED (udhaar), set by a manager or the owner (15 Oct). Up to this much owed in all, a
+  /// cashier may sell on credit or hand goods over owing without a manager; beyond it, or with none
+  /// set (null), a manager's PIN as before. Managers and the owner act on their own authority either way.
+  creditLimitPaise Int? @map("credit_limit_paise")
+
   /// MARKETING CONSENT. POS-CUST-006.
   ///
   /// Only ever turned ON at a till, when the cashier ticks that the customer agreed. A counter

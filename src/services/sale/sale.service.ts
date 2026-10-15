@@ -325,7 +325,14 @@ export async function writeSale(
           select: { totalPaise: true, payments: { select: { amountPaise: true, status: true } } }
         }) : [];
         const alreadyOwedPaise = earlier.reduce((n, o) => n + owedPaise(o.totalPaise, o.payments), 0);
-        needs.push({ kind: 'PAY_LATER', detail: { owedPaise: owingNow, totalPaise: priced.totalPaise, alreadyOwedPaise, alreadyOwedBills: earlier.length } });
+        // CREDIT ALLOWED (15 Oct): within what a manager set for this customer, no manager is called.
+        const creditLimitPaise = input.customerId ? (await prisma.customer.findFirst({ where: { id: input.customerId, clientId: actor.clientId }, select: { creditLimitPaise: true } }))?.creditLimitPaise ?? null : null;
+        const detail = { owedPaise: owingNow, totalPaise: priced.totalPaise, alreadyOwedPaise, alreadyOwedBills: earlier.length, creditLimitPaise };
+        if (creditLimitPaise !== null && alreadyOwedPaise + owingNow <= creditLimitPaise) {
+          pendingAudit.push({ action: 'order.handed_over_with_due', detail: { ...detail, withinCreditLimit: true } });
+        } else {
+          needs.push({ kind: 'PAY_LATER', detail });
+        }
       }
 
       if (discountOverLimit) {

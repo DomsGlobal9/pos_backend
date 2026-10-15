@@ -48,9 +48,15 @@ export interface CustomerCard {
   lifetimeSpentPaise: number;
   firstSeenAt: Date | null;
   lastSeenAt: Date | null;
+  /** Credit allowed without a manager (15 Oct); null: a manager every time. */
+  creditLimitPaise: number | null;
+  /** What they owe now, on every bill. Shown at the till when they are added. Absent in lists. */
+  owedPaise?: number;
 }
 
 export interface CustomerDetail extends CustomerCard {
+  /** Whether this person may set the customer's credit allowed (15 Oct). */
+  mayGiveCredit: boolean;
   /** POS-CUST-011. What they owe across every kept order. Unblocked in Phase 5. */
   owedPaise: number;
   /** POS-CUST-012. Why their store credit is what it is. Newest first. */
@@ -68,7 +74,7 @@ export interface CustomerDetail extends CustomerCard {
   }[];
 }
 
-function card(row: any, stats?: { count: number; total: number; first: Date | null; last: Date | null }): CustomerCard {
+function card(row: any, stats?: { count: number; total: number; first: Date | null; last: Date | null; owed?: number }): CustomerCard {
   return {
     id: row.id,
     phone: row.phone,
@@ -84,13 +90,15 @@ function card(row: any, stats?: { count: number; total: number; first: Date | nu
     visitCount: stats?.count ?? 0,
     lifetimeSpentPaise: stats?.total ?? 0,
     firstSeenAt: stats?.first ?? null,
-    lastSeenAt: stats?.last ?? null
+    lastSeenAt: stats?.last ?? null,
+    creditLimitPaise: row.creditLimitPaise ?? null,
+    ...(stats?.owed !== undefined ? { owedPaise: stats.owed } : {})
   };
 }
 
 const SELECT = {
   id: true, phone: true, name: true, gstin: true, address: true, note: true,
-  marketingConsent: true, loyaltyPoints: true, storeCreditPaise: true
+  marketingConsent: true, loyaltyPoints: true, storeCreditPaise: true, creditLimitPaise: true
 } as const;
 
 /**
@@ -248,15 +256,16 @@ export async function detail(actor: Actor, customerId: string): Promise<Customer
 
   if (!row) throw notFound('That customer was not found.');
 
-  const [stats, owed, credits] = await Promise.all([
+  const [stats, credits] = await Promise.all([
     statsFor(actor.clientId, customerId),
-    owedByCustomer(actor.clientId, customerId),
     creditHistory(actor, customerId, 10)
   ]);
 
   return {
     ...card(row, stats),
-    owedPaise: owed,
+    owedPaise: stats.owed,
+    // Who may set their credit allowed: whoever may lend (15 Oct).
+    mayGiveCredit: may(actor, PERMISSIONS.PAY_LATER),
     creditHistory: credits,
     recent: recent.map(sale => ({
       id: sale.id,
@@ -281,7 +290,7 @@ export async function detail(actor: Actor, customerId: string): Promise<Customer
  * rewarded for.
  */
 async function statsFor(clientId: string, customerId: string) {
-  const [result, back] = await Promise.all([
+  const [result, back, owed] = await Promise.all([
     prisma.sale.aggregate({
       where: { clientId, customerId, status: { in: ['COMPLETED', 'BALANCE_DUE'] } },
       _count: true,
@@ -294,9 +303,11 @@ async function statsFor(clientId: string, customerId: string) {
     prisma.return.aggregate({
       where: { clientId, originalSale: { customerId, status: { in: ['COMPLETED', 'BALANCE_DUE'] } } },
       _sum: { totalPaise: true }
-    })
+    }),
+    owedByCustomer(clientId, customerId)
   ]);
   return {
+    owed,
     count: result._count ?? 0,
     total: (result._sum?.totalPaise ?? 0) - (back._sum?.totalPaise ?? 0),
     first: result._min?.createdAt ?? null,
@@ -367,7 +378,7 @@ function normalise(raw: string) {
 export async function updateDetails(
   actor: Actor,
   customerId: string,
-  input: { name?: string | null; gstin?: string | null; address?: string | null }
+  input: { name?: string | null; gstin?: string | null; address?: string | null; creditLimitPaise?: number | null }
 ): Promise<CustomerCard> {
   const row = await prisma.customer.findFirst({ where: { id: customerId, clientId: actor.clientId, deletedAt: null }, select: SELECT });
   if (!row) throw notFound('That customer was not found.');
@@ -382,6 +393,11 @@ export async function updateDetails(
     }
     patch.gstin = gstin;
   }
+  if (input.creditLimitPaise !== undefined) {
+    // Lending is a manager's call: the same permission as selling on credit.
+    if (!may(actor, PERMISSIONS.PAY_LATER)) throw forbidden('Only a manager or the owner can set how much credit a customer gets.', { code: 'NOT_PERMITTED' });
+    patch.creditLimitPaise = input.creditLimitPaise;
+  }
   const gstinAfter = patch.gstin !== undefined ? patch.gstin : row.gstin;
   const addressAfter = patch.address !== undefined ? patch.address : row.address;
   if (gstinAfter && !addressAfter) {
@@ -389,7 +405,7 @@ export async function updateDetails(
   }
   const updated = Object.keys(patch).length ? await prisma.customer.update({ where: { id: row.id }, data: patch, select: SELECT }) : row;
   if (Object.keys(patch).length) {
-    await record(actor, { action: 'customer.updated', subject: maskPhone(row.phone), detail: { fields: Object.keys(patch), gstin: updated.gstin } });
+    await record(actor, { action: 'customer.updated', subject: maskPhone(row.phone), detail: { fields: Object.keys(patch), gstin: updated.gstin, creditLimitPaise: updated.creditLimitPaise } });
   }
   return card(updated, await statsFor(actor.clientId, updated.id));
 }
