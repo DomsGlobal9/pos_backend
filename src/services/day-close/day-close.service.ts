@@ -47,7 +47,8 @@ export const todayString = (now = new Date()) => {
 
 export interface DayFigures {
   date: string;
-  bills: { count: number; grossPaise: number; discountPaise: number; taxPaise: number; netPaise: number };
+  /** offersPaise: Inventory's offers' share of discountPaise (absent on days closed before 15 Oct). */
+  bills: { count: number; grossPaise: number; discountPaise: number; offersPaise?: number; taxPaise: number; netPaise: number };
   returns: { count: number; totalPaise: number };
   /** POS-DAY-001. Money in, by how it came: CASH, UPI, CARD -- and CREDIT / EXCHANGE, which are not money. */
   paidIn: Record<string, number>;
@@ -81,7 +82,7 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
   const clientId = actor.clientId;
   const inDay = { gte: start, lt: end };
 
-  const [bills, returns, paidIn, paidOut, shiftsOpened, moves, cashIn, cashOut, closed, toCheck, pending] = await Promise.all([
+  const [bills, returns, paidIn, paidOut, shiftsOpened, moves, cashIn, cashOut, closed, toCheck, pending, offered] = await Promise.all([
     prisma.sale.aggregate({
       where: { clientId, createdAt: inDay, status: { in: COUNTED } },
       _count: true,
@@ -116,6 +117,11 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
     prisma.device.aggregate({
       where: { clientId, lastSeenAt: { gte: new Date(Date.now() - 86_400_000) } },
       _sum: { pendingCount: true }
+    }),
+    // The offers' share of the discounts, as Reports counts it (15 Oct: the two disagreed on a day).
+    prisma.saleLine.findMany({
+      where: { sale: { clientId, createdAt: inDay, status: { in: COUNTED } }, appliedOffers: { not: Prisma.DbNull } },
+      select: { appliedOffers: true }
     })
   ]);
 
@@ -136,6 +142,7 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
       count: bills._count ?? 0,
       grossPaise: bills._sum.subtotalPaise ?? 0,
       discountPaise: bills._sum.discountPaise ?? 0,
+      offersPaise: offered.reduce((n, l) => n + (Array.isArray(l.appliedOffers) ? (l.appliedOffers as any[]).reduce((m, o) => m + (Number(o?.discountPaise) || 0), 0) : 0), 0),
       taxPaise: bills._sum.taxPaise ?? 0,
       netPaise: bills._sum.totalPaise ?? 0
     },
