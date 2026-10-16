@@ -36,6 +36,8 @@ export interface Wallet {
     usablePoints: number; usablePaise: number; reason: string | null;
   };
   credit: null | { balancePaise: number; usablePaise: number };
+  /** The customer's groups in Inventory, display names (16 Oct): the till shows each as a badge. */
+  groups?: string[];
   reason?: string | null;
 }
 export type WalletResult = { ok: true; wallet: Wallet } | { ok: false; reason: string };
