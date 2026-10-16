@@ -131,6 +131,12 @@ export function referenceFor(payment: { method: PaymentMethod; reference?: strin
     }
     return { reference: ref };
   }
+  if (payment.method === 'VOUCHER') {
+    // A gift voucher's code, as Inventory writes it: "gv7kq29xma" and "7KQ2 9XMA" are GV-7KQ2-9XMA.
+    const code = voucherCode(payment.reference);
+    if (!code) return { problem: 'Type the gift voucher code, like GV-7KQ2-9XMA.', code: 'BAD_VOUCHER_CODE' };
+    return { reference: code };
+  }
   if (payment.method === 'BANK_TRANSFER') {
     // The bank's UTR: 12 digits (IMPS) up to 22 letters and digits (RTGS). Optional at the counter.
     const ref = (payment.reference ?? '').replace(/\s+/g, '').toUpperCase();
@@ -154,6 +160,12 @@ export function referenceFor(payment: { method: PaymentMethod; reference?: strin
   return { reference: payment.reference?.trim() || null };
 }
 
+/** A gift voucher's code, the way Inventory normalises it (PLAN-gift-vouchers.md); null when it cannot be one. */
+export function voucherCode(raw: unknown): string | null {
+  const s = String(raw ?? '').toUpperCase().replace(/[\s-]/g, '').replace(/^GV/, '');
+  return /^[A-Z0-9]{8}$/.test(s) ? `GV-${s.slice(0, 4)}-${s.slice(4)}` : null;
+}
+
 export const CASH_LIMIT_PAISE = 20_000_000;
 
 export function planPayments(
@@ -173,7 +185,8 @@ export function planPayments(
   // Store credit is not a method a shop turns on or off: it is the customer's own money, given by
   // an earlier return, and whether it can be spent is decided by their balance.
   for (const payment of payments) {
-    if (payment.method === 'CREDIT' || payment.method === 'POINTS') continue;
+    // A voucher is switched on in Inventory (Settings → Gift vouchers), not on this list.
+    if (payment.method === 'CREDIT' || payment.method === 'POINTS' || payment.method === 'VOUCHER') continue;
     if (enabledMethods.length > 0 && !enabledMethods.includes(payment.method)) {
       throw badRequest(`This shop is not set up to take ${pretty(payment.method)}.`);
     }
@@ -275,8 +288,8 @@ export function planPayments(
       throw badRequest('Cash is either taken or it is not. Only UPI and card can be left to check.');
     }
     // The same for store credit: the balance is right here, so there is nothing to check later.
-    if ((payment.method === 'CREDIT' || payment.method === 'POINTS') && status === 'NEEDS_CHECKING') {
-      throw badRequest(payment.method === 'CREDIT'
+    if ((payment.method === 'CREDIT' || payment.method === 'POINTS' || payment.method === 'VOUCHER') && status === 'NEEDS_CHECKING') {
+      throw badRequest(payment.method === 'VOUCHER' ? 'A gift voucher is either there or it is not. Only UPI and card can be left to check.' : payment.method === 'CREDIT'
         ? 'Store credit is either there or it is not. Only UPI and card can be left to check.'
         : 'Points are either there or they are not. Only UPI and card can be left to check.');
     }
@@ -512,5 +525,5 @@ export async function resolve(
 
 export const pretty = (m: PaymentMethod) => ({
   CASH: 'cash', UPI: 'UPI', CARD: 'card', BANK_TRANSFER: 'bank transfer', CHEQUE: 'cheque',
-  CREDIT: 'store credit', POINTS: 'points', BALANCE: 'balance', EXCHANGE: 'exchange'
+  CREDIT: 'store credit', POINTS: 'points', BALANCE: 'balance', EXCHANGE: 'exchange', VOUCHER: 'gift voucher'
 }[m] ?? m);

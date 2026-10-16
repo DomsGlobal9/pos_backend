@@ -2,6 +2,7 @@ import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
 import { conflict, badRequest } from '../../utils/httpError';
 import { call } from './client';
+import { voucherCode } from '../payments';
 
 /**
  * Points and store credit at the till. Contract §10.
@@ -42,7 +43,8 @@ export interface Wallet {
 }
 export type WalletResult = { ok: true; wallet: Wallet } | { ok: false; reason: string };
 
-export interface Hold { kind: 'POINTS' | 'CREDIT'; holdId: string; valuePaise: number }
+/** code: a VOUCHER hold's voucher -- a bill may carry several, each matched to its own payment row. */
+export interface Hold { kind: 'POINTS' | 'CREDIT' | 'VOUCHER'; holdId: string; valuePaise: number; code?: string }
 
 const CANT = 'Points and store credit can\'t be used right now. Take the rest another way.';
 const CONFIRM_TIMEOUT_MS = 6_000;
@@ -95,29 +97,39 @@ export async function walletFor(actor: Actor, customerId: string, billPaise: num
  */
 export async function holdForSale(actor: Actor, input: {
   onceKey: string; customerId?: string;
-  payments: { method: string; amountPaise: number; points?: number }[];
+  payments: { method: string; amountPaise: number; points?: number; reference?: string }[];
   madeOfflineAt?: Date;
 }): Promise<Hold[]> {
   const pointsRows = input.payments.filter(p => p.method === 'POINTS');
   const creditRows = input.payments.filter(p => p.method === 'CREDIT');
-  if (pointsRows.length === 0 && creditRows.length === 0) return [];
+  // Gift vouchers (16 Oct): held in Inventory by their code. A walk-in may spend one -- no customer needed.
+  const voucherRows = input.payments.filter(p => p.method === 'VOUCHER');
+  if (pointsRows.length === 0 && creditRows.length === 0 && voucherRows.length === 0) return [];
 
   const link = await liveLink(actor.clientId);
   if (!link) {
     if (pointsRows.length) throw badRequest('Points are kept in Inventory, and this shop is not connected to it. Take the payment another way.', { code: 'POINTS_UNAVAILABLE' });
+    if (voucherRows.length) throw badRequest('Gift vouchers are kept in Inventory, and this shop is not connected to it. Take the payment another way.', { code: 'VOUCHER_UNAVAILABLE' });
     return []; // A shop with no Inventory spends its own store credit, as it always has.
   }
   if (pointsRows.length > 1 || creditRows.length > 1) throw badRequest('Take points and store credit once each on a bill.');
-  if (!input.customerId) throw badRequest('Points and store credit belong to a customer. Add the customer to the bill first.', { code: 'CUSTOMER_REQUIRED' });
+  const codes = voucherRows.map(p => voucherCode(p.reference));
+  if (codes.some(c => !c)) throw badRequest('Type the gift voucher code, like GV-7KQ2-9XMA.', { code: 'BAD_VOUCHER_CODE' });
+  if (new Set(codes).size !== codes.length) throw badRequest('That gift voucher is on the bill twice. Take it once, for the whole amount.', { code: 'VOUCHER_TWICE' });
+  const balances = pointsRows.length + creditRows.length > 0;
+  if (balances && !input.customerId) throw badRequest('Points and store credit belong to a customer. Add the customer to the bill first.', { code: 'CUSTOMER_REQUIRED' });
   // A sale saved with no connection is never allowed to spend a balance it could not check (§10 rule 3).
-  if (input.madeOfflineAt || link.blockedSequence !== null) throw conflict(CANT, { code: 'POINTS_UNAVAILABLE' });
-  const phone = await phoneOf(actor.clientId, input.customerId);
-  if (!phone) throw badRequest('This customer has no phone number, so Inventory cannot find their points.');
+  if (input.madeOfflineAt || link.blockedSequence !== null) {
+    throw conflict(balances ? CANT : 'Gift vouchers can\'t be used right now. Take the payment another way.', { code: balances ? 'POINTS_UNAVAILABLE' : 'VOUCHER_UNAVAILABLE' });
+  }
+  const phone = balances ? await phoneOf(actor.clientId, input.customerId!) : null;
+  if (balances && !phone) throw badRequest('This customer has no phone number, so Inventory cannot find their points.');
 
   const billPaise = input.payments.reduce((n, p) => n + p.amountPaise, 0);
-  const wanted: { kind: 'POINTS' | 'CREDIT'; amount: number; amountPaise: number }[] = [
+  const wanted: { kind: 'POINTS' | 'CREDIT' | 'VOUCHER'; amount: number; amountPaise: number; code?: string }[] = [
     ...pointsRows.map(p => ({ kind: 'POINTS' as const, amount: p.points ?? 0, amountPaise: p.amountPaise })),
-    ...creditRows.map(p => ({ kind: 'CREDIT' as const, amount: p.amountPaise, amountPaise: p.amountPaise }))
+    ...creditRows.map(p => ({ kind: 'CREDIT' as const, amount: p.amountPaise, amountPaise: p.amountPaise })),
+    ...voucherRows.map((p, i) => ({ kind: 'VOUCHER' as const, amount: p.amountPaise, amountPaise: p.amountPaise, code: codes[i]! }))
   ];
   for (const w of wanted) {
     if (!Number.isInteger(w.amount) || w.amount <= 0) throw badRequest(w.kind === 'POINTS' ? 'Say how many points.' : 'Say how much store credit.');
@@ -126,24 +138,28 @@ export async function holdForSale(actor: Actor, input: {
   const held: Hold[] = [];
   try {
     for (const w of wanted) {
-      let key = `${input.onceKey}:${w.kind}`.slice(0, 120);
+      const base = w.kind === 'VOUCHER' ? `${input.onceKey}:VOUCHER:${w.code}` : `${input.onceKey}:${w.kind}`;
+      let key = base.slice(0, 120);
       for (let attempt = 0; attempt < 2; attempt++) {
-        const reply = await call(link, 'POST', '/holds', { idempotencyKey: key, customerRef: phone, kind: w.kind, amount: w.amount, billPaise }, 10_000);
-        if (reply.kind === 'UNREACHABLE') throw conflict(CANT, { code: 'POINTS_UNAVAILABLE' });
+        const body = w.kind === 'VOUCHER'
+          ? { idempotencyKey: key, kind: 'VOUCHER', voucherCode: w.code, amount: w.amount, billPaise }
+          : { idempotencyKey: key, customerRef: phone, kind: w.kind, amount: w.amount, billPaise };
+        const reply = await call(link, 'POST', '/holds', body, 10_000);
+        if (reply.kind === 'UNREACHABLE') throw conflict(w.kind === 'VOUCHER' ? 'Gift vouchers can\'t be used right now. Take the payment another way.' : CANT, { code: w.kind === 'VOUCHER' ? 'VOUCHER_UNAVAILABLE' : 'POINTS_UNAVAILABLE' });
         const data = reply.body?.data ?? {};
         if (reply.status !== 200) {
-          const what = w.kind === 'POINTS' ? 'Points' : 'Store credit';
+          const what = w.kind === 'POINTS' ? 'Points' : w.kind === 'VOUCHER' ? `Gift voucher ${w.code}` : 'Store credit';
           throw conflict(`${what} can't be used: ${String(data.detail ?? 'Inventory refused').replace(/[.\s]+$/, '')}. Take the rest another way.`, { code: data.answer ?? 'POINTS_REFUSED' });
         }
-        if (data.status === 'RELEASED' || data.status === 'SWEPT') { key = `${input.onceKey}:${w.kind}:${Date.now()}`.slice(0, 120); continue; }
-        held.push({ kind: w.kind, holdId: String(data.holdId), valuePaise: Number(data.valuePaise) });
+        if (data.status === 'RELEASED' || data.status === 'SWEPT') { key = `${base}:${Date.now()}`.slice(0, 120); continue; }
+        held.push({ kind: w.kind, holdId: String(data.holdId), valuePaise: Number(data.valuePaise), ...(w.code ? { code: w.code } : {}) });
         // The payment row must carry what the hold is worth -- not a figure the screen worked out.
         if (Number(data.valuePaise) !== w.amountPaise) {
-          throw conflict(`Inventory values these ${w.kind === 'POINTS' ? 'points' : 'credit'} at Rs ${(Number(data.valuePaise) / 100).toFixed(2)}, not Rs ${(w.amountPaise / 100).toFixed(2)}. Check the wallet again.`, { code: 'HOLD_VALUE_CHANGED', valuePaise: Number(data.valuePaise) });
+          throw conflict(`Inventory values ${w.kind === 'POINTS' ? 'these points' : w.kind === 'VOUCHER' ? `voucher ${w.code}` : 'this credit'} at Rs ${(Number(data.valuePaise) / 100).toFixed(2)}, not Rs ${(w.amountPaise / 100).toFixed(2)}. Check the wallet again.`, { code: 'HOLD_VALUE_CHANGED', valuePaise: Number(data.valuePaise) });
         }
         break;
       }
-      if (!held.find(h => h.kind === w.kind)) throw conflict(CANT, { code: 'POINTS_UNAVAILABLE' });
+      if (!held.find(h => h.kind === w.kind && h.code === w.code)) throw conflict(CANT, { code: 'POINTS_UNAVAILABLE' });
     }
     return held;
   } catch (error) {
@@ -189,7 +205,7 @@ export async function confirmSaleHolds(clientId: string, saleId: string): Promis
   const notes: string[] = [];
   for (const r of rows) {
     const out = await confirmOne(link, { id: r.id, holdId: r.holdId!, invoiceNo: r.sale.invoiceNo, at: r.createdAt });
-    if (out === 'GONE') notes.push(`${r.method === 'POINTS' ? 'Points' : 'Store credit'} could not be confirmed; the customer's balance was not used. The bill stands.`);
+    if (out === 'GONE') notes.push(r.method === 'VOUCHER' ? 'The gift voucher could not be confirmed; nothing came off it. The bill stands.' : `${r.method === 'POINTS' ? 'Points' : 'Store credit'} could not be confirmed; the customer's balance was not used. The bill stands.`);
   }
   return notes;
 }
@@ -220,6 +236,9 @@ export async function confirmPendingHolds(clientId: string, max = 20) {
  * from payment.updated, which is not agreed yet.
  */
 export async function refuseUnheldBalances(clientId: string, payments: { method: string }[], where: string) {
+  if (payments.some(p => p.method === 'VOUCHER')) {
+    throw badRequest(`A gift voucher is spent on a new bill at the till, not on ${where}. Take this payment another way.`, { code: 'VOUCHER_UNAVAILABLE' });
+  }
   if (payments.some(p => p.method === 'POINTS')) {
     throw badRequest(`Points are spent on a new bill at the till, not on ${where}. Take this payment another way.`, { code: 'POINTS_UNAVAILABLE' });
   }

@@ -24,7 +24,8 @@ const lines = z.array(returnLine)
  * EXCHANGE is not offered here: an exchange is its own request, because it is a return AND a sale.
  */
 export const refundSchema = z.object({
-  method: z.enum(['CASH', 'UPI', 'CARD', 'STORE_CREDIT']),
+  // VOUCHER (16 Oct): back onto the gift voucher(s) that paid this bill -- never cash.
+  method: z.enum(['CASH', 'UPI', 'CARD', 'STORE_CREDIT', 'VOUCHER']),
   /** The UPI or card refund's reference. Required for those two, as on a payment. */
   reference: z.string().trim().max(64).optional()
 });

@@ -696,6 +696,8 @@ enum PaymentMethod {
   CREDIT
   /// Loyalty points spent as money.
   POINTS
+  /// A gift voucher, held in Inventory by its code (16 Oct). The payment's reference is the code.
+  VOUCHER
   /// A KEPT sale's outstanding balance. Not money received -- the line that makes the bill add up.
   BALANCE
   /// Goods brought back in the same exchange, standing in for money on the new bill. POS-EXC-004.
@@ -835,6 +837,8 @@ enum RefundMethod {
   STORE_CREDIT
   /// Settled against the goods taken instead -- an exchange.
   EXCHANGE
+  /// Back onto the gift voucher(s) that paid the bill (16 Oct). Never cash.
+  VOUCHER
 }
 
 model ReturnLine {
@@ -1480,4 +1484,32 @@ model TillSession {
 
   @@index([clientId])
   @@map("till_sessions")
+}
+
+/// A gift voucher the till SOLD (16 Oct). Inventory holds the voucher and its balance; this is the
+/// till's record of the money taken for it, for the drawer, the shift and the day close. Not a sale:
+/// no GST, no invoice number (GST is charged on the goods when the voucher is used).
+model VoucherSale {
+  id          String   @id @default(uuid())
+  clientId    String   @map("client_id")
+  code        String
+  amountPaise Int      @map("amount_paise")
+  /// The cash part, for the drawer.
+  cashPaise   Int      @default(0) @map("cash_paise")
+  /// [{ method, amountPaise, reference }] as sent to Inventory.
+  payments    Json
+  expiresAt   DateTime @map("expires_at")
+  buyerName   String?  @map("buyer_name")
+  buyerPhone  String?  @map("buyer_phone")
+  counterId   String?  @map("counter_id")
+  shiftId     String?  @map("shift_id")
+  soldById    String?  @map("sold_by_id")
+  /// The sale's key, sent to Inventory as idempotencyKey: a retry gets the same voucher.
+  onceKey     String   @map("once_key")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([clientId, onceKey])
+  @@index([clientId, createdAt])
+  @@index([shiftId])
+  @@map("voucher_sales")
 }
