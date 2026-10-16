@@ -28,6 +28,7 @@ export type AuditAction =
   | 'bill.reprinted'
   | 'approval.granted'
   | 'approval.refused'
+  | 'voucher.sold'
   | 'order.handed_over_with_due'
   | 'order.written_off'
   | 'return.created'

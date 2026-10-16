@@ -37,7 +37,8 @@ export const paymentSchema = z.object({
    * taken from their balance inside the sale's own transaction -- never from a figure the screen
    * was showing. EXCHANGE is deliberately absent: only the exchange path may write one.
    */
-  method: z.enum(['CASH', 'UPI', 'CARD', 'CREDIT', 'POINTS', 'BANK_TRANSFER', 'CHEQUE']),
+  // VOUCHER (16 Oct): a gift voucher, its code in `reference`; held in Inventory like points.
+  method: z.enum(['CASH', 'UPI', 'CARD', 'CREDIT', 'POINTS', 'BANK_TRANSFER', 'CHEQUE', 'VOUCHER']),
   amountPaise: paise.positive('A payment has to be for something'),
   /** Cash handed over. Only meaningful for CASH, and the change is worked out from it. */
   tenderedPaise: paise.positive().optional(),

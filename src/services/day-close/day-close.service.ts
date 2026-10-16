@@ -5,6 +5,7 @@ import { badRequest, conflict, forbidden } from '../../utils/httpError';
 import { record } from '../audit';
 import { dayClosed } from '../events';
 import { openShifts } from '../shifts';
+import { vouchersSold } from '../vouchers';
 
 /**
  * Closing the day. WF-DAY-01. POS-DAY-001..005.
@@ -61,6 +62,8 @@ export interface DayFigures {
     refundsPaise: number;
     inPaise: number;
     outPaise: number;
+    /** Cash taken for gift vouchers (16 Oct; absent on days closed before). */
+    voucherCashPaise?: number;
     /** What the drawers should hold between them. */
     positionPaise: number;
     /** Cash taken or refunded with no shift open. Part of the position, reported on its own. */
@@ -70,6 +73,8 @@ export interface DayFigures {
     variancePaise: number | null;
     shiftsClosed: number;
   };
+  /** GIFT VOUCHERS (16 Oct): money in that is owed in goods -- not sales, not profit. Used: paid part of bills, not money in. */
+  vouchers?: { soldCount: number; soldPaise: number; soldByMethod: Record<string, number>; usedPaise: number };
   /** Payments made today still waiting to be checked against the bank. */
   paymentsToCheck: number;
   /** POS-DAY-004. Sales saved on devices during an outage and not yet sent, as the devices report it. */
@@ -82,7 +87,7 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
   const clientId = actor.clientId;
   const inDay = { gte: start, lt: end };
 
-  const [bills, returns, paidIn, paidOut, shiftsOpened, moves, cashIn, cashOut, closed, toCheck, pending, offered] = await Promise.all([
+  const [bills, returns, paidIn, paidOut, shiftsOpened, moves, cashIn, cashOut, closed, toCheck, pending, offered, sold, used, voucherCashNoShift] = await Promise.all([
     prisma.sale.aggregate({
       where: { clientId, createdAt: inDay, status: { in: COUNTED } },
       _count: true,
@@ -122,7 +127,10 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
     prisma.saleLine.findMany({
       where: { sale: { clientId, createdAt: inDay, status: { in: COUNTED } }, appliedOffers: { not: Prisma.DbNull } },
       select: { appliedOffers: true }
-    })
+    }),
+    vouchersSold(clientId, start, end),
+    prisma.payment.aggregate({ where: { clientId, createdAt: inDay, method: 'VOUCHER', status: 'COLLECTED' }, _sum: { amountPaise: true } }),
+    prisma.voucherSale.aggregate({ where: { clientId, createdAt: inDay, shiftId: null }, _sum: { cashPaise: true } })
   ]);
 
   const byMethod = (rows: { method: string; _sum: { amountPaise: number | null } }[]) =>
@@ -135,6 +143,7 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
   const refundsPaise = outMap.CASH ?? 0;
   const inPaise = moves.find(m => m.direction === 'IN')?._sum.amountPaise ?? 0;
   const outPaise = moves.find(m => m.direction === 'OUT')?._sum.amountPaise ?? 0;
+  const voucherCashPaise = sold.byMethod.CASH ?? 0;
 
   return {
     date,
@@ -155,12 +164,14 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
       refundsPaise,
       inPaise,
       outPaise,
-      positionPaise: openingPaise + salesPaise - refundsPaise + inPaise - outPaise,
-      unattributedPaise: (cashIn._sum.amountPaise ?? 0) - (cashOut._sum.amountPaise ?? 0),
+      voucherCashPaise,
+      positionPaise: openingPaise + salesPaise - refundsPaise + inPaise - outPaise + voucherCashPaise,
+      unattributedPaise: (cashIn._sum.amountPaise ?? 0) - (cashOut._sum.amountPaise ?? 0) + (voucherCashNoShift._sum.cashPaise ?? 0),
       countedPaise: closed._count ? closed._sum.countedCashPaise ?? 0 : null,
       variancePaise: closed._count ? closed._sum.differencePaise ?? 0 : null,
       shiftsClosed: closed._count ?? 0
     },
+    vouchers: { soldCount: sold.count, soldPaise: sold.totalPaise, soldByMethod: sold.byMethod, usedPaise: used._sum.amountPaise ?? 0 },
     paymentsToCheck: toCheck,
     pendingSync: pending._sum.pendingCount ?? 0
   };

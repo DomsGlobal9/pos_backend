@@ -95,13 +95,15 @@ export interface CashFigures {
   cashRefundsPaise: number;
   cashInPaise: number;
   cashOutPaise: number;
+  /** Cash taken for gift vouchers sold in this shift (16 Oct). */
+  voucherCashPaise: number;
   /** What should be in the drawer. POS-SHIFT-005. */
   expectedPaise: number;
 }
 
 /** Added up from the rows, every time. Rule 1. */
 export async function cashFigures(db: Db, shiftId: string, openingPaise: number): Promise<CashFigures> {
-  const [sales, refunds, moves] = await Promise.all([
+  const [sales, refunds, moves, vouchers] = await Promise.all([
     db.payment.aggregate({
       where: { shiftId, method: 'CASH', status: 'COLLECTED' },
       _sum: { amountPaise: true }
@@ -114,19 +116,23 @@ export async function cashFigures(db: Db, shiftId: string, openingPaise: number)
       by: ['direction'],
       where: { shiftId },
       _sum: { amountPaise: true }
-    })
+    }),
+    // Cash taken for gift vouchers is in this drawer too (16 Oct).
+    db.voucherSale.aggregate({ where: { shiftId }, _sum: { cashPaise: true } })
   ]);
   const cashSalesPaise = sales._sum.amountPaise ?? 0;
   const cashRefundsPaise = refunds._sum.amountPaise ?? 0;
   const cashInPaise = moves.find(m => m.direction === 'IN')?._sum.amountPaise ?? 0;
   const cashOutPaise = moves.find(m => m.direction === 'OUT')?._sum.amountPaise ?? 0;
+  const voucherCashPaise = vouchers._sum.cashPaise ?? 0;
   return {
     openingPaise,
     cashSalesPaise,
     cashRefundsPaise,
     cashInPaise,
     cashOutPaise,
-    expectedPaise: openingPaise + cashSalesPaise - cashRefundsPaise + cashInPaise - cashOutPaise
+    voucherCashPaise,
+    expectedPaise: openingPaise + cashSalesPaise - cashRefundsPaise + cashInPaise - cashOutPaise + voucherCashPaise
   };
 }
 

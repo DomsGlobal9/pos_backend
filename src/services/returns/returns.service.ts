@@ -196,6 +196,19 @@ function moneyRefundable(bill: Bill) {
 }
 
 /**
+ * How much of this bill may still go back onto its gift voucher(s) (16 Oct): what vouchers paid,
+ * less what has gone back onto them. Voucher money never goes back as cash (moneyRefundable leaves it
+ * out); Inventory puts it back on the vouchers that paid, an expired one given 30 more days.
+ */
+function voucherRefundable(bill: Bill) {
+  const paid = bill.payments
+    .filter(p => p.status === 'COLLECTED' && p.method === 'VOUCHER')
+    .reduce((sum, p) => sum + p.amountPaise, 0);
+  const back = bill.returns.flatMap(r => r.refunds).filter(r => r.method === 'VOUCHER').reduce((sum, r) => sum + r.amountPaise, 0);
+  return Math.max(0, paid - back);
+}
+
+/**
  * THE POINTS SHARE OF A RETURN. Contract §10.5, Inventory's own rule (loyalty.service shareOfBill),
  * copied exactly because the two sides must split the same way or the customer is refunded twice.
  *
@@ -356,6 +369,7 @@ export async function eligibility(actor: Actor, saleId: string) {
     window,
     approvalNeeded: approvalNeeded(actor, window),
     moneyRefundablePaise: moneyRefundable(bill),
+    voucherRefundablePaise: voucherRefundable(bill),
     customer: bill.customer && {
       id: bill.customer.id,
       name: bill.customer.name,
@@ -364,7 +378,8 @@ export async function eligibility(actor: Actor, saleId: string) {
     },
     refundMethods: [
       ...MONEY.filter(m => settings.enabledPaymentMethods.length === 0 || settings.enabledPaymentMethods.includes(m as PaymentMethod)),
-      'STORE_CREDIT' as const
+      'STORE_CREDIT' as const,
+      ...(voucherRefundable(bill) > 0 ? ['VOUCHER' as const] : [])
     ],
     lines: bill.lines.map(line => {
       const returned = already.get(line.id) ?? 0;
@@ -608,6 +623,14 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
           }
           await addCredit(tx, actor, customerId, leftover, { returnId: created.id });
           refunds.push({ method: 'STORE_CREDIT', amountPaise: leftover, reference: null });
+        } else if (refund.method === 'VOUCHER') {
+          const room = voucherRefundable(bill);
+          if (room === 0) throw badRequest('This bill was not paid with a gift voucher, so nothing can go back onto one.', { code: 'NOT_PAID_BY_VOUCHER' });
+          if (leftover > room) {
+            throw conflict(`Only ${rupees(room)} of this bill was paid by gift voucher, so ${rupees(leftover)} cannot all go back onto it. Give the rest as store credit, or return less.`,
+              { code: 'REFUND_OVER_VOUCHER', voucherRefundablePaise: room, wantedPaise: leftover });
+          }
+          refunds.push({ method: 'VOUCHER', amountPaise: leftover, reference: null });
         } else {
           checkMoneyRefund(bill, settings.enabledPaymentMethods, refund, leftover);
           refunds.push({ method: refund.method, amountPaise: leftover, reference: refund.reference?.trim() || null });

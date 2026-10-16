@@ -55,7 +55,7 @@ export function ascii(text: string): string {
 
 const METHOD: Record<string, string> = {
   CASH: 'Cash', UPI: 'UPI', CARD: 'Card', CREDIT: 'Store credit', EXCHANGE: 'Exchange credit', POINTS: 'Points', BALANCE: 'Balance',
-  BANK_TRANSFER: 'Bank transfer', CHEQUE: 'Cheque'
+  BANK_TRANSFER: 'Bank transfer', CHEQUE: 'Cheque', VOUCHER: 'Gift voucher'
 };
 
 const when = (d: Date | string) => {

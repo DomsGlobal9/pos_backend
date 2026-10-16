@@ -34,7 +34,8 @@ const line = (l: any) => ({
  * when a refund was split -- plus the whole list. Store credit is Inventory's CREDIT; the part of an
  * exchange settled by the new goods is not money and is left out.
  */
-const REFUND: Record<string, string> = { CASH: 'CASH', UPI: 'UPI', CARD: 'CARD', STORE_CREDIT: 'CREDIT' };
+// VOUCHER (16 Oct): back onto the gift voucher(s) that paid the bill; Inventory finds which.
+const REFUND: Record<string, string> = { CASH: 'CASH', UPI: 'UPI', CARD: 'CARD', STORE_CREDIT: 'CREDIT', VOUCHER: 'VOUCHER' };
 function refundOf(refunds: any[] | undefined) {
   const list = (refunds ?? [])
     .filter(r => REFUND[r.method] && r.amountPaise > 0)
