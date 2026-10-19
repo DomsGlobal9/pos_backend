@@ -42,7 +42,12 @@ export async function sellVoucher(actor: Actor, input: SellVoucherInput) {
 
   if (input.payments.some(p => !SOLD_WITH.includes(p.method))) throw badRequest('A gift voucher is paid for in cash, UPI or card.', { code: 'BAD_PAYMENT' });
   if (input.payments.some(p => (p as any).unconfirmed)) throw badRequest('A gift voucher is as good as cash: take the payment for certain, not "to check later".', { code: 'MUST_BE_CONFIRMED' });
-  const settings = await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { enabledPaymentMethods: true } });
+  const settings = await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { enabledPaymentMethods: true, giftVouchers: true } });
+  // What Inventory's catalogue said (19 Oct): off, or outside the shop's limits, is refused before anything is sent.
+  const rules = settings?.giftVouchers as { enabled?: boolean; minPaise?: number | null; maxPaise?: number | null } | null;
+  if (rules && rules.enabled === false) throw conflict('Gift vouchers are switched off for this shop. Switch them on in Inventory → Settings → Gift vouchers.', { code: 'VOUCHERS_OFF' });
+  if (rules?.minPaise && input.amountPaise < rules.minPaise) throw badRequest(`A voucher here is at least ₹${(rules.minPaise / 100).toLocaleString('en-IN')}.`, { code: 'AMOUNT' });
+  if (rules?.maxPaise && input.amountPaise > rules.maxPaise) throw badRequest(`A voucher here is at most ₹${(rules.maxPaise / 100).toLocaleString('en-IN')}.`, { code: 'AMOUNT' });
   // The till's own rules first: amounts add up, references look right, the ₹2 lakh cash rule (269ST).
   const planned = planPayments(input.amountPaise, input.payments, settings?.enabledPaymentMethods ?? [], 'EXACT');
   const dupes = await duplicateReferences(prisma as any, actor.clientId, planned);
