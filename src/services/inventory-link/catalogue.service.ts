@@ -89,6 +89,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   // and phone are this till's STORE's own when set). Only the keys Inventory actually sent.
   // Self-confirming UPI, the owner's switch in Inventory. undefined: Inventory did not say -- left alone.
   let upiQrEnabled: boolean | undefined;
+  let giftVouchers: { enabled: boolean; minPaise: number | null; maxPaise: number | null } | undefined;
   const details: { name?: unknown; address?: unknown; phone?: unknown; gstin?: unknown; receiptFooter?: unknown } = {};
 
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -123,6 +124,11 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
       inventoryLogo = typeof data.shop.logoUrl === 'string' && /^https:\/\//.test(data.shop.logoUrl) ? data.shop.logoUrl : null;
     }
     if (data.upiQr && typeof data.upiQr === 'object') upiQrEnabled = data.upiQr.enabled === true;
+    // Gift vouchers (19 Oct): selling one is offered only where the shop has switched them on, inside its limits.
+    if (data.giftVouchers && typeof data.giftVouchers === 'object') {
+      const n = (v: unknown) => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : null);
+      giftVouchers = { enabled: data.giftVouchers.enabled === true, minPaise: n(data.giftVouchers.minPaise), maxPaise: n(data.giftVouchers.maxPaise) };
+    }
     if (data.shop && typeof data.shop === 'object') {
       // Inventory's platform id for this shop (12 Oct), for the WhatsApp service. A plain id or nothing.
       if (typeof data.shop.clientId === 'string' && /^[\w.-]{1,80}$/.test(data.shop.clientId)) platformClientId = data.shop.clientId;
@@ -205,6 +211,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   if ('receiptFooter' in details) header.receiptFooter = text(details.receiptFooter, 300);
   if (Object.keys(header).length) await prisma.shopSettings.updateMany({ where: { clientId }, data: header });
   if (upiQrEnabled !== undefined) await prisma.shopSettings.updateMany({ where: { clientId }, data: { upiQrEnabled } });
+  if (giftVouchers !== undefined) await prisma.shopSettings.updateMany({ where: { clientId }, data: { giftVouchers } });
   if (platformClientId) await prisma.inventoryLink.updateMany({ where: { clientId }, data: { platformClientId } });
   if (returnWindow !== undefined) await prisma.shopSettings.updateMany({ where: { clientId }, data: { returnWindowDays: returnWindow } });
   if (manualDiscount) {
