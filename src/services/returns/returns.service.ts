@@ -615,7 +615,24 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
           );
         }
 
-        if (refund.method === 'STORE_CREDIT') {
+        /*
+         * VOUCHER MONEY GOES BACK ONTO THE VOUCHER FIRST, whatever else is chosen (live 19 Oct: a walk-in's
+         * bill paid ₹600 by voucher and ₹2,100 cash could not be returned at all -- the voucher capped at
+         * ₹600, cash at ₹2,100, and store credit needs a customer). The chosen way covers the rest.
+         */
+        const room = voucherRefundable(bill);
+        if (refund.method === 'VOUCHER' && room === 0) throw badRequest('This bill was not paid with a gift voucher, so nothing can go back onto one.', { code: 'NOT_PAID_BY_VOUCHER' });
+        if (refund.method === 'VOUCHER' && leftover > room) {
+          throw conflict(`${rupees(room)} goes back onto the gift voucher by itself. Choose how the other ${rupees(leftover - room)} goes back: cash, UPI, card or store credit.`,
+            { code: 'REFUND_OVER_VOUCHER', voucherRefundablePaise: room, wantedPaise: leftover });
+        }
+        const ontoVoucher = Math.min(leftover, room);
+        if (ontoVoucher > 0) {
+          refunds.push({ method: 'VOUCHER', amountPaise: ontoVoucher, reference: null });
+          leftover -= ontoVoucher;
+        }
+
+        if (leftover > 0 && refund.method === 'STORE_CREDIT') {
           if (!customerId) {
             throw badRequest('Store credit is kept against a phone number. Add the customer first.', {
               code: 'CUSTOMER_REQUIRED'
@@ -623,15 +640,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
           }
           await addCredit(tx, actor, customerId, leftover, { returnId: created.id });
           refunds.push({ method: 'STORE_CREDIT', amountPaise: leftover, reference: null });
-        } else if (refund.method === 'VOUCHER') {
-          const room = voucherRefundable(bill);
-          if (room === 0) throw badRequest('This bill was not paid with a gift voucher, so nothing can go back onto one.', { code: 'NOT_PAID_BY_VOUCHER' });
-          if (leftover > room) {
-            throw conflict(`Only ${rupees(room)} of this bill was paid by gift voucher, so ${rupees(leftover)} cannot all go back onto it. Give the rest as store credit, or return less.`,
-              { code: 'REFUND_OVER_VOUCHER', voucherRefundablePaise: room, wantedPaise: leftover });
-          }
-          refunds.push({ method: 'VOUCHER', amountPaise: leftover, reference: null });
-        } else {
+        } else if (leftover > 0) {
           checkMoneyRefund(bill, settings.enabledPaymentMethods, refund, leftover);
           refunds.push({ method: refund.method, amountPaise: leftover, reference: refund.reference?.trim() || null });
         }
