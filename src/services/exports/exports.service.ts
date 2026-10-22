@@ -251,7 +251,7 @@ export async function salesXlsx(actor: Actor, from: string, to: string): Promise
   gv.getColumn('amount').numFmt = money;
   gv.getRow(1).font = { bold: true };
   gv.addRow({});
-  gv.addRow({ date: events.length ? 'Vouchers are shop-wide: what is still owed on them is in Inventory → Reports → Day Book (Gift vouchers).' : 'No gift vouchers at these tills in this period. What is still owed is in Inventory → Reports → Day Book.' });
+  gv.addRow({ date: events.length ? 'Vouchers are shop-wide: what is still owed on them is in Inventory → Settings → Money → Day Book (Gift vouchers), voucher by voucher in Customers → Gift vouchers.' : 'No gift vouchers at these tills in this period. What is still owed is in Inventory → Settings → Money → Day Book.' });
 
   return Buffer.from(await book.xlsx.writeBuffer());
 }
