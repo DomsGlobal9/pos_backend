@@ -224,5 +224,34 @@ export async function salesXlsx(actor: Actor, from: string, to: string): Promise
   for (const k of ['taxable', 'gst', 'total']) days.getColumn(k).numFmt = money;
   days.getRow(1).font = { bold: true };
 
+  /*
+   * GIFT VOUCHERS (22 Oct; Inventory has no spreadsheet of them). What happened at THESE tills: sold,
+   * used on bills, returned onto vouchers -- never in the sales above (not sales: owed in goods, GST
+   * charged when used). Vouchers are shop-wide, so what is still owed is Inventory's Day Book's figure.
+   */
+  const gv = book.addWorksheet('Gift vouchers', { views: [{ state: 'frozen', ySplit: 1 }] });
+  gv.columns = [
+    { header: 'Date', key: 'date', width: 12 }, { header: 'Time', key: 'time', width: 8 }, { header: 'What', key: 'what', width: 22 },
+    { header: 'Voucher', key: 'code', width: 15 }, { header: 'Bill / credit note', key: 'doc', width: 18 }, { header: 'Amount', key: 'amount', width: 12 },
+    { header: 'Paid by', key: 'paidBy', width: 22 }, { header: 'From', key: 'buyer', width: 18 }
+  ];
+  const range = { gte: dayRange(from).start, lt: dayRange(to).end };
+  const [sold, used, back] = await Promise.all([
+    prisma.voucherSale.findMany({ where: { clientId: actor.clientId, createdAt: range }, orderBy: { createdAt: 'asc' } }),
+    prisma.payment.findMany({ where: { clientId: actor.clientId, createdAt: range, method: 'VOUCHER', status: 'COLLECTED' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true, amountPaise: true, reference: true, sale: { select: { invoiceNo: true } } } }),
+    prisma.returnRefund.findMany({ where: { clientId: actor.clientId, createdAt: range, method: 'VOUCHER' }, orderBy: { createdAt: 'asc' }, select: { createdAt: true, amountPaise: true, returnRow: { select: { creditNoteNo: true } } } })
+  ]);
+  const events = [
+    ...sold.map(v => ({ at: v.createdAt, what: 'Sold', code: v.code, doc: '', amount: r(v.amountPaise),
+      paidBy: ((v.payments as any[]) ?? []).map(p => `${METHOD[p.method] ?? p.method} ${r(p.amountPaise)}`).join(', '), buyer: v.buyerName ?? '' })),
+    ...used.map(p => ({ at: p.createdAt, what: 'Used on a bill', code: p.reference ?? '', doc: p.sale?.invoiceNo ?? '', amount: r(p.amountPaise), paidBy: '', buyer: '' })),
+    ...back.map(x => ({ at: x.createdAt, what: 'Returned onto a voucher', code: '', doc: x.returnRow?.creditNoteNo ?? '', amount: r(x.amountPaise), paidBy: '', buyer: '' }))
+  ].sort((a, b) => a.at.getTime() - b.at.getTime());
+  events.forEach(e => gv.addRow({ date: localDate(e.at), time: localTime(e.at), what: e.what, code: e.code, doc: e.doc, amount: e.amount, paidBy: e.paidBy, buyer: e.buyer }));
+  gv.getColumn('amount').numFmt = money;
+  gv.getRow(1).font = { bold: true };
+  gv.addRow({});
+  gv.addRow({ date: events.length ? 'Vouchers are shop-wide: what is still owed on them is in Inventory → Reports → Day Book (Gift vouchers).' : 'No gift vouchers at these tills in this period. What is still owed is in Inventory → Reports → Day Book.' });
+
   return Buffer.from(await book.xlsx.writeBuffer());
 }
