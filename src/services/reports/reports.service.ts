@@ -4,6 +4,7 @@ import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { badRequest } from '../../utils/httpError';
 import { dayRange, todayString } from '../day-close';
 import { owedPaise } from '../payments';
+import { vouchersSold } from '../vouchers';
 
 /**
  * Operational reports. WF-REPORTS-01, POS-RPT-001..011.
@@ -170,8 +171,17 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
 
   const offersPaise = offered.reduce((n, l) => n + (Array.isArray(l.appliedOffers) ? (l.appliedOffers as any[]).reduce((m, o) => m + (Number(o?.discountPaise) || 0), 0) : 0), 0);
 
+  // Gift vouchers sold and used in the period (22 Oct: only the day close showed them; a shop's report
+  // had ₹1,000 of drawer cash it never mentioned). Not sales: money the shop owes in goods. Shop view only.
+  const vouchers = full ? {
+    ...(await vouchersSold(clientId, p.start, p.end)),
+    usedPaise: (await prisma.payment.aggregate({ where: { clientId, createdAt: inRange, method: 'VOUCHER', status: 'COLLECTED' }, _sum: { amountPaise: true } }))._sum.amountPaise ?? 0,
+    returnedOntoPaise: (await prisma.returnRefund.aggregate({ where: { clientId, createdAt: inRange, method: 'VOUCHER' }, _sum: { amountPaise: true } }))._sum.amountPaise ?? 0
+  } : null;
+
   const base = {
     scope: full ? ('SHOP' as const) : ('MINE_TODAY' as const),
+    vouchers,
     period: { from: p.from, to: p.to, days: p.days },
     sales: {
       bills,
