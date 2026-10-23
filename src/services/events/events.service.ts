@@ -29,7 +29,7 @@ type Tx = Prisma.TransactionClient;
 
 export const EVENT_VERSION = 1;
 
-export type EventType = 'sale.completed' | 'sale.returned' | 'sale.exchanged' | 'payment.updated' | 'order.written_off' | 'day.closed';
+export type EventType = 'sale.completed' | 'sale.returned' | 'sale.exchanged' | 'payment.updated' | 'order.written_off' | 'order.handed_over' | 'day.closed';
 
 /**
  * One event, and a notice queued for each of the shop's own webhooks that wants it (POS-WEB-001) --
@@ -92,6 +92,18 @@ export async function orderWrittenOff(
 }
 
 /**
+ * A kept order handed over (23 Oct; Inventory's KEEP_FOR_CUSTOMER, and Finance's advance -> sale). The
+ * money still moves only through payment.updated; duePaise is what was owed as the goods left.
+ */
+export async function orderHandedOver(tx: Tx, clientId: string, invoiceNo: string, handedOverAt: Date, duePaise: number) {
+  await write(tx, clientId, 'order.handed_over', {
+    invoiceNo,
+    handedOverAt: handedOverAt.toISOString(),
+    duePaise: Math.max(0, duePaise)
+  }, invoiceNo);
+}
+
+/**
  * The day is closed: its figures, for an accountant's software. POS-API-007, POS-WEB-001.
  * `date` is the trading day (YYYY-MM-DD, shop time); amounts in paise.
  */
@@ -141,7 +153,7 @@ async function loadSale(tx: Tx, saleId: string) {
   return tx.sale.findUniqueOrThrow({
     where: { id: saleId },
     select: {
-      invoiceNo: true, financialYear: true, createdAt: true, kind: true, fulfilment: true,
+      invoiceNo: true, financialYear: true, createdAt: true, kind: true, fulfilment: true, promisedAt: true,
       subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true, totalPaise: true,
       counter: { select: { name: true } },
       cashier: { select: { name: true } },
@@ -168,6 +180,8 @@ export async function saleCompleted(tx: Tx, clientId: string, saleId: string, pr
     // A kept order is sold at creation: the pieces are the customer's, even while still in the shop.
     kind: s.kind,
     fulfilment: s.fulfilment,
+    // The collection date a kept order was promised for (23 Oct, Inventory's KEEP_FOR_CUSTOMER).
+    promisedAt: s.promisedAt ? s.promisedAt.toISOString() : null,
     customerRef: s.customer?.phone ?? null,
     // For Inventory's own customer record (contract §4.1, Q6). Its outside-customer rule may drop
     // a phone it already has on someone else -- that is correct there, not a mismatch here.

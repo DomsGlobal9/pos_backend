@@ -10,7 +10,7 @@ import { PaymentInput } from '../sale/sale.schema';
 import { record } from '../audit';
 import { spendCredit } from '../store-credit';
 import { shiftFor } from '../shifts';
-import { paymentUpdated, orderWrittenOff } from '../events';
+import { paymentUpdated, orderWrittenOff, orderHandedOver } from '../events';
 import { refuseUnheldBalances } from '../inventory-link/holds.service';
 import { verifyQrPayments } from '../inventory-link/upi-qr.service';
 
@@ -341,6 +341,8 @@ export async function handOver(actor: Actor, saleId: string, input: { acceptDue?
         handoverDuePaise: dueAtHandover > 0 ? dueAtHandover : null
       }
     });
+    // The moment the goods left, for Inventory and the books (23 Oct).
+    await orderHandedOver(tx, actor.clientId, order.invoiceNo, new Date(), dueAtHandover);
   });
 
   // After commit, per the audit rule: only record what actually happened.
