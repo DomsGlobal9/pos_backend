@@ -48,6 +48,9 @@ function refundOf(refunds: any[] | undefined) {
 const collected = (payments: any[] | undefined) =>
   (payments ?? []).filter(p => !p.status || p.status === 'COLLECTED').map(p => ({ method: p.method, amountPaise: p.amountPaise, ...(p.reference ? { reference: p.reference } : {}), ...(p.holdId ? { holdId: p.holdId } : {}), ...(p.qrId ? { qrId: p.qrId } : {}) }));
 
+/** "YYYY-MM-DD" in the shop's time, for a date stored at local midnight. */
+const localDay = (iso: string) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
 export function toInventory(eventType: string, payload: any): Record<string, unknown> {
   if (eventType === 'sale.completed') {
     return {
@@ -57,10 +60,17 @@ export function toInventory(eventType: string, payload: any): Record<string, unk
       ...(payload.couponCode ? { couponCode: payload.couponCode } : {}),
       occurredAt: payload.occurredAt,
       customer: payload.customer ?? null,
+      // Kept for the customer, or taken now (23 Oct): Inventory filed every till bill as TAKEN_NOW.
+      // A credit sale's goods leave at once, so it is TAKEN_NOW; only a kept order still waiting is kept.
+      handover: payload.fulfilment === 'WAITING' || payload.fulfilment === 'READY' ? 'KEEP_FOR_CUSTOMER' : 'TAKEN_NOW',
+      promisedAt: typeof payload.promisedAt === 'string' ? localDay(payload.promisedAt) : null,
       lines: (payload.lines ?? []).map(line),
       totals: { roundOffPaise: payload.totals?.roundOffPaise ?? 0 },
       payments: collected(payload.payments)
     };
+  }
+  if (eventType === 'order.handed_over') {
+    return { kind: 'order.handed_over', invoiceNo: payload.invoiceNo, handedOverAt: payload.handedOverAt, duePaise: payload.duePaise ?? 0 };
   }
   if (eventType === 'sale.returned') {
     return {

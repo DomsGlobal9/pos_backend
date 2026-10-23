@@ -40,6 +40,10 @@ import { sendPastWriteOffs } from '../orders/orders.service';
  */
 
 // Everything Inventory is sent, in order. (The name is older than payment.updated.)
+/*
+ * order.handed_over is written from 23 Oct but NOT sent until Inventory says it reads it: an unknown
+ * kind is refused with 400 and stops the shop's queue. Add it here when Inventory's build is live.
+ */
 export const STOCK_EVENTS = ['sale.completed', 'sale.returned', 'sale.exchanged', 'payment.updated', 'order.written_off'];
 
 /** How long a payment waits for its bill to be applied at Inventory before it is looked at again. */
