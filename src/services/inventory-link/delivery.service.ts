@@ -40,11 +40,9 @@ import { sendPastWriteOffs } from '../orders/orders.service';
  */
 
 // Everything Inventory is sent, in order. (The name is older than payment.updated.)
-/*
- * order.handed_over is written from 23 Oct but NOT sent until Inventory says it reads it: an unknown
- * kind is refused with 400 and stops the shop's queue. Add it here when Inventory's build is live.
- */
-export const STOCK_EVENTS = ['sale.completed', 'sale.returned', 'sale.exchanged', 'payment.updated', 'order.written_off'];
+// order.handed_over (23 Oct): sent since Inventory's f3bbfc5 reads it. Hand-overs made before this
+// build were written but passed over by the cursor; Inventory's TAKEN_NOW rule covers those.
+export const STOCK_EVENTS = ['sale.completed', 'sale.returned', 'sale.exchanged', 'payment.updated', 'order.written_off', 'order.handed_over'];
 
 /** How long a payment waits for its bill to be applied at Inventory before it is looked at again. */
 const BILL_FIRST_MS = 5_000;
@@ -162,7 +160,7 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
    * does not wait (Inventory, 30 Sep). A UPI confirmed seconds after the sale would stop the queue.
    * Waiting here is not a failure -- no attempt is counted.
    */
-  if ((event.eventType === 'payment.updated' || event.eventType === 'order.written_off') && event.invoiceNo) {
+  if ((event.eventType === 'payment.updated' || event.eventType === 'order.written_off' || event.eventType === 'order.handed_over') && event.invoiceNo) {
     const billPending = await prisma.inventorySettlement.findFirst({
       where: { clientId, invoiceNo: event.invoiceNo, settledAt: null }, select: { id: true }
     });
@@ -190,6 +188,13 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   // NOTHING_DUE: a write-off of a bill Inventory already shows settled -- done, whatever the status
   // code it came with, never a reason to stop the queue (Inventory, 8 Oct).
   const nothingDue = reply.kind === 'ANSWERED' && answer?.answer === 'NOTHING_DUE';
+  // A hand-over of a bill Inventory never had -- a kept order billed before this shop was connected --
+  // is nothing to it: noted, never a stop. Stopping would hold every bill behind it (23 Oct).
+  if (reply.kind === 'ANSWERED' && event.eventType === 'order.handed_over' && answer?.answer === 'UNKNOWN_ORDER') {
+    await noteWarnings(clientId, event.invoiceNo, [`${event.invoiceNo}: handed over, but Inventory never had this bill (billed before the shop was connected?). Nothing to change there.`]);
+    await release({ deliveredSequence: event.sequence, lastDeliveredAt: new Date(), attempts: 0, nextAttemptAt: null, lastError: null });
+    return { outcome: 'DELIVERED', sequence: event.sequence };
+  }
   if (nothingDue || (reply.kind === 'ANSWERED' && reply.status >= 200 && reply.status < 300 && (!answer?.answer || ['APPLIED', 'ALREADY_APPLIED', 'ACCEPTED'].includes(answer.answer)))) {
     if (answer?.answer === 'ACCEPTED') {
       // Written down at Inventory, not applied yet. Ask how it ended in a few seconds.
