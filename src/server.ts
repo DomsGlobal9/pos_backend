@@ -8,6 +8,7 @@ import { env, hasInventory } from './config/env';
 import apiRoutes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { startDeliveryLoop, startCatalogueLoop } from './services/inventory-link';
+import { startCardSweep } from './services/card-machines';
 import { startWebhookLoop } from './services/webhooks';
 import { handleWhatsAppEvent } from './services/receipt-send';
 
@@ -86,6 +87,8 @@ const server = app.listen(env.PORT, () => {
     // A shop's own software, told about each sale, return, exchange and day close. Leased rows, so
     // even two instances with jobs on never send one notice twice at once.
     startWebhookLoop();
+    // A card payment saved as "to check" is settled the moment its machine says approved.
+    startCardSweep();
   }
 });
 

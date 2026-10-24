@@ -29,6 +29,8 @@ export type AuditAction =
   | 'approval.granted'
   | 'approval.refused'
   | 'voucher.sold'
+  | 'card_machine.added'
+  | 'card_machine.changed'
   | 'order.handed_over_with_due'
   | 'order.written_off'
   | 'return.created'
