@@ -40,6 +40,7 @@ export interface PlannedPayment {
   amountPaise: number;
   reference: string | null;
   qrId?: string | null;
+  cardRequestId?: string | null;
   tenderedPaise: number | null;
   changePaise: number | null;
   status: PaymentStatus;
@@ -258,7 +259,7 @@ export function planPayments(
      */
     let status: PaymentStatus = payment.unconfirmed || CLEARS_LATER.includes(payment.method) ? 'NEEDS_CHECKING' : 'COLLECTED';
 
-    // Checked with Razorpay by the server (verifyQrPayments), never set by a screen: zod drops it.
+    // Checked with Razorpay or the card machine by the server (verifyQrPayments, verifyCardPayments), never set by a screen: zod drops it.
     const verified = (payment as any).gatewayVerified === true;
     const ref = verified ? { reference: payment.reference ?? null } : referenceFor(payment as any);
     // A cheque needs its number and bank, and a transfer's UTR must look like one, though both wait to be checked.
@@ -299,6 +300,7 @@ export function planPayments(
       amountPaise: payment.amountPaise,
       reference: keptReference,
       qrId: payment.method === 'UPI' ? (payment as any).qrId ?? null : null,
+      cardRequestId: payment.method === 'CARD' ? (payment as any).cardRequestId ?? null : null,
       tenderedPaise: isCash ? payment.tenderedPaise ?? null : null,
       changePaise: isCash && payment.tenderedPaise != null
         ? changeDue(payment.tenderedPaise, payment.amountPaise)

@@ -15,6 +15,7 @@ import { adjust, cameBack, StockChange } from '../stock';
 import { saleReturned, saleExchanged } from '../events';
 import { CreateExchangeInput, CreateReturnInput, RefundInput } from './returns.schema';
 import { verifyQrPayments } from '../inventory-link/upi-qr.service';
+import { verifyCardPayments } from '../card-machines/card-machines.service';
 import { holdForSale, releaseHolds, confirmSaleHolds, Hold } from '../inventory-link/holds.service';
 
 /**
@@ -456,7 +457,7 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
    */
   let holds: Hold[] = [];
   if (mode.kind === 'EXCHANGE' && mode.input.newSale.payments?.length) {
-    mode.input.newSale.payments = await verifyQrPayments(actor.clientId, mode.input.newSale.payments);
+    mode.input.newSale.payments = await verifyCardPayments(actor.clientId, await verifyQrPayments(actor.clientId, mode.input.newSale.payments));
   }
   if (mode.kind === 'EXCHANGE') {
     const owner = await prisma.sale.findFirst({ where: { id: saleId, clientId: actor.clientId }, select: { customerId: true } });

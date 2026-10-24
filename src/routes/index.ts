@@ -23,6 +23,7 @@ import authRoutes from './auth.routes';
 import staffRoutes from './staff.routes';
 import platformRoutes from './platform.routes';
 import vouchersRoutes from './vouchers.routes';
+import cardMachinesRoutes from './card-machines.routes';
 
 /**
  * Everything mounts under /api/v1.
@@ -61,6 +62,8 @@ router.use('/staff', staffRoutes);
 router.use('/platform', platformRoutes);
 // Gift vouchers, held in Inventory (16 Oct).
 router.use('/vouchers', vouchersRoutes);
+// Card machines the till sends the amount to: Pine Labs Cloud, Razorpay POS (24 Oct).
+router.use('/card-machines', cardMachinesRoutes);
 // No sign-in: the digital receipt, reached by its token. POS-RCPT-009.
 router.use('/public', publicRoutes);
 
