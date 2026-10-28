@@ -2,7 +2,6 @@ import { createHmac } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { env } from '../../config/env';
-import { displayPhone } from '../../utils/phone';
 
 /**
  * TELLING SCALEEZY CRM WHAT ONLY THE COUNTER KNOWS (28 Oct, owner's go; CRM's inbox, D:\villy\crm).
@@ -45,8 +44,8 @@ function rowsFor(c: CustomerRow, byName: string | null) {
     occurredAt: c.updatedAt,
     payload: {
       customerId: c.id,
-      // CRM wants a name; a customer known only by number is shown by it.
-      name: c.name?.trim() || displayPhone(c.phone),
+      // No name: sent as none (CRM 68c13ce), so CRM matches them on the phone alone and keeps the name it has.
+      name: c.name?.trim() || null,
       phone: c.phone,
       gstNumber: c.gstin,
       customerType: 'REGISTERED',
