@@ -147,9 +147,12 @@ export async function sendCrm(clientId: string): Promise<{ sent: number; setAsid
       occurredAt: r.occurredAt.toISOString(), idempotencyKey: r.idempotencyKey, payload: r.payload
     }))
   });
-  const signature = createHmac('sha256', env.CRM_SOURCE_SECRET!).update(body).digest('hex');
+  // Signed over the time AND the body (CRM, 28 Oct; Inventory's webhook form): a copy replayed later than
+  // five minutes is refused. The time is taken fresh at every attempt, so a retry is never stale.
+  const timestamp = Math.floor(Date.now() / 1000);
+  const signature = createHmac('sha256', env.CRM_SOURCE_SECRET!).update(`${timestamp}.`).update(body).digest('hex');
   const reply = await transport(`${env.CRM_BASE_URL!.replace(/\/+$/, '')}/api/v1/inbox/events`, body, {
-    'Content-Type': 'application/json', 'X-CRM-Source': 'pos', 'X-CRM-Signature': `sha256=${signature}`
+    'Content-Type': 'application/json', 'X-CRM-Source': 'pos', 'X-CRM-Timestamp': String(timestamp), 'X-CRM-Signature': `sha256=${signature}`
   });
   const ids = rows.map(r => r.id);
 
@@ -164,13 +167,18 @@ export async function sendCrm(clientId: string): Promise<{ sent: number; setAsid
     console.error(`[crm] ${clientId}: CRM refused ${bad.kind} ${bad.idempotencyKey}: ${reply.body?.message}`);
     return { sent: 0, setAside: 1, outcome: 'SET_ASIDE' };
   }
+  // CRM answers a request outside its five minutes with a 401 that says "too old": this server's clock,
+  // not its key. Tried again in a minute and named as a clock problem, never the hour a wrong key waits.
+  const clock = reply?.status === 401 && /too old/i.test(String(reply.body?.message ?? ''));
+  const badKey = reply?.status === 401 && !clock;
   const why = !reply ? 'CRM could not be reached.'
-    : reply.status === 401 ? 'CRM does not know this till\'s key (CRM_SOURCE_SECRET). Ask ScaleEzy support.'
+    : clock ? 'CRM says this server\'s clock is off by more than 5 minutes. Ask ScaleEzy support to check the server time.'
+    : badKey ? 'CRM does not know this till\'s key (CRM_SOURCE_SECRET). Ask ScaleEzy support.'
     : `CRM answered ${reply.status}: ${String(reply.body?.message ?? '').slice(0, 200)}`;
   const attempts = (rows[0].attempts ?? 0) + 1;
-  const wait = reply?.status === 401 ? 60 * 60_000 : backoff(attempts);
+  const wait = badKey ? 60 * 60_000 : clock ? 60_000 : backoff(attempts);
   await prisma.crmOutbox.updateMany({ where: { id: { in: ids } }, data: { attempts: { increment: 1 }, lastError: why, nextAttemptAt: new Date(Date.now() + wait) } });
-  return { sent: 0, setAside: 0, outcome: reply?.status === 401 ? 'BAD_KEY' : 'RETRY' };
+  return { sent: 0, setAside: 0, outcome: badKey ? 'BAD_KEY' : clock ? 'CLOCK' : 'RETRY' };
 }
 
 /** For the owner's Inventory link page: is the counter's news reaching CRM? */
