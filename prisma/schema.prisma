@@ -441,6 +441,10 @@ model Sale {
   /// TAX_INVOICE | BILL_OF_SUPPLY | RECEIPT, fixed when the bill is issued from the shop's registration
   /// at that moment. A later change of registration never rewrites a bill already in a customer's hand.
   documentKind String @default("TAX_INVOICE") @map("document_kind")
+  /// The seller as printed on this bill: { shopName, address, phone, gstin }, frozen when it is issued (28 Oct),
+  /// so a reprint after the owner changes the shop's name or GSTIN still shows what the customer was given.
+  /// Null on bills made before: they print the shop's details as they are now.
+  seller Json? @map("seller")
 
   /// Loyalty on this bill, as Inventory settled it (contract §10, /events/status `points`): earned,
   /// spent, and the balance right after. Null until Inventory has applied the bill, and for a walk-in.

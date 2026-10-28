@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { forTill, setUpiId, setLogo, setGstRegistration, setPaymentMethods } from '../services/shop';
+import { forTill, setUpiId, setLogo, setGstRegistration, setPaymentMethods, setShopDetails } from '../services/shop';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 const router = Router();
@@ -47,6 +47,20 @@ router.put('/logo', async (req, res, next) => {
 router.put('/gst', async (req, res, next) => {
   try {
     res.json({ success: true, data: await setGstRegistration((req as any).actor, String(req.body?.registration ?? '')) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * PUT /api/v1/shop/details -- the shop's name, address, phone, GSTIN, bill footer, cashier discount limit
+ * and return window (28 Oct). Owner-only; not while connected. Only the fields sent are changed.
+ */
+router.put('/details', async (req, res, next) => {
+  try {
+    const b = req.body ?? {};
+    const pick = ['shopName', 'address', 'phone', 'gstin', 'receiptFooter', 'manualDiscountMaxPercent', 'returnWindowDays'];
+    res.json({ success: true, data: await setShopDetails((req as any).actor, Object.fromEntries(pick.filter(k => k in b).map(k => [k, b[k]]))) });
   } catch (error) {
     next(error);
   }

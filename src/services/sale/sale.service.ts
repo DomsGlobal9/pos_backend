@@ -256,7 +256,8 @@ export async function writeSale(
       const settings = await tx.shopSettings.findUnique({
         where: { clientId: actor.clientId },
         select: {
-          invoicePrefix: true, enabledPaymentMethods: true, manualDiscountMaxPercent: true, gstRegistration: true, gstin: true
+          invoicePrefix: true, enabledPaymentMethods: true, manualDiscountMaxPercent: true, gstRegistration: true, gstin: true,
+          shopName: true, address: true, phone: true
         }
       });
 
@@ -555,6 +556,8 @@ export async function writeSale(
           totalPaise: priced.totalPaise,
           savedPaise: priced.savedPaise,
           documentKind,
+          // Frozen with the bill: a reprint after the owner changes the shop's details shows what was given.
+          seller: settings ? { shopName: settings.shopName, address: settings.address, phone: settings.phone, gstin: settings.gstin } : undefined,
           ...buyer,
           onceKey: input.onceKey,
           // The digital receipt's address, made now so the paper receipt can carry it. POS-RCPT-009.
@@ -787,7 +790,7 @@ export async function getSale(actor: Actor, saleId: string) {
       select: {
         id: true, invoiceNo: true, financialYear: true, kind: true, status: true, createdAt: true,
         subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true,
-        totalPaise: true, savedPaise: true, madeOfflineAt: true, documentKind: true,
+        totalPaise: true, savedPaise: true, madeOfflineAt: true, documentKind: true, seller: true,
         pointsEarned: true, pointsUsed: true, pointsBalanceAfter: true,
         buyerName: true, buyerGstin: true, buyerAddress: true, salespersonName: true,
         printCount: true, lastPrintedAt: true, receiptToken: true,
@@ -882,6 +885,7 @@ export async function getSale(actor: Actor, saleId: string) {
           originalInvoiceNo: exchangedFrom.originalSale.invoiceNo
         }
       : null,
-    shop: shop ?? null
+    // The seller this bill was issued by, over the shop's details now (older bills have none frozen).
+    shop: shop ? { ...shop, ...((sale as any).seller ?? {}) } : null
   };
 }

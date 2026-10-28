@@ -4,6 +4,7 @@ import { Actor } from '../../types/actor';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { may, PERMISSIONS } from '../../types/actor';
 import { record } from '../audit';
+import { gstinProblem, normaliseGstin } from '../../utils/gstin';
 import { whatsappConfig, whatsappAccount, platformClientId } from '../receipt-send';
 
 /**
@@ -20,7 +21,7 @@ export async function forTill(actor: Actor) {
       select: {
         shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true, upiQrEnabled: true, giftVouchers: true,
         enabledPaymentMethods: true, manualDiscountMaxPercent: true, returnWindowDays: true,
-        holdThresholdQty: true, upiId: true, gstRegistration: true
+        holdThresholdQty: true, upiId: true, gstRegistration: true, phone: true
       }
     }),
     prisma.counter.findMany({
@@ -130,6 +131,74 @@ export async function setLogo(actor: Actor, raw: string | null) {
  * Name, logo and bill details) and comes down with the items, so there is one answer in one place.
  * A change affects bills from now on; every bill already issued keeps the kind it was issued as.
  */
+/**
+ * THE SHOP'S OWN DETAILS, BY ITS OWNER (28 Oct). A shop without Inventory could not change its own name,
+ * address, phone, GSTIN or bill footer -- "set up by ScaleEzy" -- nor the cashier's discount limit or the
+ * return window. They are printed on every bill, so they are the owner's to keep right.
+ *
+ * A GSTIN must pass the checksum: it decides CGST+SGST or IGST on every bill from now on (its first two
+ * digits are the shop's state). Bills already given out keep what they printed. The bill-number prefix is
+ * NOT here: changing it mid-year starts a second series, which GST wants to be one unbroken run.
+ *
+ * Owner only; refused while connected (Inventory's Settings own these then, and send them to the till).
+ */
+export async function setShopDetails(actor: Actor, input: {
+  shopName?: string; address?: string | null; phone?: string | null; gstin?: string | null; receiptFooter?: string | null;
+  manualDiscountMaxPercent?: number; returnWindowDays?: number | null;
+}) {
+  if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change the shop\'s details.', { code: 'NOT_PERMITTED' });
+  const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { connected: true } });
+  if (link?.connected) throw conflict('This shop is connected to Inventory, so its details are set there: Settings -> Name, logo and bill details.', { code: 'FROM_INVENTORY' });
+  const text = (v: unknown, most: number) => { const t = String(v ?? '').replace(/\s+/g, ' ').trim(); return t ? t.slice(0, most) : null; };
+  const data: Record<string, unknown> = {};
+  if (input.shopName !== undefined) {
+    const name = text(input.shopName, 80);
+    if (!name || name.length < 2) throw badRequest('Type the shop\'s name as it should read on the bill.', { code: 'BAD_NAME', field: 'shopName' });
+    data.shopName = name;
+  }
+  if (input.address !== undefined) data.address = text(input.address, 200);
+  if (input.phone !== undefined) {
+    const phone = text(input.phone, 30);
+    // A shop's number may be a landline with an STD code: digits, spaces, + - ( ), 6 to 15 digits.
+    if (phone && (!/^[+0-9 ()-]+$/.test(phone) || phone.replace(/\D/g, '').length < 6 || phone.replace(/\D/g, '').length > 15)) {
+      throw badRequest('That does not look like a phone number.', { code: 'BAD_PHONE', field: 'phone' });
+    }
+    data.phone = phone;
+  }
+  if (input.gstin !== undefined) {
+    const raw = String(input.gstin ?? '').trim();
+    // Checked only when it changes: the form sends every field back, and a GSTIN already on file (set up
+    // before this check existed) must not stop the owner fixing the address (found by check-shop-basics-ui).
+    const current = (await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { gstin: true } }))?.gstin ?? null;
+    if (raw && normaliseGstin(raw) === current) {
+      data.gstin = current;
+    } else if (raw) {
+      const problem = gstinProblem(raw);
+      if (problem) throw badRequest(problem.replace('their GST certificate', 'the shop\'s GST certificate'), { code: 'BAD_GSTIN', field: 'gstin' });
+      data.gstin = normaliseGstin(raw);
+    } else data.gstin = null;
+  }
+  if (input.receiptFooter !== undefined) data.receiptFooter = text(input.receiptFooter, 160);
+  if (input.manualDiscountMaxPercent !== undefined) {
+    const p = Number(input.manualDiscountMaxPercent);
+    if (!Number.isInteger(p) || p < 0 || p > 100) throw badRequest('A discount limit is a whole percent, 0 to 100.', { code: 'BAD_DISCOUNT', field: 'manualDiscountMaxPercent' });
+    data.manualDiscountMaxPercent = p;
+  }
+  if (input.returnWindowDays !== undefined) {
+    const d = input.returnWindowDays;
+    if (d !== null && (!Number.isInteger(d) || d < 0 || d > 365)) throw badRequest('Returns are taken for 0 to 365 days, or leave it empty for any time.', { code: 'BAD_RETURN_WINDOW', field: 'returnWindowDays' });
+    data.returnWindowDays = d;
+  }
+  if (!Object.keys(data).length) return forTill(actor);
+  const before = await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { shopName: true, address: true, phone: true, gstin: true, receiptFooter: true, manualDiscountMaxPercent: true, returnWindowDays: true } });
+  const changed = Object.keys(data).filter(k => (before as any)?.[k] !== data[k]);
+  if (changed.length) {
+    await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data });
+    await record(actor, { action: 'shop.details_set', detail: Object.fromEntries(changed.map(k => [k, { from: (before as any)?.[k] ?? null, to: data[k] ?? null }])) as any });
+  }
+  return forTill(actor);
+}
+
 export async function setGstRegistration(actor: Actor, raw: string) {
   if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change how the shop is registered for GST.');
   const registration = String(raw ?? '').toUpperCase();

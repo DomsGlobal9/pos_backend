@@ -53,6 +53,7 @@ export type AuditAction =
   | 'shop.logo_set'
   | 'sale.offers_applied'
   | 'shop.gst_registration_set'
+  | 'shop.details_set'
   | 'customer.updated'
   | 'day.reclosed'
   | 'device.updated'
