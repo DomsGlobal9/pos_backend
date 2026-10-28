@@ -159,16 +159,21 @@ export async function findOrCreate(
       patch.consentAt = new Date();
     }
 
+    // The change and CRM's row for it, together or not at all (PLAN-crm §14 F1).
     const updated = Object.keys(patch).length
-      ? await prisma.customer.update({ where: { id: existing.id }, data: patch, select: SELECT })
+      ? await prisma.$transaction(async (tx) => {
+        const u = await tx.customer.update({ where: { id: existing.id }, data: patch, select: SELECT });
+        await customerChanged(tx, actor.clientId, u.id, actor.name ?? null);
+        return u;
+      })
       : existing;
-    if (Object.keys(patch).length) await customerChanged(actor.clientId, updated.id, actor.name ?? null);
 
     return { customer: card(updated, await statsFor(actor.clientId, updated.id)), created: false };
   }
 
   try {
-    const made = await prisma.customer.create({
+    const made = await prisma.$transaction(async (tx) => {
+      const m = await tx.customer.create({
       data: {
         clientId: actor.clientId,
         phone: phone.e164,
@@ -180,8 +185,10 @@ export async function findOrCreate(
         consentAt: input.marketingConsent === true ? new Date() : null
       },
       select: SELECT
+      });
+      await customerChanged(tx, actor.clientId, m.id, actor.name ?? null);
+      return m;
     });
-    await customerChanged(actor.clientId, made.id, actor.name ?? null);
     return { customer: card(made, { count: 0, total: 0, first: null, last: null }), created: true };
   } catch (error: any) {
     // Lost the race. The other request made the customer, and that IS the answer -- exactly the
@@ -406,11 +413,16 @@ export async function updateDetails(
   if (gstinAfter && !addressAfter) {
     throw badRequest('Add the business address too — a tax invoice to a GST-registered buyer shows their address.', { code: 'ADDRESS_REQUIRED' });
   }
-  const updated = Object.keys(patch).length ? await prisma.customer.update({ where: { id: row.id }, data: patch, select: SELECT }) : row;
+  // Inventory sees a customer only on a bill; CRM hears of the change from here, in the same transaction (28 Oct).
+  const updated = Object.keys(patch).length
+    ? await prisma.$transaction(async (tx) => {
+      const u = await tx.customer.update({ where: { id: row.id }, data: patch, select: SELECT });
+      await customerChanged(tx, actor.clientId, u.id, actor.name ?? null);
+      return u;
+    })
+    : row;
   if (Object.keys(patch).length) {
     await record(actor, { action: 'customer.updated', subject: maskPhone(row.phone), detail: { fields: Object.keys(patch), gstin: updated.gstin, creditLimitPaise: updated.creditLimitPaise } });
-    // Inventory sees a customer only on a bill; CRM hears of the change from here (28 Oct).
-    await customerChanged(actor.clientId, updated.id, actor.name ?? null);
   }
   return card(updated, await statsFor(actor.clientId, updated.id));
 }

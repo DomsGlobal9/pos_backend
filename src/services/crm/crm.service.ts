@@ -1,4 +1,5 @@
 import { createHmac } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { env } from '../../config/env';
 import { displayPhone } from '../../utils/phone';
@@ -32,8 +33,8 @@ type CustomerRow = {
 };
 const CUSTOMER = { id: true, phone: true, name: true, gstin: true, address: true, marketingConsent: true, consentAt: true, createdAt: true, updatedAt: true } as const;
 
-async function linkedShop(clientId: string) {
-  const link = await prisma.inventoryLink.findUnique({ where: { clientId }, select: { connected: true, platformClientId: true } });
+async function linkedShop(clientId: string, db: Prisma.TransactionClient | typeof prisma = prisma) {
+  const link = await db.inventoryLink.findUnique({ where: { clientId }, select: { connected: true, platformClientId: true } });
   return link?.connected && link.platformClientId ? link.platformClientId : null;
 }
 
@@ -66,10 +67,12 @@ function rowsFor(c: CustomerRow, byName: string | null) {
   return rows;
 }
 
-async function queue(clientId: string, rows: ReturnType<typeof rowsFor>) {
+type Db = Prisma.TransactionClient | typeof prisma;
+
+async function queue(db: Db, clientId: string, rows: ReturnType<typeof rowsFor>) {
   // One at a time, in order, so createdAt keeps a customer ahead of their consent.
   for (const r of rows) {
-    await prisma.crmOutbox.upsert({
+    await db.crmOutbox.upsert({
       where: { clientId_idempotencyKey: { clientId, idempotencyKey: r.idempotencyKey } },
       update: {},
       create: { clientId, kind: r.kind, payload: r.payload as any, idempotencyKey: r.idempotencyKey, occurredAt: r.occurredAt }
@@ -78,17 +81,14 @@ async function queue(clientId: string, rows: ReturnType<typeof rowsFor>) {
 }
 
 /**
- * Called after a customer is made or changed at the counter. Never throws: the customer is saved and the
- * counter goes on; a row that could not be written is caught by the next backfill.
+ * Called IN THE SAME TRANSACTION as the customer's create or change (PLAN-crm §14 F1, 28 Oct): the row
+ * for CRM and the customer are saved together or not at all, so a crash between the two can never leave a
+ * change CRM is not told of. The backfill runs once per shop and would not catch it.
  */
-export async function customerChanged(clientId: string, customerId: string, byName: string | null = null) {
-  try {
-    if (!crmConfigured() || !(await linkedShop(clientId))) return;
-    const c = await prisma.customer.findFirst({ where: { id: customerId, clientId, deletedAt: null }, select: CUSTOMER });
-    if (c) await queue(clientId, rowsFor(c, byName));
-  } catch (error) {
-    console.error(`[crm] could not queue customer ${customerId}:`, (error as Error).message);
-  }
+export async function customerChanged(db: Db, clientId: string, customerId: string, byName: string | null = null) {
+  if (!crmConfigured() || !(await linkedShop(clientId, db))) return;
+  const c = await db.customer.findFirst({ where: { id: customerId, clientId, deletedAt: null }, select: CUSTOMER });
+  if (c) await queue(db, clientId, rowsFor(c, byName));
 }
 
 /** The first time a shop is sent to: every customer it already has, then their consents. */
@@ -105,7 +105,7 @@ export async function backfill(clientId: string) {
       ...(after ? { cursor: { id: after }, skip: 1 } : {})
     });
     if (!page.length) break;
-    for (const c of page) { await queue(clientId, rowsFor(c, null)); n++; }
+    for (const c of page) { await queue(prisma, clientId, rowsFor(c, null)); n++; }
     after = page.at(-1)!.id;
   }
   await prisma.crmOutbox.create({ data: { clientId, kind: 'backfill.done', payload: { customers: n }, idempotencyKey: MARK, occurredAt: new Date(), sentAt: new Date() } });
