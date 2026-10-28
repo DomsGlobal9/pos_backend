@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { listForManaging } from '../services/items';
 import { saveItem } from '../services/item-import';
+import { moveStock, stockHistory, setLowStockAt } from '../services/stock';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
 
@@ -52,6 +53,34 @@ router.post('/', async (req, res, next) => {
     if (!body.success) throw badRequest('An item needs at least a code, a name, a price and a GST rate.');
     const saved = await saveItem(actor(req), body.data as Record<string, unknown>);
     res.status(saved.added ? 201 : 200).json({ success: true, data: saved });
+  } catch (error) { next(error); }
+});
+
+/** PUT /api/v1/items/low-stock-at -- an item with this many or fewer left is "low" (28 Oct). */
+router.put('/low-stock-at', async (req, res, next) => {
+  try {
+    const body = z.object({ lowStockAt: z.number().int() }).safeParse(req.body);
+    if (!body.success) throw badRequest('Type a number of pieces.');
+    res.json({ success: true, data: await setLowStockAt(actor(req), body.data.lowStockAt) });
+  } catch (error) { next(error); }
+});
+
+/** GET /api/v1/items/:code/stock -- the item's stock book: who changed the count, when and why. */
+router.get('/:code/stock', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await stockHistory(actor(req), req.params.code) });
+  } catch (error) { next(error); }
+});
+
+/** POST /api/v1/items/:code/stock -- received, adjusted (with a reason) or counted. Standalone shops only. */
+router.post('/:code/stock', async (req, res, next) => {
+  try {
+    const body = z.object({
+      kind: z.string().max(20), qty: z.number().int(),
+      reason: z.string().max(20).optional().nullable(), note: z.string().max(200).optional().nullable()
+    }).safeParse(req.body);
+    if (!body.success) throw badRequest('Say what happened and how many pieces.');
+    res.json({ success: true, data: await moveStock(actor(req), req.params.code, body.data) });
   } catch (error) { next(error); }
 });
 

@@ -324,8 +324,14 @@ export async function listForManaging(actor: Actor, rawQuery: unknown) {
     throw forbidden('Only the owner can see and change the item list.', { code: 'NOT_PERMITTED' });
   }
   const q = String((rawQuery as any)?.q ?? '').trim();
+  // Standalone stock (28 Oct): the low and out lists, by the shop's own low-stock level.
+  const settings = await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { lowStockAt: true } });
+  const lowStockAt = settings?.lowStockAt ?? 2;
+  const stock = String((rawQuery as any)?.stock ?? '');
+  const stockWhere = stock === 'out' ? { cachedQty: { lte: 0 }, active: true } : stock === 'low' ? { cachedQty: { gt: 0, lte: lowStockAt }, active: true } : {};
   const where = {
     clientId: actor.clientId,
+    ...stockWhere,
     ...(q
       ? {
         OR: [
@@ -336,15 +342,17 @@ export async function listForManaging(actor: Actor, rawQuery: unknown) {
       }
       : {})
   };
-  const [rows, total] = await Promise.all([
+  const [rows, total, outCount, lowCount] = await Promise.all([
     prisma.item.findMany({
-      where, orderBy: [{ active: 'desc' }, { name: 'asc' }], take: 200,
+      where, orderBy: stock ? [{ cachedQty: 'asc' as const }, { name: 'asc' as const }] : [{ active: 'desc' as const }, { name: 'asc' as const }], take: 200,
       select: {
         code: true, name: true, pricePaise: true, taxRate: true, hsn: true, barcode: true,
         cachedQty: true, colour: true, size: true, variantGroup: true, active: true
       }
     }),
-    prisma.item.count({ where: { clientId: actor.clientId } })
+    prisma.item.count({ where: { clientId: actor.clientId } }),
+    prisma.item.count({ where: { clientId: actor.clientId, active: true, cachedQty: { lte: 0 } } }),
+    prisma.item.count({ where: { clientId: actor.clientId, active: true, cachedQty: { gt: 0, lte: lowStockAt } } })
   ]);
   const link = await prisma.inventoryLink.findUnique({
     where: { clientId: actor.clientId }, select: { connected: true }
@@ -355,6 +363,7 @@ export async function listForManaging(actor: Actor, rawQuery: unknown) {
     fromInventory: link?.connected === true,
     total,
     shown: rows.length,
+    lowStockAt, outCount, lowCount,
     items: rows.map(r => ({
       code: r.code, name: r.name, pricePaise: r.pricePaise, taxRate: r.taxRate, hsn: r.hsn,
       barcode: r.barcode, qty: r.cachedQty, colour: r.colour, size: r.size, group: r.variantGroup,

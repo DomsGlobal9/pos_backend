@@ -156,6 +156,8 @@ model ShopSettings {
   phone            String?
   /// Self-confirming UPI (Razorpay QR), switched on by the owner in Inventory; read from /catalogue.
   upiQrEnabled     Boolean @default(false) @map("upi_qr_enabled")
+  /// Standalone stock (28 Oct): an item with this many or fewer left is "low" on the Items screen.
+  lowStockAt       Int     @default(2) @map("low_stock_at")
   /// { enabled, minPaise, maxPaise } from Inventory's catalogue (19 Oct): whether a voucher may be SOLD here, and
   /// for how much. Null: Inventory has not said (an older Inventory) -- the till offers it and Inventory decides.
   giftVouchers     Json?   @map("gift_vouchers")
@@ -1566,4 +1568,28 @@ model CardRequest {
   @@unique([clientId, onceKey])
   @@index([clientId, status])
   @@map("card_requests")
+}
+
+/// Every change to a standalone shop's stock count made by a person (28 Oct): received, adjusted (damaged,
+/// lost, found...), counted, or typed on the item form. Sales and returns move the count with their bill
+/// and are read from the bills, not repeated here. Never edited or deleted: it is the answer to "why".
+model StockMove {
+  id        String   @id @default(uuid())
+  clientId  String   @map("client_id")
+  itemId    String   @map("item_id")
+  /// RECEIVED | ADJUSTED | COUNTED | OPENING | ITEM_FORM
+  kind      String
+  delta     Int
+  qtyBefore Int?     @map("qty_before")
+  qtyAfter  Int      @map("qty_after")
+  /// ADJUSTED: DAMAGED | LOST | FOUND | TO_SUPPLIER | OTHER
+  reason    String?
+  note      String?
+  byId      String?  @map("by_id")
+  byName    String?  @map("by_name")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([clientId, itemId, createdAt])
+  @@index([clientId, createdAt])
+  @@map("stock_moves")
 }

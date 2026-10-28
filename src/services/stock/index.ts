@@ -4,3 +4,4 @@
  */
 export { adjust, sold, cameBack } from './stock.service';
 export type { StockChange } from './stock.service';
+export { moveStock, stockHistory, setLowStockAt, noteFormCount, REASONS } from './moves.service';

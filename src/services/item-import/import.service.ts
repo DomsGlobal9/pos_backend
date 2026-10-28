@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { noteFormCount } from '../stock/moves.service';
 import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { record } from '../audit';
@@ -320,7 +321,7 @@ export async function saveItem(actor: Actor, raw: Record<string, unknown>) {
   await mustBeStandalone(actor.clientId);
   const code = String(raw?.code ?? '').trim();
   const before = code
-    ? await prisma.item.findUnique({ where: { clientId_code: { clientId: actor.clientId, code } }, select: { id: true } })
+    ? await prisma.item.findUnique({ where: { clientId_code: { clientId: actor.clientId, code } }, select: { id: true, cachedQty: true } })
     : null;
 
   /*
@@ -343,6 +344,8 @@ export async function saveItem(actor: Actor, raw: Record<string, unknown>) {
   const saved = await prisma.item.findUniqueOrThrow({
     where: { clientId_code: { clientId: actor.clientId, code: checked.items[0].code } }
   });
+  // A count typed on the form goes in the item's stock book too, so the book explains every number (28 Oct).
+  await noteFormCount(actor, saved.id, before?.cachedQty ?? null, saved.cachedQty, !before);
   return {
     added: !before,
     item: {
