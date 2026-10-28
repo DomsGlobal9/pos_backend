@@ -181,7 +181,11 @@ export async function verifyCardPayments<T extends { method: string; amountPaise
     const { gatewayVerified: _ignored, cardLast4: _l, approvalCode: _a, ...plain } = p as any;
     const v = await refresh(clientId, p.cardRequestId).catch(() => null);
     const r = v ? await prisma.cardRequest.findUnique({ where: { id: v.requestId } }) : null;
-    const used = r ? await prisma.payment.count({ where: { clientId, cardRequestId: r.id, status: { in: ['COLLECTED', 'NEEDS_CHECKING'] } } }) : 1;
+    // Used on a bill, or on a gift voucher sold (its payments are kept on the voucher, 24 Oct).
+    const used = r
+      ? await prisma.payment.count({ where: { clientId, cardRequestId: r.id, status: { in: ['COLLECTED', 'NEEDS_CHECKING'] } } }) +
+        await prisma.voucherSale.count({ where: { clientId, payments: { array_contains: [{ cardRequestId: r.id }] } } })
+      : 1;
     if (r && !used && r.status === 'APPROVED' && r.amountPaise === p.amountPaise) {
       out.push({ ...plain, reference: referenceOf(r), unconfirmed: false, gatewayVerified: true } as T);
     } else if (r && !used) {

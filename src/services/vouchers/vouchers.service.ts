@@ -6,6 +6,7 @@ import { planPayments, duplicateReferences, duplicateMessage, voucherCode } from
 import { PaymentInput } from '../sale/sale.schema';
 import { shiftFor } from '../shifts';
 import { record } from '../audit';
+import { verifyCardPayments } from '../card-machines/card-machines.service';
 
 /**
  * GIFT VOUCHERS AT THE TILL (16 Oct; Inventory's PLAN-gift-vouchers.md, agreed with POS).
@@ -48,8 +49,14 @@ export async function sellVoucher(actor: Actor, input: SellVoucherInput) {
   if (rules && rules.enabled === false) throw conflict('Gift vouchers are switched off for this shop. Switch them on in Inventory → Settings → Gift vouchers.', { code: 'VOUCHERS_OFF' });
   if (rules?.minPaise && input.amountPaise < rules.minPaise) throw badRequest(`A voucher here is at least ₹${(rules.minPaise / 100).toLocaleString('en-IN')}.`, { code: 'AMOUNT' });
   if (rules?.maxPaise && input.amountPaise > rules.maxPaise) throw badRequest(`A voucher here is at most ₹${(rules.maxPaise / 100).toLocaleString('en-IN')}.`, { code: 'AMOUNT' });
+  // Paid on the shop's card machine (24 Oct): asked of the machine here. A voucher is as good as cash, so
+  // a card the machine has not approved -- or an approval already used on a bill -- is refused, not kept to check.
+  const payments = await verifyCardPayments(actor.clientId, input.payments as any[]);
+  if (payments.some(p => p.method === 'CARD' && p.unconfirmed)) {
+    throw conflict('The card machine has not approved this payment, or it was already used on another bill. Wait for Approved, or take it another way.', { code: 'CARD_NOT_APPROVED' });
+  }
   // The till's own rules first: amounts add up, references look right, the ₹2 lakh cash rule (269ST).
-  const planned = planPayments(input.amountPaise, input.payments, settings?.enabledPaymentMethods ?? [], 'EXACT');
+  const planned = planPayments(input.amountPaise, payments, settings?.enabledPaymentMethods ?? [], 'EXACT');
   const dupes = await duplicateReferences(prisma as any, actor.clientId, planned);
   if (dupes.length) throw conflict(duplicateMessage(dupes[0]).replace(' — ask the customer for the right one, or a manager can allow it.', '.'), { code: 'REFERENCE_USED' });
 
@@ -76,7 +83,7 @@ export async function sellVoucher(actor: Actor, input: SellVoucherInput) {
       update: {},
       create: {
         clientId: actor.clientId, code: data.code, amountPaise: input.amountPaise, cashPaise,
-        payments: planned.map(p => ({ method: p.method, amountPaise: p.amountPaise, reference: p.reference, tenderedPaise: p.tenderedPaise, changePaise: p.changePaise })) as any,
+        payments: planned.map(p => ({ method: p.method, amountPaise: p.amountPaise, reference: p.reference, tenderedPaise: p.tenderedPaise, changePaise: p.changePaise, ...(p.cardRequestId ? { cardRequestId: p.cardRequestId } : {}) })) as any,
         expiresAt: new Date(data.expiresAt), buyerName: buyer?.name ?? null, buyerPhone: buyer?.phone ?? null,
         counterId: input.counterId ?? null, shiftId, soldById: actor.id, onceKey: input.onceKey
       }
