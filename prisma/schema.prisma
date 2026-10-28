@@ -444,7 +444,7 @@ model Sale {
   /// The seller as printed on this bill: { shopName, address, phone, gstin }, frozen when it is issued (28 Oct),
   /// so a reprint after the owner changes the shop's name or GSTIN still shows what the customer was given.
   /// Null on bills made before: they print the shop's details as they are now.
-  seller Json? @map("seller")
+  seller       Json?  @map("seller")
 
   /// Loyalty on this bill, as Inventory settled it (contract §10, /events/status `points`): earned,
   /// spent, and the balance right after. Null until Inventory has applied the bill, and for a walk-in.
@@ -1596,4 +1596,27 @@ model StockMove {
   @@index([clientId, itemId, createdAt])
   @@index([clientId, createdAt])
   @@map("stock_moves")
+}
+
+/// What the till tells ScaleEzy CRM (28 Oct): a customer made or changed at the counter, and consent ticked
+/// there -- the things Inventory never sees. One row per event, sent in order, retried until CRM takes it.
+/// An event CRM refuses as malformed is set aside (setAside) with CRM's sentence, never retried in a loop.
+model CrmOutbox {
+  id             String    @id @default(uuid())
+  clientId       String    @map("client_id")
+  /// customer.upserted | consent.changed
+  kind           String
+  payload        Json
+  idempotencyKey String    @map("idempotency_key")
+  occurredAt     DateTime  @map("occurred_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  sentAt         DateTime? @map("sent_at")
+  attempts       Int       @default(0)
+  nextAttemptAt  DateTime? @map("next_attempt_at")
+  lastError      String?   @map("last_error")
+  setAside       Boolean   @default(false) @map("set_aside")
+
+  @@unique([clientId, idempotencyKey])
+  @@index([clientId, sentAt, setAside, createdAt])
+  @@map("crm_outbox")
 }

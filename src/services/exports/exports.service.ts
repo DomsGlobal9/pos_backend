@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { itemSales } from '../reports/items.service';
 import { prisma } from '../../lib/prisma';
 import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { badRequest, forbidden } from '../../utils/httpError';
@@ -207,6 +208,25 @@ export async function salesXlsx(actor: Actor, from: string, to: string): Promise
   (await hsnSummary(actor, from, to)).forEach(x => hsn.addRow(x));
   for (const k of ['value', 'taxable', 'igst', 'cgst', 'sgst']) hsn.getColumn(k).numFmt = money;
   hsn.getRow(1).font = { bold: true };
+
+  // ITEMS SOLD (28 Oct): every item in the period, sold less returned, with colour, size and group.
+  const itemsSheet = book.addWorksheet('Items sold', { views: [{ state: 'frozen', ySplit: 1 }] });
+  itemsSheet.columns = [
+    { header: 'Code', key: 'code', width: 14 }, { header: 'Item', key: 'name', width: 30 }, { header: 'Colour', key: 'colour', width: 12 },
+    { header: 'Size', key: 'size', width: 8 }, { header: 'Group', key: 'group', width: 14 }, { header: 'Sold', key: 'soldQty', width: 8 },
+    { header: 'Sold value', key: 'sold', width: 13 }, { header: 'Returned', key: 'returnedQty', width: 9 }, { header: 'Returned value', key: 'returned', width: 14 },
+    { header: 'Net pieces', key: 'netQty', width: 10 }, { header: 'Net value', key: 'net', width: 13 }, { header: 'Left now', key: 'leftNow', width: 9 }
+  ];
+  const itemRows = await itemSales(actor, { from, to });
+  for (const x of itemRows.items) {
+    itemsSheet.addRow({ ...x, sold: x.soldPaise / 100, returned: x.returnedPaise / 100, net: x.netPaise / 100, leftNow: x.leftNow ?? '' });
+  }
+  if (itemRows.items.length) {
+    const t = itemRows.totals;
+    itemsSheet.addRow({ name: 'Total', soldQty: t.soldQty, sold: t.soldPaise / 100, returnedQty: t.returnedQty, returned: t.returnedPaise / 100, netQty: t.netQty, net: t.netPaise / 100 }).font = { bold: true };
+  }
+  for (const k of ['sold', 'returned', 'net']) itemsSheet.getColumn(k).numFmt = money;
+  itemsSheet.getRow(1).font = { bold: true };
 
   const days = book.addWorksheet('Days', { views: [{ state: 'frozen', ySplit: 1 }] });
   days.columns = [

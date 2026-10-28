@@ -9,6 +9,7 @@ import apiRoutes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { startDeliveryLoop, startCatalogueLoop } from './services/inventory-link';
 import { startCardSweep } from './services/card-machines';
+import { startCrmLoop } from './services/crm';
 import { startWebhookLoop } from './services/webhooks';
 import { handleWhatsAppEvent } from './services/receipt-send';
 
@@ -89,6 +90,8 @@ const server = app.listen(env.PORT, () => {
     startWebhookLoop();
     // A card payment saved as "to check" is settled the moment its machine says approved.
     startCardSweep();
+    // Customers made or changed at the counter, and consent ticked there, to ScaleEzy CRM (when set up).
+    startCrmLoop();
   }
 });
 

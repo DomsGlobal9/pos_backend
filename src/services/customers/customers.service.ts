@@ -8,6 +8,7 @@ import { owedByCustomer } from '../orders';
 import { history as creditHistory, CreditEntry } from '../store-credit';
 import { record } from '../audit';
 import { gstinProblem, normaliseGstin } from '../../utils/gstin';
+import { customerChanged } from '../crm/crm.service';
 
 /**
  * The customer. POS-CUST-002..010, -014.
@@ -161,6 +162,7 @@ export async function findOrCreate(
     const updated = Object.keys(patch).length
       ? await prisma.customer.update({ where: { id: existing.id }, data: patch, select: SELECT })
       : existing;
+    if (Object.keys(patch).length) await customerChanged(actor.clientId, updated.id, actor.name ?? null);
 
     return { customer: card(updated, await statsFor(actor.clientId, updated.id)), created: false };
   }
@@ -179,6 +181,7 @@ export async function findOrCreate(
       },
       select: SELECT
     });
+    await customerChanged(actor.clientId, made.id, actor.name ?? null);
     return { customer: card(made, { count: 0, total: 0, first: null, last: null }), created: true };
   } catch (error: any) {
     // Lost the race. The other request made the customer, and that IS the answer -- exactly the
@@ -406,6 +409,8 @@ export async function updateDetails(
   const updated = Object.keys(patch).length ? await prisma.customer.update({ where: { id: row.id }, data: patch, select: SELECT }) : row;
   if (Object.keys(patch).length) {
     await record(actor, { action: 'customer.updated', subject: maskPhone(row.phone), detail: { fields: Object.keys(patch), gstin: updated.gstin, creditLimitPaise: updated.creditLimitPaise } });
+    // Inventory sees a customer only on a bill; CRM hears of the change from here (28 Oct).
+    await customerChanged(actor.clientId, updated.id, actor.name ?? null);
   }
   return card(updated, await statsFor(actor.clientId, updated.id));
 }

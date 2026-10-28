@@ -82,6 +82,14 @@ const envSchema = z.object({
   INVENTORY_BASE_URL: optionalStr(z.string().url('INVENTORY_BASE_URL must be a valid URL')),
 
   /**
+   * ScaleEzy CRM (28 Oct): where it is, and this till's secret for signing what it sends (CRM's
+   * CRM_SOURCE_SECRETS["pos"]). Both or neither: absent, the till tells CRM nothing. Only customers made
+   * or changed at the counter and consent ticked there go -- sales reach CRM through Inventory.
+   */
+  CRM_BASE_URL: optionalStr(z.string().url('CRM_BASE_URL must be a valid URL')),
+  CRM_SOURCE_SECRET: optionalStr(z.string().min(16, 'CRM_SOURCE_SECRET must be at least 16 characters')),
+
+  /**
    * Encrypts each shop's Inventory connection key at rest (AES-256-GCM). 32 bytes, hex or base64.
    *
    * Required in production once Inventory is configured: without it a shop could not connect, and
