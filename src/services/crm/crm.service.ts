@@ -167,9 +167,11 @@ export async function sendCrm(clientId: string): Promise<{ sent: number; setAsid
     console.error(`[crm] ${clientId}: CRM refused ${bad.kind} ${bad.idempotencyKey}: ${reply.body?.message}`);
     return { sent: 0, setAside: 1, outcome: 'SET_ASIDE' };
   }
-  // CRM answers a request outside its five minutes with a 401 that says "too old": this server's clock,
-  // not its key. Tried again in a minute and named as a clock problem, never the hour a wrong key waits.
-  const clock = reply?.status === 401 && /too old/i.test(String(reply.body?.message ?? ''));
+  // CRM answers a good signature outside its five minutes with 400 reason "stale_timestamp" (CRM fda787a):
+  // this server's clock, not its key and not a bad event. Tried again in a minute and named as a clock
+  // problem, never the hour a wrong key waits. 401 means only a wrong key. The set-aside above takes only a
+  // 400 that names an event (index); this one names none.
+  const clock = reply?.status === 400 && reply.body?.reason === 'stale_timestamp';
   const badKey = reply?.status === 401 && !clock;
   const why = !reply ? 'CRM could not be reached.'
     : clock ? 'CRM says this server\'s clock is off by more than 5 minutes. Ask ScaleEzy support to check the server time.'
