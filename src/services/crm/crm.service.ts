@@ -126,6 +126,8 @@ let transport: Transport = http;
 /** For the test scripts only: a stand-in CRM. */
 export function useCrmTransport(t: Transport | null) { transport = t ?? http; }
 
+const NOT_ON_CRM = 'This shop does not use ScaleEzy CRM, so its customers are kept here and not sent.';
+
 const backoff = (attempts: number) => Math.min(60 * 60_000, 30_000 * 2 ** Math.min(attempts, 7));
 
 /** One batch for one shop. Returns what happened, for the loop and the tests. */
@@ -135,6 +137,10 @@ export async function sendCrm(clientId: string): Promise<{ sent: number; setAsid
   if (!shop) return { sent: 0, setAside: 0, outcome: 'NOT_LINKED' };
   await backfill(clientId);
   const now = new Date();
+  // Told "not on CRM" within the day: a customer made since waits with the rest, not a request each.
+  if (await prisma.crmOutbox.findFirst({ where: { clientId, sentAt: null, lastError: NOT_ON_CRM, nextAttemptAt: { gt: now } }, select: { id: true } })) {
+    return { sent: 0, setAside: 0, outcome: 'NOT_ON_CRM' };
+  }
   const rows = await prisma.crmOutbox.findMany({
     where: { clientId, sentAt: null, setAside: false, kind: { in: [...KINDS] }, OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }] },
     orderBy: [{ occurredAt: 'asc' }, { createdAt: 'asc' }], take: BATCH
@@ -167,6 +173,13 @@ export async function sendCrm(clientId: string): Promise<{ sent: number; setAsid
     console.error(`[crm] ${clientId}: CRM refused ${bad.kind} ${bad.idempotencyKey}: ${reply.body?.message}`);
     return { sent: 0, setAside: 1, outcome: 'SET_ASIDE' };
   }
+  if (reply && reply.status === 409 && reply.body?.reason === 'shop_not_on_crm') {
+    // The shop does not use CRM (11 Nov, owner: "match Inventory", which sends only for CRM shops). CRM
+    // kept nothing. The queue stays here and is asked about once a day, so a shop that joins CRM later
+    // still has every customer go, the backfill included. Not a fault, so attempts are not counted.
+    await prisma.crmOutbox.updateMany({ where: { clientId, sentAt: null, setAside: false }, data: { lastError: NOT_ON_CRM, nextAttemptAt: new Date(Date.now() + 24 * 60 * 60_000) } });
+    return { sent: 0, setAside: 0, outcome: 'NOT_ON_CRM' };
+  }
   // CRM answers a good signature outside its five minutes with 400 reason "stale_timestamp" (CRM fda787a):
   // this server's clock, not its key and not a bad event. Tried again in a minute and named as a clock
   // problem, never the hour a wrong key waits. 401 means only a wrong key. The set-aside above takes only a
@@ -192,7 +205,8 @@ export async function crmStatus(clientId: string) {
     prisma.crmOutbox.findFirst({ where: { clientId, sentAt: { not: null } }, orderBy: { sentAt: 'desc' }, select: { sentAt: true } }),
     prisma.crmOutbox.findFirst({ where: { clientId, sentAt: null, lastError: { not: null } }, orderBy: { createdAt: 'desc' }, select: { lastError: true } })
   ]);
-  return { configured: true, waiting, setAside, lastSentAt: last?.sentAt ?? null, problem: problem?.lastError ?? null };
+  const notOnCrm = problem?.lastError === NOT_ON_CRM;
+  return { configured: true, notOnCrm, waiting, setAside, lastSentAt: last?.sentAt ?? null, problem: notOnCrm ? null : problem?.lastError ?? null };
 }
 
 /** One pass over every linked shop. */
