@@ -55,6 +55,8 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   let cursor = opts.full ? null : link.catalogueCursor;
   const problems: string[] = [];
   const counts = { added: 0, updated: 0, switchedOff: 0, skipped: 0 };
+  const seen = new Set<string>();
+  let complete = false;
 
   /*
    * WHETHER THIS SHOP CHARGES GST AT ALL, which decides whether a missing rate is a data gap.
@@ -137,12 +139,36 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
         if (key in data.shop) details[key] = data.shop[key];
       }
     }
+    /*
+     * A KEY FROM ANOTHER SHOP (12 Nov: a key made in Swathy's Inventory was pasted into sphl's till;
+     * the till took Swathy's items, name and bills). The shop this till sends to is fixed once known:
+     * an answer for a different shop changes nothing here and stops the queue until the owner
+     * connects a key for the right shop, or says on Replace key that the till has moved.
+     */
+    if (page === 0 && link.platformClientId && platformClientId && platformClientId !== link.platformClientId) {
+      const message = `This key is for the Inventory shop "${platformClientId}", but this till sends to "${link.platformClientId}". Nothing was taken from it and nothing is sent. Make a key while in "${link.platformClientId}" in Inventory and paste it under Replace key.`;
+      await prisma.inventoryLink.update({ where: { clientId }, data: { blockedSequence: link.deliveredSequence + BigInt(1), blockedCode: 'SHOP_CHANGED', blockedMessage: message } });
+      throw conflict(message, { code: 'SHOP_CHANGED' });
+    }
     const products: any[] = Array.isArray(data.products) ? data.products : [];
     for (const product of products) {
+      for (const v of product.variants ?? []) if (v?.variantCode) seen.add(String(v.variantCode).trim());
       await applyProduct(clientId, product, counts, problems, gstCharged);
     }
     cursor = data.nextCursor ?? cursor;
-    if (!data.hasMore) break;
+    if (!data.hasMore) { complete = true; break; }
+  }
+  /*
+   * A FULL REFRESH ALSO TAKES AWAY what Inventory no longer lists for this shop -- only Inventory's
+   * own items (they carry its variant id), never one the shop made on the till. And only when every
+   * page came: a list cut short must not switch off the rest.
+   */
+  if (opts.full && complete) {
+    const off = await prisma.item.updateMany({
+      where: { clientId, active: true, inventoryVariantId: { not: null }, code: { notIn: [...seen] } },
+      data: { active: false }
+    });
+    counts.switchedOff += off.count;
   }
 
   /*

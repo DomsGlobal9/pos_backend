@@ -49,9 +49,42 @@ async function tryKey(baseUrl: string, keyCipher: string) {
   if (reply.status >= 400) {
     throw conflict(`Inventory answered with an error (${reply.status}). Try again in a few minutes.`, { code: 'INVENTORY_ERROR' });
   }
+  // The shop the key belongs to, as the catalogue names it (Inventory, 12 Nov: data.shop.clientId).
+  const shop = reply.body?.data?.shop ?? {};
+  return {
+    clientId: typeof shop.clientId === 'string' && /^[\w.-]{1,80}$/.test(shop.clientId) ? shop.clientId as string : null,
+    name: typeof shop.name === 'string' && shop.name.trim() ? shop.name.trim().slice(0, 120) as string : null
+  };
 }
 
-export async function connect(actor: Actor, input: { key: string; baseUrl?: string; whenDown?: string }) {
+/**
+ * Send again, from this bill on (12 Nov: two sphl documents went to Swathy's Inventory under a key
+ * from the wrong shop). Everything from that bill's first event is sent again to the shop the till
+ * is connected to now; Inventory answers ALREADY_APPLIED for anything it already has.
+ */
+export async function resendFrom(actor: Actor, document: string) {
+  mustManage(actor);
+  const doc = (document ?? '').trim();
+  const first = await prisma.webhookEvent.findFirst({
+    where: { clientId: actor.clientId, eventType: { in: STOCK_EVENTS }, OR: [{ invoiceNo: doc }, { payload: { path: ['creditNoteNo'], equals: doc } }] },
+    orderBy: { sequence: 'asc' }, select: { sequence: true }
+  });
+  if (!first) throw badRequest(`No bill or credit note ${doc || '(empty)'} has been sent from this till.`, { code: 'NOT_FOUND' });
+  const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { connected: true, deliveredSequence: true, blockedCode: true } });
+  if (!link?.connected) throw conflict('Connect this till to Inventory first.', { code: 'NOT_CONNECTED' });
+  if (link.blockedCode === 'SHOP_CHANGED') throw conflict('This till has a key for another shop. Paste a key made in this shop first.', { code: 'SHOP_CHANGED' });
+  if (first.sequence > link.deliveredSequence) return { ...(await status(actor)), resent: 0 };
+  const again = await prisma.webhookEvent.count({ where: { clientId: actor.clientId, eventType: { in: STOCK_EVENTS }, sequence: { gte: first.sequence, lte: link.deliveredSequence } } });
+  await prisma.$transaction([
+    prisma.inventoryLink.update({ where: { clientId: actor.clientId }, data: { deliveredSequence: first.sequence - BigInt(1), blockedSequence: null, blockedCode: null, blockedMessage: null, attempts: 0, nextAttemptAt: null } }),
+    // Their old receipts were another shop's; the new sends write their own.
+    prisma.inventorySettlement.deleteMany({ where: { clientId: actor.clientId, sequence: { gte: first.sequence } } })
+  ]);
+  await record(actor, { action: 'inventory.resent', detail: { from: doc, events: again } });
+  return { ...(await status(actor)), resent: again };
+}
+
+export async function connect(actor: Actor, input: { key: string; baseUrl?: string; whenDown?: string; moveTo?: string }) {
   mustManage(actor);
   const key = (input.key ?? '').trim();
   if (key.length < 16) throw badRequest('Paste the whole connection key from Inventory.');
@@ -65,9 +98,21 @@ export async function connect(actor: Actor, input: { key: string; baseUrl?: stri
   if (!WHEN_DOWN.includes(whenDown as any)) throw badRequest('Choose what to do when Inventory cannot be reached.');
 
   const keyCipher = seal(key);
-  await tryKey(baseUrl, keyCipher);
+  const shopOfKey = await tryKey(baseUrl, keyCipher);
 
-  const existing = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { clientId: true } });
+  const existing = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { clientId: true, platformClientId: true } });
+  /*
+   * WHICH SHOP THE KEY IS FOR (12 Nov: a key made in Swathy's Inventory went into sphl's till, and
+   * sphl's bill landed in Swathy's books). A key for another shop than the one this till sends to is
+   * refused, unless the owner says the till has really moved -- then the item list starts afresh.
+   */
+  const moving = Boolean(existing?.platformClientId && shopOfKey.clientId && shopOfKey.clientId !== existing.platformClientId);
+  if (moving && input.moveTo !== shopOfKey.clientId) {
+    throw conflict(
+      `This key is for ${shopOfKey.name ? `"${shopOfKey.name}" (${shopOfKey.clientId})` : `"${shopOfKey.clientId}"`} in Inventory, but this till sends to "${existing!.platformClientId}". If that is a mistake, make the key while in "${existing!.platformClientId}" in Inventory.`,
+      { code: 'SHOP_CHANGED', was: existing!.platformClientId, now: shopOfKey.clientId, nowName: shopOfKey.name }
+    );
+  }
   const latest = await prisma.webhookEvent.aggregate({ where: { clientId: actor.clientId }, _max: { sequence: true } });
 
   await prisma.inventoryLink.upsert({
@@ -82,11 +127,13 @@ export async function connect(actor: Actor, input: { key: string; baseUrl?: stri
       connected: true, baseUrl, keyCipher, keyPrefix: key.slice(0, 8), whenDown,
       // A new key may be the fix for a key that stopped working -- clear that block.
       blockedSequence: null, blockedCode: null, blockedMessage: null,
-      attempts: 0, nextAttemptAt: null, lastError: null, connectedAt: new Date()
+      attempts: 0, nextAttemptAt: null, lastError: null, connectedAt: new Date(),
+      // Moved to another shop: its items from the start, under its id.
+      ...(moving ? { platformClientId: shopOfKey.clientId, catalogueCursor: null } : {})
     }
   });
 
-  await record(actor, { action: 'inventory.connected', detail: { baseUrl, keyPrefix: key.slice(0, 8), firstTime: !existing } });
+  await record(actor, { action: 'inventory.connected', detail: { baseUrl, keyPrefix: key.slice(0, 8), firstTime: !existing, ...(moving ? { movedFrom: existing!.platformClientId, movedTo: shopOfKey.clientId } : {}) } });
   return status(actor);
 }
 
@@ -107,6 +154,11 @@ export async function setWhenDown(actor: Actor, whenDown: string) {
 /** A person has fixed what stopped the queue. Clear it; the next delivery run tries again at once. */
 export async function retry(actor: Actor) {
   mustManage(actor);
+  // A key for another shop is not fixed by trying again: it would send this shop's bills there.
+  const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { blockedCode: true } });
+  if (link?.blockedCode === 'SHOP_CHANGED') {
+    throw conflict('This key is for another shop in Inventory. Paste a key made in this shop under Replace key.', { code: 'SHOP_CHANGED' });
+  }
   await prisma.inventoryLink.updateMany({
     where: { clientId: actor.clientId },
     data: { blockedSequence: null, blockedCode: null, blockedMessage: null, attempts: 0, nextAttemptAt: null, lockedUntil: null }
@@ -116,7 +168,7 @@ export async function retry(actor: Actor) {
 }
 
 /** Refusals that are about the link itself, not a bill: leaving a bill out would not help. */
-const NOT_A_BILL_PROBLEM = ['KEY_REFUSED'];
+const NOT_A_BILL_PROBLEM = ['KEY_REFUSED', 'SHOP_CHANGED'];
 export const SKIP_REASON_MIN = 10;
 
 /**
@@ -222,6 +274,8 @@ export async function status(actor: Actor) {
     mayManage: may(actor, PERMISSIONS.SETTINGS),
     baseUrl: link.baseUrl,
     keyPrefix: link.keyPrefix,
+    // Which shop in Inventory this till sends to (12 Nov): a key from another shop shows at once.
+    inventoryShop: link.platformClientId,
     whenDown: link.whenDown,
     // Is the counter's news (customers, consent) reaching ScaleEzy CRM? 28 Oct.
     crm: await crmStatus(actor.clientId),

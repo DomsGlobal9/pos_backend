@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { connect, disconnect, setWhenDown, retry, status, syncCatalogue, drain, leaveOut } from '../services/inventory-link';
+import { connect, disconnect, setWhenDown, retry, status, syncCatalogue, drain, leaveOut, resendFrom } from '../services/inventory-link';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
 
@@ -22,10 +22,19 @@ router.get('/', handle(req => status(req.actor)));
 router.post('/connect', handle(req => {
   // No address from the request: Inventory's address is this deployment's (13 Oct audit -- an owner
   // pointing it at their own server could reach inside ours, and borrow another shop's WhatsApp).
-  const body = z.object({ key: z.string().min(1, 'Paste the connection key'), whenDown: z.string().optional() })
+  // moveTo: the owner says the till has moved to that Inventory shop (12 Nov). Without it a key for
+  // another shop is refused.
+  const body = z.object({ key: z.string().min(1, 'Paste the connection key'), whenDown: z.string().optional(), moveTo: z.string().max(80).optional() })
     .safeParse(req.body);
   if (!body.success) throw badRequest(body.error.issues[0].message);
   return connect(req.actor, body.data);
+}));
+
+/** POST /api/v1/inventory-link/resend -- send again from this bill or credit note on (12 Nov). */
+router.post('/resend', handle(req => {
+  const body = z.object({ document: z.string().min(1, 'Which bill or credit note?').max(40) }).safeParse(req.body);
+  if (!body.success) throw badRequest(body.error.issues[0].message);
+  return resendFrom(req.actor, body.data.document);
 }));
 
 router.post('/disconnect', handle(req => disconnect(req.actor)));
