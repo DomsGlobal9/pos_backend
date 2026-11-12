@@ -21,7 +21,7 @@ export async function forTill(actor: Actor) {
       select: {
         shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true, upiQrEnabled: true, giftVouchers: true,
         enabledPaymentMethods: true, manualDiscountMaxPercent: true, returnWindowDays: true,
-        holdThresholdQty: true, upiId: true, gstRegistration: true, phone: true
+        holdThresholdQty: true, upiId: true, gstRegistration: true, phone: true, idleSignOutMinutes: true
       }
     }),
     prisma.counter.findMany({
@@ -73,6 +73,21 @@ export async function setUpiId(actor: Actor, raw: string | null) {
   }
   await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { upiId } });
   await record(actor, { action: 'shop.upi_set', detail: { upiId } });
+  return forTill(actor);
+}
+
+/**
+ * How long a till waits with nothing happening before it asks for a PIN again (12 Nov). Owner-only,
+ * from a short list: a free number invites "9999", which is "never" without saying so.
+ */
+export const IDLE_CHOICES = [10, 30, 60, 240, 0] as const;
+export async function setIdleSignOut(actor: Actor, raw: unknown) {
+  if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change when the till signs out.');
+  const minutes = Number(raw);
+  if (!(IDLE_CHOICES as readonly number[]).includes(minutes)) throw badRequest('Choose 10, 30, 60 or 240 minutes, or never.', { code: 'BAD_IDLE' });
+  const before = await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { idleSignOutMinutes: true } });
+  await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { idleSignOutMinutes: minutes } });
+  await record(actor, { action: 'shop.idle_set', detail: { from: before?.idleSignOutMinutes ?? null, to: minutes } });
   return forTill(actor);
 }
 

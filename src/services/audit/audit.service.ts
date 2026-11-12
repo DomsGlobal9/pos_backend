@@ -55,6 +55,7 @@ export type AuditAction =
   | 'sale.offers_applied'
   | 'shop.gst_registration_set'
   | 'shop.details_set'
+  | 'shop.idle_set'
   | 'customer.updated'
   | 'customer.erased'
   | 'day.reclosed'

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { forTill, setUpiId, setLogo, setGstRegistration, setPaymentMethods, setShopDetails } from '../services/shop';
+import { forTill, setUpiId, setLogo, setGstRegistration, setPaymentMethods, setShopDetails, setIdleSignOut } from '../services/shop';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 const router = Router();
@@ -56,6 +56,15 @@ router.put('/gst', async (req, res, next) => {
  * PUT /api/v1/shop/details -- the shop's name, address, phone, GSTIN, bill footer, cashier discount limit
  * and return window (28 Oct). Owner-only; not while connected. Only the fields sent are changed.
  */
+/** PUT /api/v1/shop/idle-sign-out -- `{ minutes }`: 10, 30, 60, 240, or 0 for never (12 Nov). Owner-only. */
+router.put('/idle-sign-out', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await setIdleSignOut((req as any).actor, req.body?.minutes) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.put('/details', async (req, res, next) => {
   try {
     const b = req.body ?? {};

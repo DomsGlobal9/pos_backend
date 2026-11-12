@@ -175,6 +175,11 @@ model ShopSettings {
   /// Days a return is taken without a manager. Empty = no limit (Inventory's rule, from the catalogue).
   returnWindowDays         Int? @default(7) @map("return_window_days")
 
+  /// Minutes with nothing happening before the till asks for a PIN again (12 Nov, owner: "why it signs
+  /// out, fix it"). 10 by default (9 Oct: a till left signed in as the owner let anyone approve as them);
+  /// 0 = never. The owner chooses: 10, 30, 60, 240 or 0.
+  idleSignOutMinutes       Int  @default(10) @map("idle_sign_out_minutes")
+
   /// At or below this many on hand, the till takes a live hold from Inventory before it commits;
   /// above it, it sells optimistically and lets Inventory reconcile. One number, deliberately,
   /// because it also decides when the sell screen may honestly say "last one" -- two numbers would
