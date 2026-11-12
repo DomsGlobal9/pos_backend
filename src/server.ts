@@ -11,6 +11,7 @@ import { startDeliveryLoop, startCatalogueLoop } from './services/inventory-link
 import { startCardSweep } from './services/card-machines';
 import { startCrmLoop } from './services/crm';
 import { startErasureLoop } from './services/inventory-link/erasures.service';
+import { startInboundSweep } from './services/inventory-link/inbound.service';
 import { startWebhookLoop } from './services/webhooks';
 import { handleWhatsAppEvent } from './services/receipt-send';
 
@@ -47,7 +48,8 @@ app.post('/api/v1/whatsapp/events', express.raw({ type: 'application/json', limi
 });
 
 // 1 MB for everything but the item import, which carries a spreadsheet (up to 5 MB, base64).
-const smallJson = express.json({ limit: '1mb' });
+// The exact bytes are kept too: Inventory signs what it pushes over the raw body (12 Nov).
+const smallJson = express.json({ limit: '1mb', verify: (req, _res, buf) => { (req as any).rawBody = buf; } });
 const importJson = express.json({ limit: '8mb' });
 app.use((req, res, next) => (req.path === '/api/v1/connections/items/import' ? importJson : smallJson)(req, res, next));
 
@@ -95,6 +97,8 @@ const server = app.listen(env.PORT, () => {
     startCrmLoop();
     // Customers erased in Inventory are forgotten here too (12 Nov).
     startErasureLoop();
+    // Inventory's pushes left unworked by a restart (12 Nov).
+    startInboundSweep();
   }
 });
 

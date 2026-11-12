@@ -25,6 +25,7 @@ import platformRoutes from './platform.routes';
 import vouchersRoutes from './vouchers.routes';
 import cardMachinesRoutes from './card-machines.routes';
 import liveRoutes from './live.routes';
+import inventoryInboundRoutes from './inventory-inbound.routes';
 import { notify, sendNow } from '../services/live';
 
 /**
@@ -55,6 +56,8 @@ router.use((req, res, next) => {
 
 router.use('/health', healthRoutes);
 router.use('/live', liveRoutes);
+// Inventory's pushes: signed, no person (12 Nov).
+router.use('/inventory', inventoryInboundRoutes);
 router.use('/sales', salesRoutes);
 router.use('/shop', shopRoutes);
 router.use('/home', homeRoutes);

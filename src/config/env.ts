@@ -90,6 +90,13 @@ const envSchema = z.object({
   CRM_SOURCE_SECRET: optionalStr(z.string().min(16, 'CRM_SOURCE_SECRET must be at least 16 characters')),
 
   /**
+   * Inventory's pushes to the till (12 Nov, PLAN-live step 3): the secret Inventory signs them with,
+   * the same value as POS_EVENTS_SECRET on Inventory's service. Absent: pushes are refused and the
+   * till keeps finding out by asking (every 30 s for items, every 5 min for erasures).
+   */
+  POS_EVENTS_SECRET: optionalStr(z.string().min(16, 'POS_EVENTS_SECRET must be at least 16 characters')),
+
+  /**
    * Encrypts each shop's Inventory connection key at rest (AES-256-GCM). 32 bytes, hex or base64.
    *
    * Required in production once Inventory is configured: without it a shop could not connect, and

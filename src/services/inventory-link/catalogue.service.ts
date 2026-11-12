@@ -278,6 +278,25 @@ const EVERY_MS = 30_000;
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 
+const refreshing = new Set<string>();
+const refreshAgain = new Set<string>();
+
+/**
+ * Refresh one shop now -- Inventory said its catalogue changed (12 Nov, pushed). Never two at once for
+ * a shop; a push that lands mid-refresh runs one more after, so the last change is never missed.
+ */
+export async function refreshShop(clientId: string): Promise<void> {
+  if (refreshing.has(clientId)) { refreshAgain.add(clientId); return; }
+  refreshing.add(clientId);
+  try {
+    do {
+      refreshAgain.delete(clientId);
+      const r = await syncFor(clientId);
+      if (r.added || r.updated || r.switchedOff) notify(clientId, 'items', 'inventory-link');
+    } while (refreshAgain.has(clientId));
+  } finally { refreshing.delete(clientId); }
+}
+
 export function startCatalogueLoop(everyMs = EVERY_MS) {
   if (timer) return;
   timer = setInterval(async () => {

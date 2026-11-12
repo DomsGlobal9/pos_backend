@@ -1625,3 +1625,23 @@ model CrmOutbox {
   @@index([clientId, sentAt, setAside, createdAt])
   @@map("crm_outbox")
 }
+
+/// What Inventory pushed to the till (12 Nov, PLAN-live step 3): "the catalogue changed", "this
+/// customer was erased". Stored before it is answered, so a retry of the same batch never acts twice;
+/// worked straight after. inventoryShop is Inventory's id for the shop (the link's platformClientId).
+model InventoryInbound {
+  id            String    @id @default(uuid())
+  inventoryShop String    @map("inventory_shop")
+  /// Inventory's id for the event. A batch sent again carries the same ids.
+  eventId       String    @map("event_id")
+  kind          String
+  payload       Json
+  receivedAt    DateTime  @default(now()) @map("received_at")
+  processedAt   DateTime? @map("processed_at")
+  /// What the till did: REFRESHED, ERASED, NO_SUCH_SHOP, IGNORED ...
+  outcome       String?
+
+  @@unique([inventoryShop, eventId])
+  @@index([processedAt])
+  @@map("inventory_inbound")
+}
