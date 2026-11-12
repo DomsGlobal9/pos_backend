@@ -138,15 +138,29 @@ const saleLine = (l: SaleLineRow) => ({
  * GSTIN and address frozen on the bill -- so Inventory's "Bill to" matches the paper. On any other
  * bill gstin and address are left out entirely (Inventory, 7 Oct: absent, never null or "").
  */
-function customerBlock(s: { customer: { name: string | null; phone: string } | null; buyerName: string | null; buyerGstin: string | null; buyerAddress: string | null }) {
+function customerBlock(s: { customer: { name: string | null; phone: string } | null; buyerName: string | null; buyerGstin: string | null; buyerAddress: string | null }, agreed = false) {
   if (!s.customer) return null;
+  // Said yes to WhatsApp offers at this bill (12 Nov, owner; Inventory's customers.whatsapp_offers).
+  // Only ever true, and only on the bill it was ticked at, so a no set later in Inventory stays.
+  const offers = agreed ? { whatsappOffers: true } : {};
   // A bill made out to the buyer (B2B, or a Rs 50,000+ consumer bill under rule 46) sends them as printed.
-  if (!s.buyerGstin && !s.buyerAddress) return { name: s.customer.name, phone: s.customer.phone };
+  if (!s.buyerGstin && !s.buyerAddress) return { name: s.customer.name, phone: s.customer.phone, ...offers };
   return {
-    name: s.buyerName ?? s.customer.name, phone: s.customer.phone,
+    name: s.buyerName ?? s.customer.name, phone: s.customer.phone, ...offers,
     ...(s.buyerGstin ? { gstin: s.buyerGstin } : {}),
     ...(s.buyerAddress ? { address: s.buyerAddress } : {})
   };
+}
+
+/**
+ * Did the customer say yes to offers at this bill? Yes when they have agreed and no other bill of
+ * theirs came between the yes and this one: the tick is made in the customer box just before the bill.
+ */
+async function agreedAt(tx: Tx, saleId: string, s: { customerId: string | null; createdAt: Date; customer: { marketingConsent: boolean; consentAt: Date | null } | null }) {
+  const at = s.customer?.consentAt;
+  if (!s.customerId || !s.customer?.marketingConsent || !at || at > s.createdAt) return false;
+  const between = await tx.sale.findFirst({ where: { customerId: s.customerId, id: { not: saleId }, createdAt: { gte: at, lte: s.createdAt } }, select: { id: true } });
+  return !between;
 }
 
 async function loadSale(tx: Tx, saleId: string) {
@@ -157,7 +171,8 @@ async function loadSale(tx: Tx, saleId: string) {
       subtotalPaise: true, discountPaise: true, taxPaise: true, roundOffPaise: true, totalPaise: true,
       counter: { select: { name: true } },
       cashier: { select: { name: true } },
-      customer: { select: { phone: true, name: true } },
+      customerId: true,
+      customer: { select: { phone: true, name: true, marketingConsent: true, consentAt: true } },
       buyerName: true, buyerGstin: true, buyerAddress: true,
       lines: { select: LINE_SELECT },
       payments: { select: { method: true, amountPaise: true, status: true, holdId: true, qrId: true, reference: true } }
@@ -185,7 +200,7 @@ export async function saleCompleted(tx: Tx, clientId: string, saleId: string, pr
     customerRef: s.customer?.phone ?? null,
     // For Inventory's own customer record (contract §4.1, Q6). Its outside-customer rule may drop
     // a phone it already has on someone else -- that is correct there, not a mismatch here.
-    customer: customerBlock(s),
+    customer: customerBlock(s, await agreedAt(tx, saleId, s)),
     lines: s.lines.map(saleLine),
     totals: {
       subtotalPaise: s.subtotalPaise, discountPaise: s.discountPaise, taxPaise: s.taxPaise,
@@ -260,7 +275,7 @@ export async function saleExchanged(tx: Tx, clientId: string, returnId: string, 
     reason: r.reason,
     counter: s.counter.name,
     customerRef: s.customer?.phone ?? r.customer?.phone ?? null,
-    customer: customerBlock(s),
+    customer: customerBlock(s, await agreedAt(tx, r.exchangeSaleId, s)),
     returned: r.lines.map(returnedLine),
     taken: s.lines.map(saleLine),
     // What came back pays only its money share; a points share goes back as points.
