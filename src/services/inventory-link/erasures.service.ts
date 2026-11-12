@@ -98,20 +98,26 @@ export async function readErasures(clientId: string) {
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 
-/** Every five minutes (Inventory keeps the list 30 days). Started by the server with the other loops. */
+async function pass() {
+  if (running) return;
+  running = true;
+  try {
+    const links = await prisma.inventoryLink.findMany({ where: { connected: true }, select: { clientId: true } });
+    for (const l of links) {
+      try { await readErasures(l.clientId); }
+      catch (error) { console.error(`[inventory-link] erasures for ${l.clientId} failed:`, (error as Error).message); }
+    }
+  } catch (error) { console.error('[inventory-link] erasure pass failed:', (error as Error).message); }
+  finally { running = false; }
+}
+
+/**
+ * Every five minutes (Inventory keeps the list 30 days), and once half a minute after the server
+ * starts -- a deploy should not leave the owner's "checked" waiting five minutes.
+ */
 export function startErasureLoop(everyMs = 5 * 60_000) {
   if (timer) return;
-  timer = setInterval(async () => {
-    if (running) return;
-    running = true;
-    try {
-      const links = await prisma.inventoryLink.findMany({ where: { connected: true }, select: { clientId: true } });
-      for (const l of links) {
-        try { await readErasures(l.clientId); }
-        catch (error) { console.error(`[inventory-link] erasures for ${l.clientId} failed:`, (error as Error).message); }
-      }
-    } catch (error) { console.error('[inventory-link] erasure pass failed:', (error as Error).message); }
-    finally { running = false; }
-  }, everyMs);
+  timer = setInterval(pass, everyMs);
   timer.unref();
+  setTimeout(pass, 30_000).unref();
 }
