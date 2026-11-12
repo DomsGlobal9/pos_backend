@@ -4,6 +4,7 @@ import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { conflict, forbidden } from '../../utils/httpError';
 import { record } from '../audit';
 import { call } from './client';
+import { notify } from '../live/live.service';
 
 /**
  * Filling the till's item list from Inventory. POS-INV-001, -002. Contract §2.
@@ -245,7 +246,9 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
  * usually nothing and costs one request per shop. The button stays -- a manager who has just
  * corrected a count in Inventory wants it now, not in three minutes.
  */
-const EVERY_MS = 3 * 60_000;
+// 30 s, not 3 min (12 Nov, owner: changes in a blink). Until Inventory pushes changes, this is how
+// fast an item, price or stock change made in Inventory reaches the till. Usually one cheap request.
+const EVERY_MS = 30_000;
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 
@@ -258,7 +261,10 @@ export function startCatalogueLoop(everyMs = EVERY_MS) {
       const links = await prisma.inventoryLink.findMany({ where: { connected: true }, select: { clientId: true } });
       for (const l of links) {
         // Per shop, so one shop's bad key or slow answer never stops the others.
-        try { await syncFor(l.clientId); }
+        try {
+          const r = await syncFor(l.clientId);
+          if (r.added || r.updated || r.switchedOff) notify(l.clientId, 'items', 'inventory-link');
+        }
         catch (error) { console.error(`[inventory-link] catalogue refresh for ${l.clientId} failed:`, (error as Error).message); }
       }
     } catch (error) {

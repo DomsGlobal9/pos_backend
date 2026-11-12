@@ -2,6 +2,7 @@ import { createHmac } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { env } from '../../config/env';
+import { notify } from '../live/live.service';
 
 /**
  * TELLING SCALEEZY CRM WHAT ONLY THE COUNTER KNOWS (28 Oct, owner's go; CRM's inbox, D:\villy\crm).
@@ -218,6 +219,7 @@ export async function runCrmOnce() {
       // Drain what is due, a few batches a pass; a set-aside event lets the rest go straight after.
       for (let i = 0; i < 5; i++) {
         const r = await sendCrm(l.clientId);
+        if (r.sent || r.setAside) notify(l.clientId, 'inventory-link');
         if (r.outcome !== 'SENT' && r.outcome !== 'SET_ASIDE') break;
       }
     } catch (error) {

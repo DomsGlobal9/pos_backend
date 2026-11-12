@@ -24,6 +24,8 @@ import staffRoutes from './staff.routes';
 import platformRoutes from './platform.routes';
 import vouchersRoutes from './vouchers.routes';
 import cardMachinesRoutes from './card-machines.routes';
+import liveRoutes from './live.routes';
+import { notify, sendNow } from '../services/live';
 
 /**
  * Everything mounts under /api/v1.
@@ -35,7 +37,24 @@ import cardMachinesRoutes from './card-machines.routes';
  */
 const router = Router();
 
+/*
+ * Every change a person makes -- a bill, a return, a customer, a count -- is told to the shop's open
+ * screens and sent on to Inventory and CRM at once (12 Nov). After the answer, so it is committed.
+ */
+router.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+    res.on('finish', () => {
+      const clientId = (req as any).actor?.clientId as string | undefined;
+      if (!clientId || res.statusCode >= 400) return;
+      notify(clientId, 'sales', 'customers', 'inventory-link', 'items');
+      sendNow(clientId);
+    });
+  }
+  next();
+});
+
 router.use('/health', healthRoutes);
+router.use('/live', liveRoutes);
 router.use('/sales', salesRoutes);
 router.use('/shop', shopRoutes);
 router.use('/home', homeRoutes);

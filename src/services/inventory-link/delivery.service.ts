@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { confirmQrPayments } from './upi-qr.service';
 import { call } from './client';
+import { notify } from '../live/live.service';
 import { toInventory, readAnswer } from './wire';
 import { confirmPendingHolds } from './holds.service';
 import { sendPastWriteOffs } from '../orders/orders.service';
@@ -499,7 +500,7 @@ export async function runOnce() {
         });
         if (lifted.count) l.blockedSequence = null;
       }
-      if (l.blockedSequence === null) await drain(l.clientId);
+      if (l.blockedSequence === null && (await drain(l.clientId)).sent) notify(l.clientId, 'inventory-link', 'sales');
       // Even a stopped queue has bills Inventory accepted before it stopped. Their endings still count.
       await checkSettlements(l.clientId);
       // And the bills the owner left out: Inventory's books are short by them until it is told.
