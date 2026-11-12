@@ -55,6 +55,20 @@ async function liveLink(clientId: string) {
   return link;
 }
 
+/**
+ * The name Inventory knows a number by, for a number this till has not met (12 Nov: the till called
+ * sphl's "rehan" a new customer, the cashier typed "Owner test", and Inventory kept "rehan" -- one
+ * number, one customer there). Asked quickly; any trouble is simply no name.
+ */
+export async function inventoryNameFor(clientId: string, phoneE164: string): Promise<string | null> {
+  const link = await liveLink(clientId);
+  if (!link || link.blockedSequence !== null) return null;
+  const reply = await call(link, 'GET', `/wallet?customerRef=${encodeURIComponent(phoneE164)}&billPaise=0`, undefined, 3_000);
+  if (reply.kind === 'UNREACHABLE' || reply.status !== 200) return null;
+  const name = reply.body?.data?.customerName;
+  return typeof name === 'string' && name.trim() ? name.trim().slice(0, 120) : null;
+}
+
 async function phoneOf(clientId: string, customerId: string) {
   const c = await prisma.customer.findFirst({ where: { id: customerId, clientId, deletedAt: null }, select: { phone: true } });
   return c?.phone ?? null;

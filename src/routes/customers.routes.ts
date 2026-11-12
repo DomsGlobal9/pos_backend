@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { findByPhone, findOrCreate, search, detail, updateDetails } from '../services/customers';
 import { badRequest } from '../utils/httpError';
+import { normalisePhone } from '../utils/phone';
+import { inventoryNameFor } from '../services/inventory-link/holds.service';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 const router = Router();
@@ -24,8 +26,11 @@ router.get('/', async (req, res, next) => {
  */
 router.get('/by-phone/:phone', async (req, res, next) => {
   try {
-    const found = await findByPhone((req as any).actor, req.params.phone);
-    res.json({ success: true, data: found });
+    const actor = (req as any).actor;
+    const found = await findByPhone(actor, req.params.phone);
+    // Not met here, but maybe in Inventory (12 Nov): its name, for the cashier to start from.
+    const inventoryName = found ? null : await inventoryNameFor(actor.clientId, normalisePhone(req.params.phone).e164).catch(() => null);
+    res.json({ success: true, data: found, ...(inventoryName ? { inventoryName } : {}) });
   } catch (error) {
     next(error);
   }
