@@ -276,6 +276,8 @@ export async function status(actor: Actor) {
     keyPrefix: link.keyPrefix,
     // Which shop in Inventory this till sends to (12 Nov): a key from another shop shows at once.
     inventoryShop: link.platformClientId,
+    // Customers erased in Inventory, forgotten here (12 Nov): when the list was last read, and how many.
+    erasures: { checkedAt: link.erasuresCheckedAt, forgotten: link.erasedCount },
     whenDown: link.whenDown,
     // Is the counter's news (customers, consent) reaching ScaleEzy CRM? 28 Oct.
     crm: await crmStatus(actor.clientId),

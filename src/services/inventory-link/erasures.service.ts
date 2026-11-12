@@ -80,12 +80,15 @@ export async function readErasures(clientId: string) {
     // An Inventory without the list yet, or a hiccup: next pass.
     if (reply.kind === 'UNREACHABLE' || reply.status !== 200) return { done };
     const data = reply.body?.data ?? reply.body ?? {};
+    let onPage = 0;
     for (const e of Array.isArray(data.erasures) ? data.erasures : []) {
       const how = await eraseHere(clientId, e);
-      if (how === 'ERASED' || how === 'DETACHED') done++;
+      if (how === 'ERASED' || how === 'DETACHED') onPage++;
     }
+    done += onPage;
     if (typeof data.next === 'string' && /^\d+$/.test(data.next)) since = data.next;
-    await prisma.inventoryLink.update({ where: { clientId }, data: { erasureCursor: since } });
+    // The time is shown to the owner: proof the list is being read, even when it is empty.
+    await prisma.inventoryLink.update({ where: { clientId }, data: { erasureCursor: since, erasuresCheckedAt: new Date(), erasedCount: { increment: onPage } } });
     if (!data.more) break;
   }
   if (done) notify(clientId, 'customers', 'sales');

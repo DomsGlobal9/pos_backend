@@ -1309,6 +1309,9 @@ model InventoryLink {
   catalogueProblems Json?     @map("catalogue_problems")
   /// Where the till left off in Inventory's list of erased customers (12 Nov). Null: from the start.
   erasureCursor     String?   @map("erasure_cursor")
+  /// When the till last read that list (shown to the owner), and how many people it has forgotten.
+  erasuresCheckedAt DateTime? @map("erasures_checked_at")
+  erasedCount       Int       @default(0) @map("erased_count")
 
   connectedAt DateTime? @map("connected_at")
   updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
