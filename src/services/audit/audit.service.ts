@@ -56,6 +56,7 @@ export type AuditAction =
   | 'shop.gst_registration_set'
   | 'shop.details_set'
   | 'customer.updated'
+  | 'customer.erased'
   | 'day.reclosed'
   | 'device.updated'
   | 'api_key.created'

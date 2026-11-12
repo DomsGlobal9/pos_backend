@@ -10,6 +10,7 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import { startDeliveryLoop, startCatalogueLoop } from './services/inventory-link';
 import { startCardSweep } from './services/card-machines';
 import { startCrmLoop } from './services/crm';
+import { startErasureLoop } from './services/inventory-link/erasures.service';
 import { startWebhookLoop } from './services/webhooks';
 import { handleWhatsAppEvent } from './services/receipt-send';
 
@@ -92,6 +93,8 @@ const server = app.listen(env.PORT, () => {
     startCardSweep();
     // Customers made or changed at the counter, and consent ticked there, to ScaleEzy CRM (when set up).
     startCrmLoop();
+    // Customers erased in Inventory are forgotten here too (12 Nov).
+    startErasureLoop();
   }
 });
 
