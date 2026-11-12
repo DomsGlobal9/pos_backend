@@ -278,6 +278,13 @@ export async function status(actor: Actor) {
     inventoryShop: link.platformClientId,
     // Customers erased in Inventory, forgotten here (12 Nov): when the list was last read, and how many.
     erasures: { checkedAt: link.erasuresCheckedAt, forgotten: link.erasedCount },
+    // Inventory telling the till at once (12 Nov): set up on this server, and the last one that came.
+    pushes: {
+      on: Boolean(env.POS_EVENTS_SECRET),
+      lastAt: link.platformClientId
+        ? (await prisma.inventoryInbound.findFirst({ where: { inventoryShop: link.platformClientId }, orderBy: { receivedAt: 'desc' }, select: { receivedAt: true } }))?.receivedAt ?? null
+        : null
+    },
     whenDown: link.whenDown,
     // Is the counter's news (customers, consent) reaching ScaleEzy CRM? 28 Oct.
     crm: await crmStatus(actor.clientId),
