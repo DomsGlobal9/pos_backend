@@ -11,7 +11,8 @@ import { completeSaleSchema } from '../sale/sale.schema';
 
 const returnLine = z.object({
   saleLineId: z.string().min(1),
-  qty: z.number().int().positive('Return at least one').max(9999)
+  // In base units for cloth (16 Nov): 100000 is 1 km in cm, 100 kg in g.
+  qty: z.number().int().positive('Return at least one').max(100000)
 });
 
 const lines = z.array(returnLine)

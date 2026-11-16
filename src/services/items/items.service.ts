@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { literal } from '../../utils/likeText';
+import { isMeasured, UNITS } from '../../utils/units';
 import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { forbidden } from '../../utils/httpError';
 
@@ -33,7 +34,7 @@ const LIMIT = 25;
 const SELECT = {
   id: true, code: true, barcode: true, name: true, colour: true, size: true,
   hsn: true, pricePaise: true, taxRate: true, cachedQty: true, cachedQtyAt: true, active: true,
-  imageUrl: true, variantGroup: true
+  imageUrl: true, variantGroup: true, soldBy: true, unitFactor: true, minCut: true
 } as const;
 
 export interface FoundItem {
@@ -67,6 +68,11 @@ export interface FoundItem {
    * for nothing.
    */
   priceFromPaise: number | null;
+  /**
+   * Sold by length or weight (16 Nov): the unit, how many base units make one (100 cm in a metre), and
+   * the smallest step in base units. Null for a piece. pricePaise and availableQty are per base unit.
+   */
+  unit: { soldBy: string; short: string; factor: number; minCut: number | null } | null;
 }
 
 export interface SearchResult {
@@ -96,7 +102,8 @@ function shape(row: any, variantCount = 1): FoundItem {
     imageUrl: row.imageUrl ?? null,
     variantGroup: row.variantGroup ?? null,
     variantCount,
-    priceFromPaise: null
+    priceFromPaise: null,
+    unit: isMeasured(row.soldBy) ? { soldBy: row.soldBy, short: UNITS[row.soldBy]?.short ?? row.soldBy.toLowerCase(), factor: row.unitFactor, minCut: row.minCut ?? null } : null
   };
 }
 

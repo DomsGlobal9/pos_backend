@@ -1,5 +1,6 @@
 import { HEADING, COMPOSITION_DECLARATION, DocumentKind } from '../shop/gst-document';
 import { stateOf } from '../shop/gst-states';
+import { isMeasured, qtyText, pricePerUnitPaise, UNITS } from '../../utils/units';
 /**
  * The receipt as a DOCUMENT: an ordered list of lines, built from the bill exactly as it was saved.
  * POS-RCPT-002, -009.
@@ -109,7 +110,10 @@ export function receiptDocument(sale: any, opts: { receiptUrl?: string | null; l
     L.push({ kind: 'text', text: ascii(line.description) });
     L.push({
       kind: 'pair',
-      left: `  ${line.qty} x ${money(line.unitPricePaise)}`,
+      // Cloth (16 Nov): '2.25 m x Rs 450.00 / m', the price per metre, not per cm.
+      left: isMeasured(line.soldBy)
+        ? `  ${qtyText(line.qty, line.soldBy, line.unitFactor)} x ${money(pricePerUnitPaise(line.unitPricePaise, line.unitFactor))} / ${UNITS[line.soldBy]?.short ?? 'unit'}`
+        : `  ${line.qty} x ${money(line.unitPricePaise)}`,
       right: money(line.lineTotalPaise)
     });
     // On a line of its own: beside the price it ran past 80 mm and wrapped mid-phrase (live, 8 Oct).

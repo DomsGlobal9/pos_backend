@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
+import { stepProblem } from '../../utils/units';
 import { Actor } from '../../types/actor';
 import { priceBasket, BasketLine } from '../basket';
 import { forSale } from '../items';
@@ -228,6 +229,9 @@ export async function writeSale(
         if (!item.active) {
           throw conflict(`${item.name} is no longer sold. Take it off the bill.`);
         }
+        // Cloth is cut in steps of its smallest cut (16 Nov); said here before Inventory refuses the bill.
+        const step = stepProblem(item.name, line.qty, item.soldBy, item.unitFactor, item.minCut);
+        if (step) throw badRequest(step, { code: 'NOT_A_STEP', itemId: item.id });
 
         /*
          * The tag price wins unless somebody deliberately overrode it. That default is the whole
@@ -571,6 +575,9 @@ export async function writeSale(
               hsn: line.hsn,
               qty: line.qty,
               unitPricePaise: line.unitPricePaise,
+              // How it was sold, kept with the bill (16 Nov): 225 here is 2.25 m on a METRE line.
+              soldBy: items.get(line.ref)?.soldBy ?? 'PIECE',
+              unitFactor: items.get(line.ref)?.unitFactor ?? 1,
               // What the tag said, when it differed. Null on an ordinary line, so an override is
               // visible on the bill forever rather than looking like a normal price.
               listPricePaise: items.get(line.ref)?.pricePaise !== line.unitPricePaise
@@ -806,7 +813,7 @@ export async function getSale(actor: Actor, saleId: string) {
       select: {
         id: true, itemId: true, description: true, hsn: true, qty: true, unitPricePaise: true,
         discountPaise: true, taxRate: true, taxPaise: true, lineTotalPaise: true,
-        cgstPaise: true, sgstPaise: true, igstPaise: true, appliedOffers: true
+        cgstPaise: true, sgstPaise: true, igstPaise: true, appliedOffers: true, soldBy: true, unitFactor: true
       }
     }),
     prisma.payment.findMany({

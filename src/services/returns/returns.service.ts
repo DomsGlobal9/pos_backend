@@ -2,6 +2,7 @@ import { Prisma, RefundMethod, PaymentMethod } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
+import { isMeasured, qtyText, stepProblem, UNITS } from '../../utils/units';
 import { maskPhone } from '../../utils/phone';
 import { rupees } from '../money';
 import { nextNumber } from '../invoice-series';
@@ -104,9 +105,10 @@ async function loadBill(db: Tx | typeof prisma, actor: Actor, saleId: string) {
       lines: {
         select: {
           id: true, itemId: true, description: true, hsn: true, qty: true, unitPricePaise: true,
-          taxRate: true, lineTotalPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true,
-          // So the return screen can take a SCAN of the piece coming back, not only a tap.
-          item: { select: { code: true, barcode: true } }
+          taxRate: true, lineTotalPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, soldBy: true, unitFactor: true,
+          // So the return screen can take a SCAN of the piece coming back, not only a tap. minCut: cloth comes
+          // back in the same steps it was cut in (16 Nov).
+          item: { select: { code: true, barcode: true, minCut: true } }
         }
       },
       payments: { select: { method: true, amountPaise: true, status: true, points: true, holdNote: true } },
@@ -280,12 +282,21 @@ function compute(bill: Bill, requested: { saleLineId: string; qty: number }[]): 
     const remaining = line.qty - before;
     // POS-RET-002. Never more than is left -- the one rule that stops the same saree coming back twice.
     if (r.qty > remaining) {
+      const q = (n: number) => qtyText(n, line.soldBy, line.unitFactor);
       throw conflict(
         remaining === 0
           ? `${line.description} has already been returned.`
-          : `Only ${remaining} of ${line.description} can still come back. ${before} already ${before === 1 ? 'has' : 'have'}.`,
+          : isMeasured(line.soldBy)
+            ? `Only ${q(remaining)} of ${line.description} can still come back. ${q(before)} already has.`
+            : `Only ${remaining} of ${line.description} can still come back. ${before} already ${before === 1 ? 'has' : 'have'}.`,
         { code: 'MORE_THAN_REMAINING', saleLineId: line.id, remainingQty: remaining }
       );
+    }
+
+    // Cloth comes back in steps of its cut, or all that is left of it (16 Nov).
+    if (r.qty !== remaining) {
+      const step = stepProblem(line.description, r.qty, line.soldBy, line.unitFactor, line.item?.minCut ?? null);
+      if (step) throw badRequest(step, { code: 'NOT_A_STEP', saleLineId: line.id });
     }
 
     const after = before + r.qty;
@@ -393,7 +404,9 @@ export async function eligibility(actor: Actor, saleId: string) {
         qty: line.qty,
         returnedQty: returned,
         remainingQty: line.qty - returned,
-        lineTotalPaise: line.lineTotalPaise
+        lineTotalPaise: line.lineTotalPaise,
+        // Cloth (16 Nov): quantities above are in base units (cm); the screen shows metres and steps by minCut.
+        unit: isMeasured(line.soldBy) ? { soldBy: line.soldBy, short: UNITS[line.soldBy]?.short ?? 'unit', factor: line.unitFactor, minCut: line.item?.minCut ?? null } : null
       };
     }),
     returns: bill.returns.map(r => ({
@@ -808,7 +821,7 @@ export async function getReturn(actor: Actor, returnId: string) {
       lines: {
         select: {
           qty: true, amountPaise: true, taxPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true,
-          saleLine: { select: { id: true, description: true, hsn: true, unitPricePaise: true, taxRate: true } }
+          saleLine: { select: { id: true, description: true, hsn: true, unitPricePaise: true, taxRate: true, soldBy: true, unitFactor: true } }
         }
       },
       refunds: { orderBy: { createdAt: 'asc' }, select: { method: true, amountPaise: true, reference: true } }
@@ -857,6 +870,9 @@ export async function getReturn(actor: Actor, returnId: string) {
       unitPricePaise: l.saleLine.unitPricePaise,
       taxRate: l.saleLine.taxRate,
       qty: l.qty,
+      // How it was sold (16 Nov): qty is in cm on a METRE line.
+      soldBy: l.saleLine.soldBy,
+      unitFactor: l.saleLine.unitFactor,
       amountPaise: l.amountPaise,
       taxPaise: l.taxPaise,
       cgstPaise: l.cgstPaise,

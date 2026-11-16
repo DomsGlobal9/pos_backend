@@ -33,7 +33,10 @@ export async function call(
       signal: controller.signal,
       headers: {
         'content-type': 'application/json',
-        'x-storefront-key': open(link.keyCipher)
+        'x-storefront-key': open(link.keyCipher),
+        // This till sells by length and weight (16 Nov): Inventory then includes cloth, with its unit, and
+        // takes lines in centimetres. Without it cloth never reaches the till.
+        'x-pos-units': '1'
       },
       body: body === undefined ? undefined : JSON.stringify(body)
     });

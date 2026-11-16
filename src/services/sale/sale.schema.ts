@@ -17,7 +17,8 @@ const paise = z.number().int('Amounts are in paise, as whole numbers').max(2_000
 
 export const saleLineSchema = z.object({
   itemId: z.string().min(1),
-  qty: z.number().int().positive('A line needs at least one of something').max(9999, 'At most 9,999 of one item on a line.'),
+  // In base units for cloth (16 Nov): 2.25 m is 225. 100000 is 1 km in cm, 100 kg in g.
+  qty: z.number().int().positive('A line needs at least one of something').max(100000, 'That is too much of one item for one line.'),
   lineDiscountPaise: paise.nonnegative().optional(),
   /**
    * SELLING AT A PRICE OTHER THAN THE TAG. POS-SELL-017.

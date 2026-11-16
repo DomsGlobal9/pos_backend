@@ -56,6 +56,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
   const problems: string[] = [];
   const counts = { added: 0, updated: 0, switchedOff: 0, skipped: 0 };
   const seen = new Set<string>();
+  let shopMinCut: number | null = null;
   let complete = false;
 
   /*
@@ -150,10 +151,12 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
       await prisma.inventoryLink.update({ where: { clientId }, data: { blockedSequence: link.deliveredSequence + BigInt(1), blockedCode: 'SHOP_CHANGED', blockedMessage: message } });
       throw conflict(message, { code: 'SHOP_CHANGED' });
     }
+    // The shop's smallest cut for cloth, in cm (16 Nov): a product's own minCut wins.
+    if (data.lengths && Number.isInteger(data.lengths.minCutCm) && data.lengths.minCutCm > 0) shopMinCut = data.lengths.minCutCm;
     const products: any[] = Array.isArray(data.products) ? data.products : [];
     for (const product of products) {
       for (const v of product.variants ?? []) if (v?.variantCode) seen.add(String(v.variantCode).trim());
-      await applyProduct(clientId, product, counts, problems, gstCharged);
+      await applyProduct(clientId, product, counts, problems, gstCharged, shopMinCut);
     }
     cursor = data.nextCursor ?? cursor;
     if (!data.hasMore) { complete = true; break; }
@@ -321,7 +324,7 @@ export function startCatalogueLoop(everyMs = EVERY_MS) {
   timer.unref();
 }
 
-async function applyProduct(clientId: string, product: any, counts: Record<string, number>, problems: string[], gstCharged = true) {
+async function applyProduct(clientId: string, product: any, counts: Record<string, number>, problems: string[], gstCharged = true, shopMinCut: number | null = null) {
   const title = String(product.title ?? '').trim() || product.productCode;
   const primary = (product.images ?? []).find((i: any) => i.isPrimary)?.url ?? product.images?.[0]?.url ?? null;
   const productOff = product.eligible === false;
@@ -409,7 +412,12 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
       inventoryVariantId: code,
       cachedQty: Number.isFinite(available) ? available : null,
       cachedQtyAt: new Date(),
-      active: !exclusive
+      active: !exclusive,
+      /*
+       * SOLD BY LENGTH OR WEIGHT (16 Nov). Inventory sends unit only to a till that says it understands units;
+       * pricePaise and stock are then per base unit (cm), so nothing above changes. Without unit: a piece.
+       */
+      ...unitOf(v.unit, shopMinCut)
     };
 
     if (existing) {
@@ -420,4 +428,14 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
       counts.added++;
     }
   }
+}
+
+/** The till's unit fields from a catalogue variant's `unit` block. A piece when there is none. */
+function unitOf(unit: any, shopMinCut: number | null): { soldBy: string; unitFactor: number; minCut: number | null } {
+  const soldBy = typeof unit?.soldBy === 'string' ? unit.soldBy.toUpperCase() : 'PIECE';
+  const factor = Number(unit?.factor);
+  if (soldBy === 'PIECE' || !Number.isInteger(factor) || factor < 1) return { soldBy: 'PIECE', unitFactor: 1, minCut: null };
+  const own = Number(unit?.minCut);
+  const minCut = Number.isInteger(own) && own > 0 ? own : soldBy === 'METRE' ? shopMinCut : null;
+  return { soldBy, unitFactor: factor, minCut };
 }
