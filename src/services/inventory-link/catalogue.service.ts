@@ -281,6 +281,10 @@ const EVERY_MS = 30_000;
 let timer: NodeJS.Timeout | null = null;
 let running = false;
 
+const FULL_EVERY_MS = 30 * 60_000;
+// When each shop last had a full refresh. In memory: a restart begins with one, which is no harm.
+const lastFull = new Map<string, number>();
+
 const refreshing = new Set<string>();
 const refreshAgain = new Set<string>();
 
@@ -310,7 +314,11 @@ export function startCatalogueLoop(everyMs = EVERY_MS) {
       for (const l of links) {
         // Per shop, so one shop's bad key or slow answer never stops the others.
         try {
-          const r = await syncFor(l.clientId);
+          // A FULL refresh every half hour (17 Nov, live on sphl): an unpublished product never showed on the
+          // incremental page, so the till went on selling it. A full one takes off what Inventory no longer lists.
+          const full = Date.now() - (lastFull.get(l.clientId) ?? 0) > FULL_EVERY_MS;
+          const r = await syncFor(l.clientId, { full });
+          if (full) lastFull.set(l.clientId, Date.now());
           if (r.added || r.updated || r.switchedOff) notify(l.clientId, 'items', 'inventory-link');
         }
         catch (error) { console.error(`[inventory-link] catalogue refresh for ${l.clientId} failed:`, (error as Error).message); }
