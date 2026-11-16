@@ -5,6 +5,7 @@ import { badRequest } from '../../utils/httpError';
 import { dayRange, todayString } from '../day-close';
 import { owedPaise } from '../payments';
 import { vouchersSold } from '../vouchers';
+import { isMeasured, UNITS } from '../../utils/units';
 
 /**
  * Operational reports. WF-REPORTS-01, POS-RPT-001..011.
@@ -262,11 +263,15 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
       select: { date: true, netPaise: true, returnsPaise: true, variancePaise: true, closedAt: true, closedById: true, openShiftsAtClose: true }
     }),
     // POS-RPT-011 (P1)
+    /*
+     * The best sellers by MONEY (16 Nov): by quantity, 225 cm of cloth outranked fifty sarees. Per item and per
+     * unit it was sold in, so its quantity says metres or pieces.
+     */
     prisma.saleLine.groupBy({
-      by: ['itemId'],
+      by: ['itemId', 'soldBy', 'unitFactor'],
       where: { sale: saleWhere, itemId: { not: null } },
       _sum: { qty: true, lineTotalPaise: true },
-      orderBy: { _sum: { qty: 'desc' } },
+      orderBy: { _sum: { lineTotalPaise: 'desc' } },
       take: 10
     }),
     /*
@@ -342,7 +347,9 @@ export async function report(actor: Actor, q: ReportQuery = {}) {
         code: i?.code ?? null,
         name: i ? [i.name, i.colour, i.size].filter(Boolean).join(', ') : 'Unknown item',
         qty: t._sum.qty ?? 0,
-        netPaise: t._sum.lineTotalPaise ?? 0
+        netPaise: t._sum.lineTotalPaise ?? 0,
+        // Cloth: qty is in cm; this says so, for the screen to show metres.
+        unit: isMeasured(t.soldBy) ? { soldBy: t.soldBy, short: UNITS[t.soldBy]?.short ?? t.soldBy.toLowerCase(), factor: t.unitFactor } : null
       };
     })
   };

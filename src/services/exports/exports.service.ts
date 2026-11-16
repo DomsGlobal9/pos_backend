@@ -150,26 +150,32 @@ export async function hsnSummary(actor: Actor, from: string, to: string) {
   const end = dayRange(to).end;
   const sold = await prisma.saleLine.findMany({
     where: { sale: { clientId: actor.clientId, createdAt: { gte: start, lt: end }, documentKind: 'TAX_INVOICE' } },
-    select: { hsn: true, description: true, qty: true, taxRate: true, lineTotalPaise: true, taxPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, sale: { select: { buyerGstin: true } } }
+    select: { hsn: true, description: true, qty: true, taxRate: true, lineTotalPaise: true, taxPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, soldBy: true, unitFactor: true, sale: { select: { buyerGstin: true } } }
   });
   const back = await prisma.returnLine.findMany({
     where: { returnRow: { clientId: actor.clientId, createdAt: { gte: start, lt: end } }, saleLine: { sale: { documentKind: 'TAX_INVOICE' } } },
-    select: { qty: true, amountPaise: true, taxPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, saleLine: { select: { hsn: true, description: true, taxRate: true, sale: { select: { buyerGstin: true } } } } }
+    select: { qty: true, amountPaise: true, taxPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, saleLine: { select: { hsn: true, description: true, taxRate: true, soldBy: true, unitFactor: true, sale: { select: { buyerGstin: true } } } } }
   });
   type Row = { supply: 'B2B' | 'B2C'; hsn: string; description: string; uqc: string; qty: number; value: number; taxable: number; igst: number; cgst: number; sgst: number; rate: number };
   const groups = new Map<string, Row>();
-  const add = (supply: 'B2B' | 'B2C', hsn: string | null, description: string, rate: number, sign: 1 | -1, qty: number, total: number, tax: number, igst: number, cgst: number, sgst: number) => {
+  /*
+   * GSTR-1's unit quantity code (16 Nov): cloth by the metre is MTR and counted in metres, by weight KGS in
+   * kilograms; pieces NOS. Each is its own row, so centimetres are never added to pieces.
+   */
+  const UQC: Record<string, string> = { METRE: 'MTR', KILOGRAM: 'KGS' };
+  const add = (supply: 'B2B' | 'B2C', hsn: string | null, description: string, rate: number, sign: 1 | -1, qty: number, total: number, tax: number, igst: number, cgst: number, sgst: number, soldBy = 'PIECE', factor = 1) => {
     const code = hsn?.trim() || 'NO HSN';
-    const key = `${supply}|${code}|${rate}`;
-    const g = groups.get(key) ?? { supply, hsn: code, description, uqc: 'NOS', qty: 0, value: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, rate };
-    g.qty += sign * qty; g.value += sign * total; g.taxable += sign * (total - tax);
+    const uqc = UQC[soldBy] ?? 'NOS';
+    const key = `${supply}|${code}|${rate}|${uqc}`;
+    const g = groups.get(key) ?? { supply, hsn: code, description, uqc, qty: 0, value: 0, taxable: 0, igst: 0, cgst: 0, sgst: 0, rate };
+    g.qty += sign * (uqc === 'NOS' ? qty : qty / (factor || 1)); g.value += sign * total; g.taxable += sign * (total - tax);
     g.igst += sign * igst; g.cgst += sign * cgst; g.sgst += sign * sgst;
     groups.set(key, g);
   };
-  for (const l of sold) add(l.sale.buyerGstin ? 'B2B' : 'B2C', l.hsn, l.description, Number(l.taxRate), 1, l.qty, l.lineTotalPaise, l.taxPaise, l.igstPaise, l.cgstPaise, l.sgstPaise);
-  for (const l of back) add(l.saleLine.sale.buyerGstin ? 'B2B' : 'B2C', l.saleLine.hsn, l.saleLine.description, Number(l.saleLine.taxRate), -1, l.qty, l.amountPaise, l.taxPaise, l.igstPaise, l.cgstPaise, l.sgstPaise);
+  for (const l of sold) add(l.sale.buyerGstin ? 'B2B' : 'B2C', l.hsn, l.description, Number(l.taxRate), 1, l.qty, l.lineTotalPaise, l.taxPaise, l.igstPaise, l.cgstPaise, l.sgstPaise, l.soldBy, l.unitFactor);
+  for (const l of back) add(l.saleLine.sale.buyerGstin ? 'B2B' : 'B2C', l.saleLine.hsn, l.saleLine.description, Number(l.saleLine.taxRate), -1, l.qty, l.amountPaise, l.taxPaise, l.igstPaise, l.cgstPaise, l.sgstPaise, l.saleLine.soldBy, l.saleLine.unitFactor);
   return [...groups.values()]
-    .map(g => ({ ...g, value: r(g.value), taxable: r(g.taxable), igst: r(g.igst), cgst: r(g.cgst), sgst: r(g.sgst) }))
+    .map(g => ({ ...g, qty: Math.round(g.qty * 1000) / 1000, value: r(g.value), taxable: r(g.taxable), igst: r(g.igst), cgst: r(g.cgst), sgst: r(g.sgst) }))
     .sort((a, b) => a.supply.localeCompare(b.supply) || a.hsn.localeCompare(b.hsn) || a.rate - b.rate);
 }
 
@@ -213,17 +219,26 @@ export async function salesXlsx(actor: Actor, from: string, to: string): Promise
   const itemsSheet = book.addWorksheet('Items sold', { views: [{ state: 'frozen', ySplit: 1 }] });
   itemsSheet.columns = [
     { header: 'Code', key: 'code', width: 14 }, { header: 'Item', key: 'name', width: 30 }, { header: 'Colour', key: 'colour', width: 12 },
-    { header: 'Size', key: 'size', width: 8 }, { header: 'Group', key: 'group', width: 14 }, { header: 'Sold', key: 'soldQty', width: 8 },
+    { header: 'Size', key: 'size', width: 8 }, { header: 'Group', key: 'group', width: 14 }, { header: 'Unit', key: 'unitName', width: 7 }, { header: 'Sold', key: 'soldQty', width: 8 },
     { header: 'Sold value', key: 'sold', width: 13 }, { header: 'Returned', key: 'returnedQty', width: 9 }, { header: 'Returned value', key: 'returned', width: 14 },
-    { header: 'Net pieces', key: 'netQty', width: 10 }, { header: 'Net value', key: 'net', width: 13 }, { header: 'Left now', key: 'leftNow', width: 9 }
+    { header: 'Net', key: 'netQty', width: 10 }, { header: 'Net value', key: 'net', width: 13 }, { header: 'Left now', key: 'leftNow', width: 9 }
   ];
   const itemRows = await itemSales(actor, { from, to });
+  // Cloth in metres, pieces as pieces, each row saying which (16 Nov).
+  const inUnit = (n: number, u: { factor: number } | null) => (u ? Math.round((n / u.factor) * 1000) / 1000 : n);
   for (const x of itemRows.items) {
-    itemsSheet.addRow({ ...x, sold: x.soldPaise / 100, returned: x.returnedPaise / 100, net: x.netPaise / 100, leftNow: x.leftNow ?? '' });
+    itemsSheet.addRow({
+      ...x, unitName: x.unit?.short ?? 'pcs', soldQty: inUnit(x.soldQty, x.unit), returnedQty: inUnit(x.returnedQty, x.unit), netQty: inUnit(x.netQty, x.unit),
+      sold: x.soldPaise / 100, returned: x.returnedPaise / 100, net: x.netPaise / 100, leftNow: x.leftNow === null ? '' : inUnit(x.leftNow, x.unit)
+    });
   }
   if (itemRows.items.length) {
     const t = itemRows.totals;
-    itemsSheet.addRow({ name: 'Total', soldQty: t.soldQty, sold: t.soldPaise / 100, returnedQty: t.returnedQty, returned: t.returnedPaise / 100, netQty: t.netQty, net: t.netPaise / 100 }).font = { bold: true };
+    // The total's quantities are pieces; each unit of cloth gets its own total below it.
+    itemsSheet.addRow({ name: 'Total', unitName: 'pcs', soldQty: t.soldQty, sold: t.soldPaise / 100, returnedQty: t.returnedQty, returned: t.returnedPaise / 100, netQty: t.netQty, net: t.netPaise / 100 }).font = { bold: true };
+    for (const u of itemRows.lengths) {
+      itemsSheet.addRow({ name: `Of which by the ${u.soldBy === 'METRE' ? 'metre' : u.soldBy.toLowerCase()}`, unitName: u.short, soldQty: inUnit(u.soldQty, u), returnedQty: inUnit(u.returnedQty, u), netQty: inUnit(u.netQty, u), net: u.netPaise / 100 }).font = { bold: true };
+    }
   }
   for (const k of ['sold', 'returned', 'net']) itemsSheet.getColumn(k).numFmt = money;
   itemsSheet.getRow(1).font = { bold: true };
