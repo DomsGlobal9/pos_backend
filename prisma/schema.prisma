@@ -348,6 +348,9 @@ model Item {
   unitFactor Int    @default(1) @map("unit_factor")
   /// The smallest step it is sold in, in base units (25 = 25 cm). Null: any whole base unit.
   minCut     Int?   @map("min_cut")
+  /// Cut cloth may come back (Inventory's "Cut cloth can be returned" on the product, 16 Nov). Null: not said, so
+  /// the till lets it and Inventory decides.
+  cutReturnable Boolean? @map("cut_returnable")
   /// Percent, e.g. 5 or 12. The bill still shows the CGST/SGST split; this is the rate it splits.
   taxRate    Int @default(0) @map("tax_rate")
 

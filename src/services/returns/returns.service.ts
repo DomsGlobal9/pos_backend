@@ -108,7 +108,7 @@ async function loadBill(db: Tx | typeof prisma, actor: Actor, saleId: string) {
           taxRate: true, lineTotalPaise: true, cgstPaise: true, sgstPaise: true, igstPaise: true, soldBy: true, unitFactor: true,
           // So the return screen can take a SCAN of the piece coming back, not only a tap. minCut: cloth comes
           // back in the same steps it was cut in (16 Nov).
-          item: { select: { code: true, barcode: true, minCut: true } }
+          item: { select: { code: true, barcode: true, minCut: true, cutReturnable: true } }
         }
       },
       payments: { select: { method: true, amountPaise: true, status: true, points: true, holdNote: true } },
@@ -293,6 +293,11 @@ function compute(bill: Bill, requested: { saleLineId: string; qty: number }[]): 
       );
     }
 
+    // Cut cloth comes back only where the owner allows it (Inventory's tick on the product, 16 Nov): said
+    // here, so the return is never written only for Inventory to refuse it and stop the shop's queue.
+    if (isMeasured(line.soldBy) && line.item?.cutReturnable === false) {
+      throw conflict(`Cut cloth cannot be returned: ${line.description}. To allow it, tick "Cut cloth can be returned" on the product in Inventory.`, { code: 'NOT_RETURNABLE', saleLineId: line.id });
+    }
     // Cloth comes back in steps of its cut, or all that is left of it (16 Nov).
     if (r.qty !== remaining) {
       const step = stepProblem(line.description, r.qty, line.soldBy, line.unitFactor, line.item?.minCut ?? null);
@@ -406,7 +411,7 @@ export async function eligibility(actor: Actor, saleId: string) {
         remainingQty: line.qty - returned,
         lineTotalPaise: line.lineTotalPaise,
         // Cloth (16 Nov): quantities above are in base units (cm); the screen shows metres and steps by minCut.
-        unit: isMeasured(line.soldBy) ? { soldBy: line.soldBy, short: UNITS[line.soldBy]?.short ?? 'unit', factor: line.unitFactor, minCut: line.item?.minCut ?? null } : null
+        unit: isMeasured(line.soldBy) ? { soldBy: line.soldBy, short: UNITS[line.soldBy]?.short ?? 'unit', factor: line.unitFactor, minCut: line.item?.minCut ?? null, returnable: line.item?.cutReturnable !== false } : null
       };
     }),
     returns: bill.returns.map(r => ({

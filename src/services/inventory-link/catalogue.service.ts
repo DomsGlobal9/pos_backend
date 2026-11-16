@@ -431,11 +431,13 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
 }
 
 /** The till's unit fields from a catalogue variant's `unit` block. A piece when there is none. */
-function unitOf(unit: any, shopMinCut: number | null): { soldBy: string; unitFactor: number; minCut: number | null } {
+function unitOf(unit: any, shopMinCut: number | null): { soldBy: string; unitFactor: number; minCut: number | null; cutReturnable: boolean | null } {
   const soldBy = typeof unit?.soldBy === 'string' ? unit.soldBy.toUpperCase() : 'PIECE';
   const factor = Number(unit?.factor);
-  if (soldBy === 'PIECE' || !Number.isInteger(factor) || factor < 1) return { soldBy: 'PIECE', unitFactor: 1, minCut: null };
+  if (soldBy === 'PIECE' || !Number.isInteger(factor) || factor < 1) return { soldBy: 'PIECE', unitFactor: 1, minCut: null, cutReturnable: null };
   const own = Number(unit?.minCut);
   const minCut = Number.isInteger(own) && own > 0 ? own : soldBy === 'METRE' ? shopMinCut : null;
-  return { soldBy, unitFactor: factor, minCut };
+  // The owner's "Cut cloth can be returned" (Inventory, 16 Nov). Not said: null, and Inventory decides on the return.
+  const cutReturnable = typeof unit?.returnable === 'boolean' ? unit.returnable : null;
+  return { soldBy, unitFactor: factor, minCut, cutReturnable };
 }
