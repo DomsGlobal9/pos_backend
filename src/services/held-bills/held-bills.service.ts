@@ -51,7 +51,8 @@ export interface HeldBillRow {
 function summarise(payload: any) {
   const lines = Array.isArray(payload?.lines) ? payload.lines : [];
   return {
-    itemCount: lines.reduce((n: number, l: any) => n + (Number(l?.qty) || 0), 0),
+    // A length of cloth is one item, not 225 (16 Nov).
+    itemCount: lines.reduce((n: number, l: any) => n + (l?.unit ? 1 : (Number(l?.qty) || 0)), 0),
     customerName: payload?.customer?.name ?? null
   };
 }
