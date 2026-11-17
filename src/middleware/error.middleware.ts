@@ -35,6 +35,28 @@ export const errorHandler = (err: any, req: Request, res: Response, _next: NextF
     });
   }
 
+  /*
+   * WHAT WAS SENT WAS WRONG, NOT THE SERVER (17 Nov, API sweep). Two kinds of error used to fall
+   * through to the 500 below, so anyone could make the till say "something went wrong at our end":
+   *  - a validation error thrown bare (a route calling zod's .parse() on an id, with no catch);
+   *  - text Postgres cannot store (a NUL byte that got past the cleaning in clean-input).
+   * Both are the sender's doing: a plain 400, no stack in the log.
+   */
+  if (err?.name === 'ZodError' && Array.isArray(err.issues)) {
+    return res.status(400).json({
+      success: false,
+      message: 'That request was not filled in the way the till expects. Refresh the till and try again.',
+      details: { code: 'BAD_INPUT', ...(err.issues[0]?.path?.length ? { field: err.issues[0].path.join('.') } : {}) }
+    });
+  }
+  if (err?.meta?.code === '22021' || err?.code === '22021' || /invalid byte sequence for encoding/.test(String(err?.message ?? ''))) {
+    return res.status(400).json({
+      success: false,
+      message: 'That has a character the till cannot store. Type it again and try once more.',
+      details: { code: 'BAD_TEXT' }
+    });
+  }
+
   // Everything that reaches here is unexpected, and worth the noise in the log: the method, the
   // path, and the whole error. Without the path, an error at a till is untraceable after the fact.
   console.error(`[error] ${req.method} ${req.originalUrl}`, err);

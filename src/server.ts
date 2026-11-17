@@ -7,6 +7,7 @@ import rateLimit from 'express-rate-limit';
 import { env, hasInventory } from './config/env';
 import apiRoutes from './routes';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
+import { cleanInput } from './middleware/clean-input.middleware';
 import { startDeliveryLoop, startCatalogueLoop } from './services/inventory-link';
 import { startCardSweep } from './services/card-machines';
 import { startCrmLoop } from './services/crm';
@@ -52,6 +53,8 @@ app.post('/api/v1/whatsapp/events', express.raw({ type: 'application/json', limi
 const smallJson = express.json({ limit: '1mb', verify: (req, _res, buf) => { (req as any).rawBody = buf; } });
 const importJson = express.json({ limit: '8mb' });
 app.use((req, res, next) => (req.path === '/api/v1/connections/items/import' ? importJson : smallJson)(req, res, next));
+// A NUL byte never reaches the database: refused in an address, cleaned out of a body (17 Nov).
+app.use(cleanInput);
 
 /**
  * The rate limit is generous on purpose.
