@@ -162,13 +162,16 @@ const SHIFT_SELECT = {
  * but not the till's answer, so the count at the end is a count and not a copy.
  */
 export async function current(actor: Actor, counterId: string) {
-  const counter = await prisma.counter.findFirst({
-    where: { id: counterId, clientId: actor.clientId },
-    select: { id: true, name: true, active: true }
-  });
-  if (!counter) throw notFound('That counter was not found.');
-
-  const [open, recent] = await Promise.all([
+  /*
+   * THREE ROUNDS, NOT SIX (17 Nov, measured live: the Sell screen asks this every time it opens, and
+   * each database trip from Render is 13 ms). What does not depend on something else is asked at the
+   * same time: the counter with its shifts, then the cash, the movements and the closers' names.
+   */
+  const [counter, open, recent] = await Promise.all([
+    prisma.counter.findFirst({
+      where: { id: counterId, clientId: actor.clientId },
+      select: { id: true, name: true, active: true }
+    }),
     prisma.shift.findFirst({ where: { clientId: actor.clientId, counterId, closedAt: null }, select: SHIFT_SELECT }),
     prisma.shift.findMany({
       where: { clientId: actor.clientId, counterId, closedAt: { not: null } },
@@ -177,26 +180,28 @@ export async function current(actor: Actor, counterId: string) {
       select: SHIFT_SELECT
     })
   ]);
+  if (!counter) throw notFound('That counter was not found.');
 
   const seesExpected = may(actor, PERMISSIONS.CLOSE_DAY);
-  let figures: CashFigures | null = null;
-  let movements: { id: string; direction: 'IN' | 'OUT'; amountPaise: number; reason: string; createdAt: Date; by: string | null }[] = [];
+  type Movement = { id: string; direction: 'IN' | 'OUT'; amountPaise: number; reason: string; createdAt: Date; by: string | null };
 
-  if (open) {
-    figures = await cashFigures(prisma, open.id, open.openingCashPaise);
-    const rows = await prisma.cashMovement.findMany({
-      where: { shiftId: open.id },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, direction: true, amountPaise: true, reason: true, createdAt: true, byId: true }
-    });
-    const names = await namesOf(rows.map(r => r.byId));
-    movements = rows.map(r => ({
-      id: r.id, direction: r.direction, amountPaise: r.amountPaise, reason: r.reason,
-      createdAt: r.createdAt, by: r.byId ? names.get(r.byId) ?? null : null
-    }));
-  }
-
-  const closerNames = await namesOf(recent.map(r => r.closedById));
+  const [figures, movements, closerNames] = await Promise.all([
+    open ? cashFigures(prisma, open.id, open.openingCashPaise) : Promise.resolve(null as CashFigures | null),
+    open
+      ? prisma.cashMovement.findMany({
+          where: { shiftId: open.id },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, direction: true, amountPaise: true, reason: true, createdAt: true, byId: true }
+        }).then(async rows => {
+          const names = await namesOf(rows.map(r => r.byId));
+          return rows.map((r): Movement => ({
+            id: r.id, direction: r.direction, amountPaise: r.amountPaise, reason: r.reason,
+            createdAt: r.createdAt, by: r.byId ? names.get(r.byId) ?? null : null
+          }));
+        })
+      : Promise.resolve([] as Movement[]),
+    namesOf(recent.map(r => r.closedById))
+  ]);
 
   return {
     counter,
