@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { offlineKeyFor, readMakerStamp, MakerStamp } from './maker-stamp';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../lib/prisma';
@@ -127,6 +128,26 @@ export async function actorFromStaffToken(raw: string): Promise<Actor> {
   return { ...actor, roles: [...actor.roles], permissions: [...actor.permissions] };
 }
 
+/** A staff sign-in, and the key that lets its holder stamp offline sales as their own (./maker-stamp). */
+const withOfflineKey = (staffToken: string) => ({ staffToken, offlineKey: offlineKeyFor(staffToken) });
+
+/**
+ * The maker of a stamped offline sale, as an Actor. The stamp proves who made it; the till's own key
+ * proves the sale comes from an open till of that same shop; and the person must still work there.
+ * Any doubt is one refusal (MAKER_STAMP_REFUSED), and the till then sends it as whoever is at it.
+ */
+export async function actorForStampedSale(input: MakerStamp & { tillToken: string | undefined }): Promise<Actor> {
+  const maker = readMakerStamp(input);
+  const refuse = (why: string) => unauthorized('This sale could not be matched to the person who made it.', { code: 'MAKER_STAMP_REFUSED', why });
+  let till: Claims;
+  try { till = readToken(input.tillToken, 'till'); } catch { throw refuse('no open till'); }
+  if (till.cid !== maker.clientId) throw refuse('another shop');
+  try { await mustBeOpen(till.cid, till.tid); } catch { throw refuse('till closed'); }
+  const u = await prisma.user.findFirst({ where: { id: maker.userId, clientId: maker.clientId, status: 'ACTIVE', deletedAt: null }, select: USER_SELECT });
+  if (!u) throw refuse('no longer staff');
+  return toActor(u);
+}
+
 const mayOpen = (a: Actor) => holdsEverything(a) || may(a, PERMISSIONS.CLOSE_DAY) || may(a, PERMISSIONS.SETTINGS);
 
 const normalisePhone = (s: string) => {
@@ -184,7 +205,7 @@ export async function openTill(input: { login?: string; password?: string; shopI
   return {
     tillToken: sign({ typ: 'till', cid: u.clientId, tid: session.id }, `${TILL_DAYS}d`),
     // The person who opened it is at the till straight away.
-    staffToken: sign({ typ: 'staff', cid: u.clientId, tid: session.id, sub: u.id }, `${STAFF_HOURS}h`),
+    ...withOfflineKey(sign({ typ: 'staff', cid: u.clientId, tid: session.id, sub: u.id }, `${STAFF_HOURS}h`)),
     shop: { name: shop?.shopName ?? 'Your shop' },
     person: { id: u.id, name: u.name }
   };
@@ -246,7 +267,7 @@ export async function switchTo(tillToken: string | undefined, input: { userId?: 
     attempt.release();   // any other way out gives the reserved try back (no-op after fail/succeed)
   }
   return {
-    staffToken: sign({ typ: 'staff', cid: c.cid, tid: c.tid, sub: u.id }, `${STAFF_HOURS}h`),
+    ...withOfflineKey(sign({ typ: 'staff', cid: c.cid, tid: c.tid, sub: u.id }, `${STAFF_HOURS}h`)),
     person: { id: u.id, name: u.name }
   };
 }

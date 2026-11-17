@@ -25,6 +25,8 @@ const DEFAULT_USER = 'dev-cashier';
 
 export async function devActor(req: Request, res: Response, next: NextFunction) {
   try {
+    // Already known (a stamped offline sale, routes/sales.routes.ts): nothing to work out here.
+    if ((req as any).actor) return next();
     const header = String(req.headers.authorization ?? '');
     if (header.toLowerCase().startsWith('bearer ')) {
       (req as any).actor = await actorFromStaffToken(header.slice(7).trim());

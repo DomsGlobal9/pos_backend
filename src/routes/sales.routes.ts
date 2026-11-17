@@ -5,6 +5,7 @@ import { completeSale, getSale, completeSaleSchema } from '../services/sale';
 import { quoteBasket, walletFor, createQr, qrStatus, closeQr } from '../services/inventory-link';
 import { badRequest } from '../utils/httpError';
 import { devActor } from '../middleware/dev-actor.middleware';
+import { actorForStampedSale } from '../services/auth';
 
 /**
  * The till's own endpoints.
@@ -18,6 +19,23 @@ const router = Router();
 
 // Until sign-in is built, every request carries a development Actor. This middleware refuses to
 // do anything outside development -- see the file for why that check is there and not elsewhere.
+/*
+ * A SALE MADE OFFLINE, STAMPED BY ITS MAKER (services/auth/maker-stamp.ts). It is completed as the
+ * person who made it -- proved by the stamp, over the exact bytes received -- whoever is at the till
+ * now, or nobody. Before the ordinary sign-in check, which then finds the actor already there.
+ */
+router.post('/', async (req, _res, next) => {
+  const claims = req.header('x-maker');
+  if (!claims) return next();
+  try {
+    (req as any).actor = await actorForStampedSale({
+      claims, proof: String(req.header('x-maker-proof') ?? ''), tillToken: req.header('x-till-token') ?? undefined,
+      onceKey: req.body?.onceKey, madeOfflineAt: req.body?.madeOfflineAt, rawBody: (req as any).rawBody
+    });
+    next();
+  } catch (error) { next(error); }
+});
+
 router.use(devActor);
 
 /** GET /api/v1/sales/items?q=  -- find something to sell. */
