@@ -38,7 +38,10 @@ export async function call(
         // takes lines in centimetres. Without it cloth never reaches the till.
         'x-pos-units': '1'
       },
-      body: body === undefined ? undefined : JSON.stringify(body)
+      body: body === undefined ? undefined : JSON.stringify(body),
+      // Never follow a redirect while carrying the shop's key (17 Nov audit hardening): fetch would send
+      // x-storefront-key on to wherever it pointed.
+      redirect: 'error'
     });
     let parsed: any = null;
     try { parsed = await res.json(); } catch { parsed = null; }

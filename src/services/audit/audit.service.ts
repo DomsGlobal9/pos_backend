@@ -28,6 +28,8 @@ export type AuditAction =
   | 'bill.reprinted'
   | 'approval.granted'
   | 'approval.refused'
+  | 'auth.pin_locked'
+  | 'sale.offline_cash_over_limit'
   | 'voucher.sold'
   | 'card_machine.added'
   | 'card_machine.changed'

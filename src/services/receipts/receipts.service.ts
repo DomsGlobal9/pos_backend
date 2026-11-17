@@ -75,9 +75,31 @@ async function httpsLogo(clientId: string, logoUrl: unknown): Promise<Buffer | n
   return null;
 }
 
+/*
+ * WHAT THE PUBLIC PAGE MAY SHOW: what the paper bill prints, and nothing else (17 Nov, security audit
+ * pos-run-1). This used to pass the staff view through and strip a few keys, so every payment's
+ * reference went out to anyone with the link -- for a gift voucher that is the voucher's CODE, which
+ * spends whatever is left on it -- with the manager's note on why a payment was voided, print counts
+ * and the offline flag. Now it is a list of what may go out; anything added to the staff view later
+ * stays private unless it is added here on purpose.
+ */
+const PUBLIC_SALE_FIELDS = [
+  'invoiceNo', 'createdAt', 'kind', 'status', 'documentKind', 'fulfilment', 'promisedAt', 'handoverDuePaise', 'owedPaise',
+  'subtotalPaise', 'discountPaise', 'offersPaise', 'taxPaise', 'roundOffPaise', 'totalPaise', 'savedPaise', 'interState',
+  'note', 'buyerName', 'buyerGstin', 'buyerAddress', 'salespersonName',
+  'pointsEarned', 'pointsUsed', 'pointsBalanceAfter', 'shop'
+] as const;
+
+/** A payment as the paper shows it: how and how much -- the reference only for a cheque, which is printed. */
+const publicPayment = (p: any) => ({
+  method: p.method, amountPaise: p.amountPaise, tenderedPaise: p.tenderedPaise ?? null, changePaise: p.changePaise ?? null,
+  status: p.status, reference: p.method === 'CHEQUE' ? p.reference ?? null : null
+});
+
 /** Strip everything that identifies a row in OUR database. A public page gets the bill, not our keys. */
 function publicShape(sale: any, token: string) {
-  const { id, counter, cashier, customer, lines, payments, returns, exchangedFrom, ...rest } = sale;
+  const { counter, cashier, customer, lines, payments, returns, exchangedFrom } = sale;
+  const rest = Object.fromEntries(PUBLIC_SALE_FIELDS.filter((k) => k in sale).map((k) => [k, sale[k]]));
   return {
     ...rest,
     receiptUrl: receiptUrl(token),
@@ -86,7 +108,7 @@ function publicShape(sale: any, token: string) {
     customer: customer ? { name: customer.name, phoneMasked: customer.phoneMasked } : null,
     // No internal id of any kind on a page anyone with the link can open: the line's, or the item's.
     lines: lines.map(({ id: _i, itemId: _t, ...l }: any) => l),
-    payments: payments.map(({ id: _i, ...p }: any) => p),
+    payments: payments.map(publicPayment),
     returns: (returns ?? []).map((r: any) => ({ creditNoteNo: r.creditNoteNo, totalPaise: r.totalPaise, createdAt: r.createdAt })),
     exchangedFrom: exchangedFrom ? { originalInvoiceNo: exchangedFrom.originalInvoiceNo, creditNoteNo: exchangedFrom.creditNoteNo } : null
   };

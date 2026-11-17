@@ -75,8 +75,26 @@ const LOCKOUT_MS = 60_000;
 const LOCKOUT_MAX_MS = 3_600_000;
 const attempts = new Map<string, { count: number; until: number; lockouts: number; last: number }>();
 
+/*
+ * Checks under way, per shop (17 Nov audit): the lockout used to be checked before the slow compares
+ * and counted after them, so PINs sent at once were all compared before the first was counted. A
+ * check now holds its place from the start, and the limit counts those still being compared.
+ */
+const inFlight = new Map<string, number>();
+const releaseCheck = (clientId: string) => {
+  const n = (inFlight.get(clientId) ?? 1) - 1;
+  if (n > 0) inFlight.set(clientId, n); else inFlight.delete(clientId);
+};
+
 function checkLockout(clientId: string) {
   const record = attempts.get(clientId);
+  const busy = inFlight.get(clientId) ?? 0;
+  if (record && record.until <= Date.now() && record.count + busy >= LOCKOUT_AFTER) {
+    throw forbidden('Too many PINs at once. Try again in a few seconds.', { code: 'PIN_LOCKED_OUT', retryInSeconds: 5 });
+  }
+  if (!record && busy >= LOCKOUT_AFTER) {
+    throw forbidden('Too many PINs at once. Try again in a few seconds.', { code: 'PIN_LOCKED_OUT', retryInSeconds: 5 });
+  }
   if (record && record.until > Date.now()) {
     const seconds = Math.ceil((record.until - Date.now()) / 1000);
     throw forbidden(
@@ -105,6 +123,17 @@ function noteFailure(actor: Actor, kind: ApprovalKind) {
 }
 
 const clearFailures = (clientId: string) => attempts.delete(clientId);
+
+/** Every PIN holder of the shop, with their roles: who might have typed it. */
+function findManagers(db: Prisma.TransactionClient | typeof prisma, clientId: string) {
+  return db.user.findMany({
+    where: { clientId, status: 'ACTIVE', deletedAt: null, approvalPinHash: { not: null } },
+    select: {
+      id: true, name: true, approvalPinHash: true,
+      roles: { select: { role: { select: { name: true, permissions: { select: { permission: { select: { key: true } } } } } } } }
+    }
+  });
+}
 
 export interface ApprovalRequest {
   kind: ApprovalKind;
@@ -150,7 +179,9 @@ export async function grant(
   if (!pin) throw badRequest('A manager needs to enter their PIN.', { code: 'PIN_REQUIRED' });
 
   checkLockout(actor.clientId);
-
+  inFlight.set(actor.clientId, (inFlight.get(actor.clientId) ?? 0) + 1);
+  let manager: Awaited<ReturnType<typeof findManagers>>[number];
+  try {
   /*
    * Which manager typed it. Compared against every manager in THIS shop, because a manager should
    * be able to walk to any till and type their own PIN without first being chosen from a list.
@@ -158,18 +189,7 @@ export async function grant(
    * A shop has a handful of managers, so a handful of bcrypt comparisons. If that ever stops being
    * true, the answer is a manager id alongside the PIN, not a faster hash.
    */
-  const managers = await db.user.findMany({
-    where: {
-      clientId: actor.clientId,
-      status: 'ACTIVE',
-      deletedAt: null,
-      approvalPinHash: { not: null }
-    },
-    select: {
-      id: true, name: true, approvalPinHash: true,
-      roles: { select: { role: { select: { name: true, permissions: { select: { permission: { select: { key: true } } } } } } } }
-    }
-  });
+  const managers = await findManagers(db, actor.clientId);
 
   const matches = [];
   for (const manager of managers) {
@@ -187,14 +207,16 @@ export async function grant(
     /*
      * Two managers share a PIN. Refusing is the only honest answer: recording the approval against
      * whichever row came back first would put a manager's name against something they never did.
+     * It counts as a wrong try (17 Nov audit): otherwise it confirmed a real PIN for free.
      */
+    noteFailure(actor, request.kind);
     throw badRequest(
       'Two people have that PIN. Ask the owner to change one of them before approving anything.',
       { code: 'PIN_AMBIGUOUS' }
     );
   }
 
-  const manager = matches[0];
+  manager = matches[0];
 
   const roles = manager.roles.map(r => r.role.name);
   const permissions = manager.roles.flatMap(r => r.role.permissions.map(p => p.permission.key));
@@ -209,6 +231,9 @@ export async function grant(
      */
     noteFailure(actor, request.kind);
     throw forbidden(`That PIN cannot approve ${HUMAN_KIND[request.kind]}. A manager or the owner has to enter theirs.`, { code: 'NOT_PERMITTED' });
+  }
+  } finally {
+    releaseCheck(actor.clientId);
   }
 
   /*

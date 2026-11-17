@@ -74,9 +74,16 @@ function pngOf(buf: Buffer): Picture | null {
   const ch = ({ 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 } as Record<number, number>)[type];
   // Grey and palette pictures may pack 1, 2 or 4 bits a dot (optimised logos do); 16 is read as 8.
   const depthOk = depth === 8 || (depth === 16 && type !== 3) || ([1, 2, 4].includes(depth) && (type === 0 || type === 3));
-  if (!ch || !depthOk || interlace || !w || !h || w * h > 16_000_000 || (type === 3 && !plte)) return null;
-  const raw = inflateSync(Buffer.concat(idat));
+  /*
+   * BOUNDED BY WHAT A LOGO NEEDS (17 Nov, security audit pos-run-1). A logo prints at most 400 x 200
+   * dots, so 4 megapixels is generous; and the unpacking is capped at exactly the size those pixels
+   * need, so a small file that claims to be tiny but expands to hundreds of megabytes -- decoded for
+   * every PDF anyone with a bill link asks for -- stops at once, and the bill prints without it.
+   */
+  if (!ch || !depthOk || interlace || !w || !h || w * h > 4_000_000 || (type === 3 && !plte)) return null;
   const bits = ch * depth, bpp = Math.max(1, bits >> 3), stride = Math.ceil((w * bits) / 8);
+  let raw: Buffer;
+  try { raw = inflateSync(Buffer.concat(idat), { maxOutputLength: h * (stride + 1) }); } catch { return null; }
   if (raw.length < h * (stride + 1)) return null;
 
   // Undo the per-row filters (PNG spec, section 9).

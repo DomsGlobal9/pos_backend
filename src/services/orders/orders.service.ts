@@ -161,8 +161,9 @@ async function loadOrder(db: Prisma.TransactionClient | typeof prisma, actor: Ac
  * to be one step, so the balance is read AFTER this lock and nobody else can read it until the
  * transaction ends.
  */
-async function lock(tx: Prisma.TransactionClient, saleId: string) {
-  await tx.$queryRaw`SELECT id FROM sales WHERE id = ${saleId} FOR UPDATE`;
+// Bound to the shop as well (17 Nov audit hardening): a foreign sale id is never locked, even for a moment.
+async function lock(tx: Prisma.TransactionClient, saleId: string, clientId: string) {
+  await tx.$queryRaw`SELECT id FROM sales WHERE id = ${saleId} AND client_id = ${clientId} FOR UPDATE`;
 }
 
 /**
@@ -194,7 +195,7 @@ export async function collect(
   }
 
   await prisma.$transaction(async (tx) => {
-    await lock(tx, saleId);
+    await lock(tx, saleId, actor.clientId);
     const order = await loadOrder(tx, actor, saleId);
 
     const owed = owedPaise(order.totalPaise, order.payments);
@@ -272,7 +273,7 @@ export async function collect(
 /** POS-ORD-007. The goods are ready; the customer can come. */
 export async function markReady(actor: Actor, saleId: string) {
   await prisma.$transaction(async (tx) => {
-    await lock(tx, saleId);
+    await lock(tx, saleId, actor.clientId);
     const order = await loadOrder(tx, actor, saleId);
     if (order.fulfilment === 'HANDED_OVER') {
       throw conflict('That order was already handed over.');
@@ -301,7 +302,7 @@ export async function handOver(actor: Actor, saleId: string, input: { acceptDue?
   let invoiceNo = '';
 
   await prisma.$transaction(async (tx) => {
-    await lock(tx, saleId);
+    await lock(tx, saleId, actor.clientId);
     const order = await loadOrder(tx, actor, saleId);
     invoiceNo = order.invoiceNo;
 
@@ -441,7 +442,7 @@ export async function writeOff(
 
   const audit: { subject: string; detail: { invoiceNo: string; owedPaise: number; reason: string } }[] = [];
   await prisma.$transaction(async (tx) => {
-    await lock(tx, saleId);
+    await lock(tx, saleId, actor.clientId);
     const order = await loadOrder(tx, actor, saleId);
     if (order.payments.some(p => p.status === 'NEEDS_CHECKING')) {
       throw conflict('A payment on this order is still being checked. Settle it on Payment checks first.', { code: 'PAYMENT_BEING_CHECKED' });

@@ -7,7 +7,7 @@ import { priceBasket, BasketLine } from '../basket';
 import { forSale } from '../items';
 import { nextNumber } from '../invoice-series';
 import { rupees, applyPercent } from '../money';
-import { planPayments, duplicateReferences, duplicateMessage, owedPaise } from '../payments';
+import { planPayments, duplicateReferences, duplicateMessage, owedPaise, CASH_LIMIT_PAISE } from '../payments';
 import { grant, attachToSale } from '../approvals';
 import { record, AuditEntry } from '../audit';
 import { spendCredit } from '../store-credit';
@@ -51,7 +51,36 @@ import { documentKindFor, chargesGst } from '../shop/gst-document';
 const basketKey = (lines: { itemId: string; qty: number }[]) =>
   lines.map(l => `${l.itemId}:${l.qty}`).sort().join('|');
 
+/*
+ * ONE COMPLETE PER BILL AT A TIME (17 Nov, security audit pos-run-1). Points, store credit and gift
+ * vouchers are held in Inventory under the bill's once-key. Two requests with the same key in flight
+ * together got the SAME hold, and if one failed it let that hold go while the other was still about
+ * to spend it -- so the bill closed as paid and the customer's balance never came off. A second
+ * Complete for a key already being saved now WAITS for the first to finish before it takes any hold,
+ * then runs as usual -- so it gets the saved bill back as a replay (a device retrying hard on a flaky
+ * line still ends with one bill and no errors), or, if the first failed, tries afresh on its own.
+ */
+const completing = new Map<string, Promise<unknown>>();
+
 export async function completeSale(actor: Actor, input: CompleteSaleInput) {
+  // Selling is a permission like any other (17 Nov audit hardening): every role holds it today, but a
+  // role made later without it must not be able to sell.
+  if (!may(actor, PERMISSIONS.SELL)) throw forbidden('You cannot make bills. Ask the owner.', { code: 'NOT_PERMITTED' });
+  const flightKey = `${actor.clientId}:${input.onceKey}`;
+  // Queue behind whoever holds this key (each waiter re-checks, so a burst runs strictly one by one).
+  while (completing.has(flightKey)) {
+    await completing.get(flightKey)!.catch(() => undefined);
+  }
+  const run = completeSaleOnce(actor, input);
+  completing.set(flightKey, run);
+  try {
+    return await run;
+  } finally {
+    if (completing.get(flightKey) === run) completing.delete(flightKey);
+  }
+}
+
+async function completeSaleOnce(actor: Actor, input: CompleteSaleInput) {
   // A credit sale is a kept order handed over at once: everything a kept order does, it does.
   if (input.payLater) input = { ...input, kind: 'KEPT' };
   const existing = await findByOnceKey(actor.clientId, input.onceKey);
@@ -325,14 +354,24 @@ export async function writeSale(
        */
       const owingNow = input.payLater ? priced.totalPaise - input.payments.reduce((n, p) => n + p.amountPaise, 0) : 0;
       if (owingNow > 0) {
+        /*
+         * One credit sale per customer at a time (17 Nov, security audit pos-run-1). Their dues and limit
+         * were read outside this transaction with nothing locked, so two credit sales sent together each
+         * saw the other's debt as absent and both slipped under the limit with no manager. The customer
+         * row is locked first and everything below is read through the same transaction, so the second
+         * waits for the first and then counts it.
+         */
+        if (input.customerId) {
+          await tx.$queryRaw`SELECT id FROM customers WHERE id = ${input.customerId} AND client_id = ${actor.clientId} FOR UPDATE`;
+        }
         // What they owe already, on other bills (10 Oct): the manager is lending more to someone who may not have paid.
-        const earlier = input.customerId ? await prisma.sale.findMany({
+        const earlier = input.customerId ? await tx.sale.findMany({
           where: { clientId: actor.clientId, customerId: input.customerId, status: 'BALANCE_DUE' },
           select: { totalPaise: true, payments: { select: { amountPaise: true, status: true } } }
         }) : [];
         const alreadyOwedPaise = earlier.reduce((n, o) => n + owedPaise(o.totalPaise, o.payments), 0);
         // CREDIT ALLOWED (15 Oct): within what a manager set for this customer, no manager is called.
-        const creditLimitPaise = input.customerId ? (await prisma.customer.findFirst({ where: { id: input.customerId, clientId: actor.clientId }, select: { creditLimitPaise: true } }))?.creditLimitPaise ?? null : null;
+        const creditLimitPaise = input.customerId ? (await tx.customer.findFirst({ where: { id: input.customerId, clientId: actor.clientId }, select: { creditLimitPaise: true } }))?.creditLimitPaise ?? null : null;
         const detail = { owedPaise: owingNow, totalPaise: priced.totalPaise, alreadyOwedPaise, alreadyOwedBills: earlier.length, creditLimitPaise };
         if (creditLimitPaise !== null && alreadyOwedPaise + owingNow <= creditLimitPaise) {
           pendingAudit.push({ action: 'order.handed_over_with_due', detail: { ...detail, withinCreditLimit: true } });
@@ -451,6 +490,16 @@ export async function writeSale(
           isKept ? 'ADVANCE' : 'EXACT',
           { lenient: !!input.madeOfflineAt }
         );
+        /*
+         * A SALE MADE OFFLINE IS NEVER REFUSED -- so it must be SEEN (17 Nov, security audit pos-run-1,
+         * deferred area). "Made offline" comes from the screen; the server cannot tell a real outage from
+         * one a caller claims. Over the income-tax 269ST cash limit, the sale still stands (it happened),
+         * and the owner finds it in the activity log instead of nowhere.
+         */
+        const cashOnBill = input.payments.filter(p => p.method === 'CASH').reduce((n, p) => n + p.amountPaise, 0);
+        if (input.madeOfflineAt && cashOnBill >= CASH_LIMIT_PAISE) {
+          pendingAudit.push({ action: 'sale.offline_cash_over_limit', detail: { cashPaise: cashOnBill, madeOfflineAt: input.madeOfflineAt.toISOString() } });
+        }
       }
 
       /*
@@ -714,11 +763,31 @@ function applyQuote(
   const offersByRef = new Map<string, { offerId: string; discountPaise: number }[]>();
   let offersPaise = 0;
   const notes: string[] = [];
+  /*
+   * ONE QUOTED LINE, ONE BASKET LINE (17 Nov, security audit pos-run-1). Inventory quotes each item code
+   * once, for its whole quantity. A basket that repeats an item on several lines -- the till merges a
+   * re-scan into one line, so only a hand-made request does this -- used to get the full offer on EVERY
+   * line, and offers are kept out of the cashier's discount limit, so no manager was asked. Now an item
+   * on more than one line gets no offer at all (the quote cannot be split fairly), and a quoted line
+   * is used once.
+   */
+  const linesPerCode = new Map<string, number>();
+  for (const line of basket) {
+    const code = items.get(line.ref)?.code;
+    if (code) linesPerCode.set(code, (linesPerCode.get(code) ?? 0) + 1);
+  }
+  const used = new Set<string>();
   for (const line of basket) {
     const item = items.get(line.ref);
     if (!item) continue;
     const quoted = q.lines.find(l => l.itemCode === item.code);
     if (!quoted || quoted.unpriced || overriddenCodes.has(item.code)) continue;
+    if ((linesPerCode.get(item.code) ?? 0) > 1 || used.has(item.code)) {
+      if (!used.has(item.code)) notes.push(`${line.description}: on more than one line, so no offer was applied to it. Put it on one line.`);
+      used.add(item.code);
+      continue;
+    }
+    used.add(item.code);
     if (quoted.qty !== line.qty || quoted.listUnitPaise !== item.pricePaise || typeof quoted.lineTotalPaise !== 'number') {
       notes.push(`${line.description}: changed since the offers were checked, so none were applied to it.`);
       continue;

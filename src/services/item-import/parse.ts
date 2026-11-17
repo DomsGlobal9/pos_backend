@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import { inflateRawSync } from 'zlib';
 import { badRequest } from '../../utils/httpError';
 
 /**
@@ -79,7 +80,59 @@ function cellText(v: ExcelJS.CellValue): string {
   return String(v);
 }
 
+/*
+ * AN .XLSX IS A ZIP, AND A ZIP CAN UNPACK TO FAR MORE THAN IT WEIGHS (17 Nov, security audit pos-run-1).
+ * ExcelJS unpacks every entry into memory before reading a single row, so a 5 MB upload could ask the
+ * one server every shop shares for gigabytes. The file's own table of contents is read first: too many
+ * entries, an unpacked total over 50 MB, or an entry that unpacks to more than it says, and it is
+ * refused before ExcelJS sees it.
+ */
+const XLSX_MAX_ENTRIES = 500;
+const XLSX_MAX_UNPACKED = 50 * 1024 * 1024;
+
+function checkZipSize(buf: Buffer): void {
+  const tooBig = () => badRequest('That Excel file is too large inside to read. Save the item list on its own as .xlsx or .csv and try again.');
+  const broken = () => badRequest('That file could not be opened as an Excel sheet. Save it as .xlsx or .csv and try again.');
+  // End of the table of contents: the last 22+ bytes, signature PK\x05\x06.
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 65_557); i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) throw broken();
+  const entries = buf.readUInt16LE(eocd + 10);
+  let at = buf.readUInt32LE(eocd + 16);
+  if (entries > XLSX_MAX_ENTRIES) throw tooBig();
+  let total = 0;
+  for (let n = 0; n < entries; n++) {
+    if (at + 46 > buf.length || buf.readUInt32LE(at) !== 0x02014b50) throw broken();
+    const method = buf.readUInt16LE(at + 10);
+    const packed = buf.readUInt32LE(at + 20);
+    const unpacked = buf.readUInt32LE(at + 24);
+    const nameLen = buf.readUInt16LE(at + 28), extraLen = buf.readUInt16LE(at + 30), commentLen = buf.readUInt16LE(at + 32);
+    const local = buf.readUInt32LE(at + 42);
+    // 0xFFFFFFFF means the real sizes are in a ZIP64 field: an item list never needs that.
+    if (packed === 0xffffffff || unpacked === 0xffffffff || local === 0xffffffff) throw tooBig();
+    total += unpacked;
+    if (total > XLSX_MAX_UNPACKED) throw tooBig();
+    // Unpack it here, capped at what it claims, so a file that lies about its sizes is caught too.
+    if (local + 30 > buf.length || buf.readUInt32LE(local) !== 0x04034b50) throw broken();
+    const start = local + 30 + buf.readUInt16LE(local + 26) + buf.readUInt16LE(local + 28);
+    const data = buf.subarray(start, start + packed);
+    if (method === 8) {
+      let out: Buffer;
+      try { out = inflateRawSync(data, { maxOutputLength: Math.max(1, unpacked) }); } catch { throw tooBig(); }
+      if (out.length !== unpacked) throw broken();
+    } else if (method === 0) {
+      if (packed !== unpacked) throw broken();
+    } else {
+      throw broken();
+    }
+    at += 46 + nameLen + extraLen + commentLen;
+  }
+}
+
 export async function parseXlsx(buf: Buffer): Promise<string[][]> {
+  checkZipSize(buf);
   const book = new ExcelJS.Workbook();
   try { await book.xlsx.load(buf as any); }
   catch { throw badRequest('That file could not be opened as an Excel sheet. Save it as .xlsx or .csv and try again.'); }

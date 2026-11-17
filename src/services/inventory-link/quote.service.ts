@@ -115,3 +115,5 @@ export function heldQuote(clientId: string, quoteId: string): Quote | null {
 
 /** Tests only: a quote that has gone the way a restart or a 15-minute wait would send it. */
 export function __forgetQuote(quoteId: string) { held.delete(quoteId); }
+/** Tests only: hold a quote as if Inventory had answered it. */
+export function __holdQuote(clientId: string, quote: Quote) { held.set(quote.quoteId, { clientId, quote, expiresAt: Date.now() + 15 * 60_000 }); }

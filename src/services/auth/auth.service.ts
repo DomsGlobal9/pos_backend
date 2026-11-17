@@ -3,9 +3,10 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../../lib/prisma';
 import { env } from '../../config/env';
-import { Actor, holdsEverything, may, PERMISSIONS } from '../../types/actor';
+import { Actor, holdsEverything, may, PERMISSIONS, systemActor } from '../../types/actor';
 import { badRequest, forbidden, notFound, unauthorized } from '../../utils/httpError';
 import { record } from '../audit';
+import { makeLockout, waitWords } from './lockout';
 
 /**
  * Signing in at the till. POS-CORE-002 (local mode). Approved 27 Sep: password once, then a PIN.
@@ -26,8 +27,6 @@ import { record } from '../audit';
 
 const TILL_DAYS = 30;
 const STAFF_HOURS = 12;
-const LOCK_AFTER = 5;
-const LOCK_MS = 5 * 60_000;
 
 type Claims = { typ: 'till' | 'staff'; cid: string; tid: string; sub?: string };
 
@@ -47,22 +46,17 @@ export function readToken(raw: string | undefined, typ: 'till' | 'staff'): Claim
   }
 }
 
-// ---- lockouts ---------------------------------------------------------------------------------
-const fails = new Map<string, { count: number; until: number }>();
-function checkLock(key: string) {
-  const r = fails.get(key);
-  if (r && r.until > Date.now()) {
-    const mins = Math.ceil((r.until - Date.now()) / 60_000);
-    throw unauthorized(`Too many wrong tries. Wait ${mins} minute${mins === 1 ? '' : 's'} and try again.`, { code: 'LOCKED' });
-  }
-}
-function failed(key: string) {
-  const r = fails.get(key) ?? { count: 0, until: 0 };
-  r.count++;
-  if (r.count >= LOCK_AFTER) { r.until = Date.now() + LOCK_MS; r.count = 0; }
-  fails.set(key, r);
-}
-export const __resetAuthLocks = () => fails.clear();
+// ---- lockouts (see ./lockout.ts: escalating, reserved before the slow compare) ---------------
+// 5 wrong tries, then 5 min, 10, 20, 40, then an hour each time, until a right answer or a quiet day.
+const signInLock = makeLockout({ after: 5, baseMs: 5 * 60_000, maxMs: 60 * 60_000, forgetAfterMs: 24 * 60 * 60_000 });
+export const __resetAuthLocks = () => signInLock.reset();
+const lockedOut = (retryInMs: number) => unauthorized(`Too many wrong tries. ${waitWords(retryInMs)}`, { code: 'LOCKED' });
+
+/*
+ * An unknown login pays for one bcrypt compare too, against this throwaway hash, so how long the
+ * answer takes does not say which emails and phones exist (17 Nov audit: it used to skip the work).
+ */
+const NOBODY_HASH = bcrypt.hashSync(crypto.randomBytes(16).toString('hex'), 10);
 
 // ---- the till session, cached so a sale does not pay a database trip to ask "still open?" -------
 const openCache = new Map<string, number>();
@@ -142,13 +136,19 @@ const normalisePhone = (s: string) => {
 
 /** Open the till: email or phone + password, owner or manager. */
 export async function openTill(input: { login?: string; password?: string; shopId?: string; deviceId?: string }) {
+  // Plain text only: an object here would otherwise become a database filter.
+  if ([input.login, input.password, input.shopId, input.deviceId].some(v => v !== undefined && typeof v !== 'string')) {
+    throw badRequest('Enter your email or phone number, and your password.');
+  }
   const login = (input.login ?? '').trim().toLowerCase();
   const password = input.password ?? '';
   if (!login || !password) throw badRequest('Enter your email or phone number, and your password.');
-  const lockKey = `open:${login}`;
-  checkLock(lockKey);
 
   const phone = normalisePhone(login);
+  // One count per ACCOUNT, however the phone number is written (17 Nov audit).
+  const attempt = signInLock.begin(`open:${input.shopId ?? '*'}:${phone ?? login}`);
+  if (attempt.locked) throw lockedOut(attempt.retryInMs);
+  try {
   const candidates = await prisma.user.findMany({
     where: {
       status: 'ACTIVE', deletedAt: null, passwordHash: { not: null },
@@ -159,11 +159,12 @@ export async function openTill(input: { login?: string; password?: string; shopI
   });
   const matching: typeof candidates = [];
   for (const u of candidates) if (await bcrypt.compare(password, u.passwordHash!)) matching.push(u);
+  if (candidates.length === 0) await bcrypt.compare(password, NOBODY_HASH);
   if (matching.length === 0) {
-    failed(lockKey);
+    attempt.fail();
     throw unauthorized('That email or phone and password do not match. Check them and try again.', { code: 'BAD_LOGIN' });
   }
-  fails.delete(lockKey);
+  attempt.succeed();
 
   if (matching.length > 1) {
     const shops = await prisma.shopSettings.findMany({ where: { clientId: { in: matching.map(u => u.clientId) } }, select: { clientId: true, shopName: true } });
@@ -187,6 +188,9 @@ export async function openTill(input: { login?: string; password?: string; shopI
     shop: { name: shop?.shopName ?? 'Your shop' },
     person: { id: u.id, name: u.name }
   };
+  } finally {
+    attempt.release();   // any other way out gives the reserved try back (no-op after fail/succeed)
+  }
 }
 
 /** The names on the "Who's at the till?" screen: active staff who have a PIN. */
@@ -210,17 +214,37 @@ export async function staffOnTill(tillToken: string | undefined) {
 export async function switchTo(tillToken: string | undefined, input: { userId?: string; pin?: string }) {
   const c = readToken(tillToken, 'till');
   await mustBeOpen(c.cid, c.tid);
-  if (!input.userId) throw badRequest('Choose your name first.');
-  if (!/^\d{4,6}$/.test(input.pin ?? '')) throw badRequest('Enter your PIN.');
-  const lockKey = `pin:${c.cid}:${input.userId}`;
-  checkLock(lockKey);
-  const u = await prisma.user.findFirst({ where: { id: input.userId, clientId: c.cid, status: 'ACTIVE', deletedAt: null }, select: USER_SELECT });
-  if (!u || !u.approvalPinHash) throw notFound('That name is not on this till any more. Choose again.');
-  if (!(await bcrypt.compare(input.pin!, u.approvalPinHash))) {
-    failed(lockKey);
-    throw unauthorized('That PIN is not right. Try again.', { code: 'BAD_PIN' });
+  // A plain id only: an object here would become a database filter (17 Nov audit).
+  const userId = typeof input.userId === 'string' && /^[\w-]{1,64}$/.test(input.userId) ? input.userId : null;
+  if (!userId) throw badRequest('Choose your name first.');
+  if (typeof input.pin !== 'string' || !/^\d{4,6}$/.test(input.pin)) throw badRequest('Enter your PIN.');
+  const pin = input.pin;
+  /*
+   * The SAME 4-digit PIN that approves a discount is the one that takes the till -- and taking the till
+   * gives a whole 12-hour session -- so it gets at least the lockout approvals have: growing, and
+   * counted before the compare (17 Nov audit: it was a flat five minutes, and raceable).
+   */
+  const attempt = signInLock.begin(`pin:${c.cid}:${userId}`);
+  if (attempt.locked) throw lockedOut(attempt.retryInMs);
+  let u;
+  try {
+    u = await prisma.user.findFirst({ where: { id: userId, clientId: c.cid, status: 'ACTIVE', deletedAt: null }, select: USER_SELECT });
+    if (!u || !u.approvalPinHash) throw notFound('That name is not on this till any more. Choose again.');
+    if (!(await bcrypt.compare(pin, u.approvalPinHash))) {
+      const lock = attempt.fail();
+      // The owner sees somebody guessing a PIN in the activity log, as approval lockouts already are.
+      if (lock) {
+        void record(systemActor(c.cid), {
+          action: 'auth.pin_locked', subject: u.name,
+          detail: { userId: u.id, lockedForMinutes: Math.round(lock.lockedForMs / 60_000), lockoutNumber: lock.lockoutNumber }
+        });
+      }
+      throw unauthorized('That PIN is not right. Try again.', { code: 'BAD_PIN' });
+    }
+    attempt.succeed();
+  } finally {
+    attempt.release();   // any other way out gives the reserved try back (no-op after fail/succeed)
   }
-  fails.delete(lockKey);
   return {
     staffToken: sign({ typ: 'staff', cid: c.cid, tid: c.tid, sub: u.id }, `${STAFF_HOURS}h`),
     person: { id: u.id, name: u.name }

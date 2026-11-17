@@ -133,6 +133,11 @@ export async function setLogo(actor: Actor, raw: string | null) {
     const web = /^https:\/\/[^\s]{4,500}$/.test(logoUrl);
     if (!jpeg && !web) throw badRequest('That is not a picture the till can use. Choose an image file, or give an https address.');
     if (logoUrl.length > LOGO_MAX_CHARS) throw badRequest('That picture is too large for a bill. Choose a smaller one.');
+    // A picture called JPEG must be one (17 Nov audit): other bytes under that name went to the PNG decoder.
+    if (jpeg) {
+      const head = Buffer.from(logoUrl.slice('data:image/jpeg;base64,'.length, 'data:image/jpeg;base64,'.length + 8), 'base64');
+      if (head[0] !== 0xff || head[1] !== 0xd8 || head[2] !== 0xff) throw badRequest('That picture is not a JPEG. Choose a .jpg image, or give an https address.');
+    }
   }
   await prisma.shopSettings.update({ where: { clientId: actor.clientId }, data: { logoUrl } });
   await record(actor, { action: 'shop.logo_set', detail: { kind: logoUrl === null ? 'removed' : logoUrl.startsWith('data:') ? 'picture' : 'address', chars: logoUrl?.length ?? 0 } });

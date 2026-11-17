@@ -17,7 +17,14 @@ dotenv.config();
  * Dev stays frictionless: the strict requirements apply only when NODE_ENV=production.
  */
 
-const isProd = process.env.NODE_ENV === 'production';
+/*
+ * ONE ANSWER TO "IS THIS PRODUCTION?" (17 Nov, security audit pos-run-1). The sign-in fallback already
+ * counted Render as production -- "a deploy that forgot NODE_ENV" -- but these boot checks and the
+ * webhook address guard looked at NODE_ENV alone, so such a deploy would have started with a weak
+ * signing secret allowed and webhooks free to reach private addresses. Everything uses this now.
+ */
+const isProd = process.env.NODE_ENV === 'production' || Boolean(process.env.RENDER);
+export const isProduction = () => isProd;
 
 // A variable left blank in a hosting dashboard arrives as "" rather than undefined, which fails a
 // format check AND a required check, reporting one missing value twice under two reasons. Normalise

@@ -61,6 +61,29 @@ export async function eraseHere(clientId: string, e: Erasure): Promise<'ERASED' 
        WHERE client_id = ${clientId}
          AND created_at <= ${at}
          AND (payload->>'customerRef' = ${e.phone} OR payload->'customer'->>'phone' = ${e.phone})`;
+    /*
+     * EVERY COPY, NOT JUST THE RECORD (17 Nov, security audit pos-run-1, deferred area). Two more places
+     * kept the person: a gift voucher sold to them keeps the buyer's name and number as typed, and a
+     * parked bill keeps the customer it was rung for. Both are forgotten up to the erasure time.
+     * The voucher's number was stored as typed ("98765 43210", "+91 ..."), so it is matched on its last
+     * ten digits, the way the till matches a phone everywhere else.
+     */
+    await tx.$executeRaw`
+      UPDATE voucher_sales
+         SET buyer_name = NULL, buyer_phone = NULL
+       WHERE client_id = ${clientId}
+         AND created_at <= ${at}
+         AND buyer_phone IS NOT NULL
+         AND right(regexp_replace(buyer_phone, '[^0-9]', '', 'g'), 10) = right(regexp_replace(${e.phone}, '[^0-9]', '', 'g'), 10)`;
+    if (c) {
+      await tx.$executeRaw`
+        UPDATE held_bills
+           SET label = CASE WHEN label = payload->'customer'->>'name' THEN 'Parked bill' ELSE label END,
+               payload = jsonb_set(payload, '{customer}', 'null'::jsonb)
+         WHERE client_id = ${clientId}
+           AND created_at <= ${at}
+           AND payload->'customer'->>'id' = ${c.id}`;
+    }
   });
 
   if (outcome === 'ERASED' || outcome === 'DETACHED') {

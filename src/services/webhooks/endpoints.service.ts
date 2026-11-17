@@ -3,7 +3,7 @@ import dns from 'dns/promises';
 import net from 'net';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
-import { env } from '../../config/env';
+import { isProduction } from '../../config/env';
 import { Actor, may, PERMISSIONS } from '../../types/actor';
 import { badRequest, forbidden, notFound } from '../../utils/httpError';
 import { seal } from '../../utils/credential';
@@ -61,7 +61,7 @@ export async function checkAddress(raw: string): Promise<URL> {
   let url: URL;
   try { url = new URL(raw.trim()); } catch { throw badRequest('That is not a web address. It should look like https://your-software.example.com/pos-events'); }
   if (url.username || url.password) throw badRequest('Leave the user name and password out of the address.');
-  const production = env.NODE_ENV === 'production';
+  const production = isProduction();
   if (production && url.protocol !== 'https:') throw badRequest('The address must start with https:// so the shop\'s sales are not sent in the clear.');
   if (!['http:', 'https:'].includes(url.protocol)) throw badRequest('The address must start with https://');
   if (production) {
