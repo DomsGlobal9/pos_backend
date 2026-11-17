@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Actor, holdsEverything, may, PERMISSIONS } from '../../types/actor';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
-import { hashPassword } from '../auth';
+import { hashPassword, forgetStaff } from '../auth';
 import { record } from '../audit';
 
 /**
@@ -137,6 +137,7 @@ export async function update(actor: Actor, id: string, input: { name?: string; r
     changed.push(`role to ${LABEL[role]}`);
   }
   const done = await prisma.user.update({ where: { id }, data, select: SELECT });
+  forgetStaff();   // a new role or a removal counts on the very next request, not 30 s later
   await record(actor, { action: 'staff.changed', subject: done.name, detail: { changed } });
   return view(done, actor.id);
 }

@@ -110,13 +110,27 @@ function toActor(u: { id: string; clientId: string; name: string | null; roles: 
   };
 }
 
+/*
+ * WHO SOMEONE IS, REMEMBERED FOR 30 SECONDS (17 Nov, measured live). Loading a person with their roles
+ * and permissions is five database trips one after another -- about 70 ms of every request on Render,
+ * paid again by each of the five or six calls a screen makes. Held like the till-open check above, for
+ * the same 30 s, and dropped at once when anyone's name, role or standing changes (forgetStaff).
+ */
+const actorCache = new Map<string, { actor: Actor; at: number }>();
+export function forgetStaff() { actorCache.clear(); }
+
 /** The person a staff token belongs to, as an Actor -- or a refusal. Used on every request. */
 export async function actorFromStaffToken(raw: string): Promise<Actor> {
   const c = readToken(raw, 'staff');
   await mustBeOpen(c.cid, c.tid);
+  const key = `${c.cid}:${c.sub}`;
+  const hit = actorCache.get(key);
+  if (hit && Date.now() - hit.at < CACHE_MS) return { ...hit.actor, roles: [...hit.actor.roles], permissions: [...hit.actor.permissions] };
   const u = await prisma.user.findFirst({ where: { id: c.sub, clientId: c.cid, status: 'ACTIVE', deletedAt: null }, select: USER_SELECT });
-  if (!u) throw unauthorized('Choose your name and enter your PIN.', { code: 'NO_STAFF' });
-  return toActor(u);
+  if (!u) { actorCache.delete(key); throw unauthorized('Choose your name and enter your PIN.', { code: 'NO_STAFF' }); }
+  const actor = toActor(u);
+  actorCache.set(key, { actor, at: Date.now() });
+  return { ...actor, roles: [...actor.roles], permissions: [...actor.permissions] };
 }
 
 const mayOpen = (a: Actor) => holdsEverything(a) || may(a, PERMISSIONS.CLOSE_DAY) || may(a, PERMISSIONS.SETTINGS);
