@@ -161,6 +161,8 @@ async function unmerge(tx: Tx, clientId: string, restoredCrm: string, fromCrm: s
         }
       }
       await tx.customer.update({ where: { id: d }, data: { mergedIntoId: null } });
+      // Their own CRM person again (a later customer.changed may have pointed them at the kept one).
+      await tx.crmCustomerLink.updateMany({ where: { customerId: d }, data: { crmCustomerId: restoredCrm } });
       await record(systemActor(clientId), { action: 'customer.unmerged', subject: d, detail: { by: 'ScaleEzy CRM', fromCustomerId: k, sales: moved.sales?.length ?? 0, creditPaise: credit, points } as Prisma.InputJsonValue });
     }
     await tx.crmCustomerMerge.update({ where: { id: m.id }, data: { undoneAt: new Date() } });
