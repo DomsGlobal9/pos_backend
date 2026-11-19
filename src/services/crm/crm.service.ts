@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { env } from '../../config/env';
 import { notify } from '../live/live.service';
+import { queueLink } from './link.service';
 
 /**
  * TELLING SCALEEZY CRM WHAT ONLY THE COUNTER KNOWS (28 Oct, owner's go; CRM's inbox, D:\villy\crm).
@@ -86,6 +87,8 @@ async function queue(db: Db, clientId: string, rows: ReturnType<typeof rowsFor>)
  * change CRM is not told of. The backfill runs once per shop and would not catch it.
  */
 export async function customerChanged(db: Db, clientId: string, customerId: string, byName: string | null = null) {
+  // CRM owns who a customer is (19 Nov): link this one to CRM's person, a moment later (link.service).
+  await queueLink(db, clientId, customerId);
   if (!crmConfigured() || !(await linkedShop(clientId, db))) return;
   const c = await db.customer.findFirst({ where: { id: customerId, clientId, deletedAt: null }, select: CUSTOMER });
   if (c) await queue(db, clientId, rowsFor(c, byName));

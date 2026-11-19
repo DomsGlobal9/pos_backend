@@ -103,6 +103,21 @@ const SELECT = {
 } as const;
 
 /**
+ * A CUSTOMER JOINED INTO ANOTHER BY A CRM MERGE (19 Nov) is that other customer from then on: a number,
+ * an old bill's link or a sale queued offline for the dropped one all land on the kept one. Followed a few
+ * steps at most (a merge of a merge), never in a loop.
+ */
+export async function currentCustomerId(db: Pick<Prisma.TransactionClient, 'customer'>, clientId: string, id: string): Promise<string> {
+  let at = id;
+  for (let i = 0; i < 5; i++) {
+    const c = await db.customer.findFirst({ where: { id: at, clientId }, select: { mergedIntoId: true } });
+    if (!c?.mergedIntoId) return at;
+    at = c.mergedIntoId;
+  }
+  return at;
+}
+
+/**
  * POS-CUST-002. Find by the number, which is the identity.
  *
  * Returns null rather than throwing when nobody matches: "we have not met this person" is an
@@ -111,10 +126,14 @@ const SELECT = {
  */
 export async function findByPhone(actor: Actor, rawPhone: string): Promise<CustomerCard | null> {
   const phone = normalise(rawPhone);
-  const row = await prisma.customer.findFirst({
+  const found = await prisma.customer.findFirst({
     where: { clientId: actor.clientId, phone: phone.e164, deletedAt: null },
-    select: SELECT
+    select: { ...SELECT, mergedIntoId: true }
   });
+  if (!found) return null;
+  const row = found.mergedIntoId
+    ? await prisma.customer.findFirst({ where: { id: await currentCustomerId(prisma, actor.clientId, found.id), clientId: actor.clientId, deletedAt: null }, select: SELECT })
+    : found;
   if (!row) return null;
   return card(row, await statsFor(actor.clientId, row.id));
 }
@@ -136,10 +155,13 @@ export async function findOrCreate(
   const gstin = input.gstin?.trim() ? normaliseGstin(input.gstin) : null;
   if (gstin) { const problem = gstinProblem(gstin); if (problem) throw badRequest(problem, { code: 'BAD_GSTIN' }); }
 
-  const existing = await prisma.customer.findFirst({
+  const byNumber = await prisma.customer.findFirst({
     where: { clientId: actor.clientId, phone: phone.e164, deletedAt: null },
-    select: SELECT
+    select: { ...SELECT, mergedIntoId: true }
   });
+  const existing = byNumber?.mergedIntoId
+    ? await prisma.customer.findFirst({ where: { id: await currentCustomerId(prisma, actor.clientId, byNumber.id), clientId: actor.clientId, deletedAt: null }, select: SELECT })
+    : byNumber;
 
   if (existing) {
     /*
@@ -210,7 +232,7 @@ export async function findOrCreate(
 export async function search(actor: Actor, rawQuery: unknown): Promise<CustomerCard[]> {
   const q = typeof rawQuery === 'string' ? rawQuery.trim().slice(0, 60) : '';
 
-  const where: Prisma.CustomerWhereInput = { clientId: actor.clientId, deletedAt: null };
+  const where: Prisma.CustomerWhereInput = { clientId: actor.clientId, deletedAt: null, mergedIntoId: null };
 
   if (q) {
     const conditions: Prisma.CustomerWhereInput[] = [
@@ -246,7 +268,8 @@ export async function search(actor: Actor, rawQuery: unknown): Promise<CustomerC
 }
 
 /** POS-CUST-008, -009, -010. Everything a cashier needs to serve this person, and nothing more. */
-export async function detail(actor: Actor, customerId: string): Promise<CustomerDetail> {
+export async function detail(actor: Actor, requestedId: string): Promise<CustomerDetail> {
+  const customerId = await currentCustomerId(prisma, actor.clientId, requestedId);
   const [row, recent] = await Promise.all([
     prisma.customer.findFirst({
       where: { id: customerId, clientId: actor.clientId, deletedAt: null },

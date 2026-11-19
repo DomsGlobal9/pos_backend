@@ -11,6 +11,7 @@ import { cleanInput } from './middleware/clean-input.middleware';
 import { startDeliveryLoop, startCatalogueLoop } from './services/inventory-link';
 import { startCardSweep } from './services/card-machines';
 import { startCrmLoop } from './services/crm';
+import { startCrmLinkLoop } from './services/crm/link.service';
 import { startErasureLoop } from './services/inventory-link/erasures.service';
 import { startInboundSweep } from './services/inventory-link/inbound.service';
 import { startWebhookLoop } from './services/webhooks';
@@ -98,6 +99,8 @@ const server = app.listen(env.PORT, () => {
     startCardSweep();
     // Customers made or changed at the counter, and consent ticked there, to ScaleEzy CRM (when set up).
     startCrmLoop();
+    // Till customers linked to CRM's one person, a moment after they are saved (19 Nov).
+    startCrmLinkLoop();
     // Customers erased in Inventory are forgotten here too (12 Nov).
     startErasureLoop();
     // Inventory's pushes left unworked by a restart (12 Nov).

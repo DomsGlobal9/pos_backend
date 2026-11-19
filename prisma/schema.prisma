@@ -306,6 +306,10 @@ model Customer {
   updatedAt DateTime  @updatedAt @map("updated_at")
   deletedAt DateTime? @map("deleted_at")
 
+  /// Joined into another customer by a CRM merge (services/crm/events.service.ts). Lookups follow it.
+  mergedIntoId String? @map("merged_into_id")
+  crmLink      CrmCustomerLink?
+
   @@unique([clientId, phone])
   @@index([clientId])
   /// Finding someone by name when they cannot remember which number they gave.
@@ -1664,4 +1668,53 @@ model InventoryInbound {
   @@unique([inventoryShop, eventId])
   @@index([processedAt])
   @@map("inventory_inbound")
+}
+
+/// ScaleEzy CRM owns who a customer is (owner, 19 Nov). One row per till customer of a CRM shop: CRM's id
+/// for them once linked, and the link job's own bookkeeping until then (services/crm/link.service.ts).
+/// A table of its own so linking never touches the customers row (and never re-sends it to CRM).
+model CrmCustomerLink {
+  customerId    String    @id @map("customer_id")
+  clientId      String    @map("client_id")
+  crmCustomerId String?   @map("crm_customer_id")
+  linkedAt      DateTime? @map("linked_at")
+  attempts      Int       @default(0)
+  nextTryAt     DateTime  @default(now()) @map("next_try_at")
+  lastProblem   String?   @map("last_problem")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, crmCustomerId])
+  @@index([clientId, nextTryAt])
+  @@map("crm_customer_links")
+}
+
+/// CRM's events already applied here, by CRM's event id: each one is applied once (services/crm/events.service.ts).
+model CrmInboundEvent {
+  id         String   @id
+  clientId   String   @map("client_id")
+  kind       String
+  outcome    String
+  receivedAt DateTime @default(now()) @map("received_at")
+
+  @@index([clientId, receivedAt])
+  @@map("crm_inbound_events")
+}
+
+/// What a CRM merge moved on this till, row by row, so an unmerge puts exactly that back.
+model CrmCustomerMerge {
+  id                String    @id @default(uuid())
+  clientId          String    @map("client_id")
+  eventId           String    @map("event_id")
+  fromCrmId         String    @map("from_crm_id")
+  intoCrmId         String    @map("into_crm_id")
+  droppedCustomerId String?   @map("dropped_customer_id")
+  keptCustomerId    String?   @map("kept_customer_id")
+  moved             Json
+  createdAt         DateTime  @default(now()) @map("created_at")
+  undoneAt          DateTime? @map("undone_at")
+
+  @@index([clientId, fromCrmId])
+  @@map("crm_customer_merges")
 }

@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { currentCustomerId } from '../customers/customers.service';
 import { prisma } from '../../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { stepProblem } from '../../utils/units';
@@ -83,6 +84,8 @@ export async function completeSale(actor: Actor, input: CompleteSaleInput) {
 async function completeSaleOnce(actor: Actor, input: CompleteSaleInput) {
   // A credit sale is a kept order handed over at once: everything a kept order does, it does.
   if (input.payLater) input = { ...input, kind: 'KEPT' };
+  // A customer joined into another by CRM since this sale was rung up (an offline sale): the kept one.
+  if (input.customerId) input = { ...input, customerId: await currentCustomerId(prisma, actor.clientId, input.customerId) };
   const existing = await findByOnceKey(actor.clientId, input.onceKey);
   if (existing) return replay(actor, existing, input);
 

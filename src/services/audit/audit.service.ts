@@ -60,6 +60,8 @@ export type AuditAction =
   | 'shop.idle_set'
   | 'customer.updated'
   | 'customer.erased'
+  | 'customer.merged'
+  | 'customer.unmerged'
   | 'day.reclosed'
   | 'device.updated'
   | 'api_key.created'

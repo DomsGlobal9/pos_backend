@@ -97,6 +97,19 @@ const envSchema = z.object({
   CRM_SOURCE_SECRET: optionalStr(z.string().min(16, 'CRM_SOURCE_SECRET must be at least 16 characters')),
 
   /**
+   * CRM owns who a customer is (owner, 19 Nov): the till links each customer to CRM's own, and follows
+   * CRM's changes (services/crm/link.service.ts, events.service.ts). The till signs its calls to CRM with its
+   * OWN key, RS256: the private key is a FILE (a Render Secret File, e.g. /etc/secrets/pos-service-private.pem),
+   * never the key in a variable; CRM holds only the public half, listed under this kid and iss. Absent: no
+   * linking, and the till works exactly as before.
+   */
+  POS_SERVICE_PRIVATE_KEY_PATH: optionalStr(z.string().min(1)),
+  POS_SERVICE_KID: optionalStr(z.string().min(1).max(100)),
+  POS_SERVICE_ISS: z.string().trim().min(1).default('scaleezy-pos'),
+  /** The secret CRM signs its events to this till with (CRM's CRM_EVENT_SUBSCRIBERS entry). Absent: the door is shut (503). */
+  CRM_WEBHOOK_SECRET: optionalStr(z.string().min(16, 'CRM_WEBHOOK_SECRET must be at least 16 characters')),
+
+  /**
    * Inventory's pushes to the till (12 Nov, PLAN-live step 3): the secret Inventory signs them with,
    * the same value as POS_EVENTS_SECRET on Inventory's service. Absent: pushes are refused and the
    * till keeps finding out by asking (every 30 s for items, every 5 min for erasures).
