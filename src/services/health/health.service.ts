@@ -1,4 +1,13 @@
+import { randomBytes } from 'crypto';
 import { prisma } from '../../lib/prisma';
+
+/*
+ * WHICH COPY OF THE SERVER ANSWERED (19 Nov). A random tag picked when this process starts, and when. Lockouts
+ * and the one-Complete-per-bill guard live in a process, so the shop must run ONE copy; Render does not say how
+ * many it runs, but many health calls showing more than one tag at once would. Nothing in it is a secret.
+ */
+const INSTANCE = randomBytes(4).toString('hex');
+const STARTED_AT = new Date().toISOString();
 import { env, hasInventory } from '../../config/env';
 
 /**
@@ -25,6 +34,9 @@ export interface Health {
   authMode: 'local' | 'gateway';
   /** Which commit is running (Render sets RENDER_GIT_COMMIT): "did my push deploy?" in one look. */
   commit: string | null;
+  /** This process: a random tag picked at start, and when it started. */
+  instance: string;
+  startedAt: string;
   at: string;
 }
 
@@ -51,6 +63,8 @@ export async function health(): Promise<Health> {
     databaseMs,
     authMode: env.AUTH_MODE,
     commit: process.env.RENDER_GIT_COMMIT?.slice(0, 7) ?? null,
+    instance: INSTANCE,
+    startedAt: STARTED_AT,
     at: new Date().toISOString()
   };
 }
