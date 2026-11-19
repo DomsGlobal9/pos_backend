@@ -3,6 +3,7 @@ import { Actor } from '../../types/actor';
 import { conflict, badRequest } from '../../utils/httpError';
 import { call } from './client';
 import { voucherCode } from '../payments';
+import { currentCustomerId } from '../customers/current';
 
 /**
  * Points and store credit at the till. Contract §10.
@@ -70,7 +71,9 @@ export async function inventoryNameFor(clientId: string, phoneE164: string): Pro
 }
 
 async function phoneOf(clientId: string, customerId: string) {
-  const c = await prisma.customer.findFirst({ where: { id: customerId, clientId, deletedAt: null }, select: { phone: true } });
+  // The kept customer's number after a CRM merge, so Inventory holds the same person the sale lands on.
+  const id = await currentCustomerId(prisma, clientId, customerId);
+  const c = await prisma.customer.findFirst({ where: { id, clientId, deletedAt: null }, select: { phone: true } });
   return c?.phone ?? null;
 }
 

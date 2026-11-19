@@ -8,7 +8,7 @@ import { rupees } from '../money';
 import { nextNumber } from '../invoice-series';
 import { owedPaise, pretty } from '../payments';
 import { grant } from '../approvals';
-import { currentCustomerId } from '../customers/customers.service';
+import { currentCustomerId } from '../customers/current';
 import { record, AuditEntry } from '../audit';
 import { addCredit } from '../store-credit';
 import { writeSale, getSale } from '../sale/sale.service';

@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { currentCustomerId } from '../customers/customers.service';
+import { currentCustomerId } from '../customers/current';
 import { prisma } from '../../lib/prisma';
 import { badRequest, conflict, forbidden, notFound } from '../../utils/httpError';
 import { stepProblem } from '../../utils/units';

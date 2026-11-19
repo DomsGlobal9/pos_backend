@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { Actor } from '../../types/actor';
 import { call } from './client';
+import { currentCustomerId } from '../customers/current';
 
 /**
  * Offers at the till. Contract §9: ONE pricing engine, and it is Inventory's.
@@ -82,7 +83,8 @@ export async function quoteBasket(actor: Actor, input: QuoteInput): Promise<Quot
   if (qtyByCode.size === 0) return { ok: false, reason: 'Nothing on this bill is known to Inventory.' };
 
   const customer = input.customerId
-    ? await prisma.customer.findFirst({ where: { id: input.customerId, clientId: actor.clientId }, select: { phone: true } })
+    // Followed through a CRM merge: the offers and points are the kept customer's, as the sale will be.
+    ? await prisma.customer.findFirst({ where: { id: await currentCustomerId(prisma, actor.clientId, input.customerId), clientId: actor.clientId }, select: { phone: true } })
     : null;
 
   const reply = await call(link, 'POST', '/quote', {
