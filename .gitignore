@@ -15,6 +15,8 @@ build/
 # Inventory's copy of this file was once saved as UTF-16, which made git read every rule
 # as binary garbage and match none of them. This file is UTF-8 on purpose.
 dev-keys/
+# Production keys and secrets made here for the owner to put on Render (19 Nov): never committed.
+prod-keys/
 *.pem
 *.key
 

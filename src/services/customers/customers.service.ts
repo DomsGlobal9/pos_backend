@@ -414,7 +414,10 @@ export async function updateDetails(
   customerId: string,
   input: { name?: string | null; gstin?: string | null; address?: string | null; creditLimitPaise?: number | null }
 ): Promise<CustomerCard> {
-  const row = await prisma.customer.findFirst({ where: { id: customerId, clientId: actor.clientId, deletedAt: null }, select: SELECT });
+  // A customer joined into another by CRM is that other one: an edit from an old screen lands on the kept
+  // customer, never on the dropped copy (whose CRM link may already name the kept person).
+  const keptId = await currentCustomerId(prisma, actor.clientId, customerId);
+  const row = await prisma.customer.findFirst({ where: { id: keptId, clientId: actor.clientId, deletedAt: null }, select: SELECT });
   if (!row) throw notFound('That customer was not found.');
   const patch: Prisma.CustomerUpdateInput = {};
   if (input.name !== undefined) patch.name = input.name?.trim() || null;

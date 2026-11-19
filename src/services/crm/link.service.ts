@@ -155,7 +155,13 @@ export async function renameAtCrm(clientId: string, customerId: string, name: st
     console.error(`[crm] a rename went only to the till: CRM refused the till's key or scope (${reply.status}).`);
     return 'HERE';
   }
-  if (reply && (reply.status === 400 || reply.status === 404 || reply.status === 409)) {
+  // CRM no longer knows the person the till linked (removed or replaced there): the link is stale. It is
+  // dropped, the name is the till's to save, and the save queues a fresh link (find-or-add, by number).
+  if (reply?.status === 404) {
+    await prisma.crmCustomerLink.deleteMany({ where: { customerId } });
+    return 'HERE';
+  }
+  if (reply && (reply.status === 400 || reply.status === 409)) {
     throw badRequest(String(reply.body?.message ?? 'ScaleEzy CRM did not accept that change.'), { code: 'CRM_REFUSED' });
   }
   throw unavailable('Couldn\'t reach ScaleEzy CRM, so nothing was changed. Try again in a minute.', { code: 'CRM_UNREACHABLE' });
