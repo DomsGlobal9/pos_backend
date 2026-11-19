@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import { env } from '../../config/env';
 import { canCallCrm, serviceToken } from './service-token';
 import { applyCrmView } from './events.service';
+import { badRequest, unavailable } from '../../utils/httpError';
 
 /**
  * EVERY TILL CUSTOMER, LINKED TO CRM'S ONE PERSON (19 Nov, owner: CRM owns who a customer is).
@@ -55,11 +56,11 @@ async function catchUp(clientId: string, max = 200) {
   return missing.length;
 }
 
-export type CrmCall = (path: string, token: string, body: unknown) => Promise<{ status: number; body: any; retryAfter?: number } | null>;
-const http: CrmCall = async (path, token, body) => {
+export type CrmCall = (path: string, token: string, body: unknown, method?: 'POST' | 'PATCH') => Promise<{ status: number; body: any; retryAfter?: number } | null>;
+const http: CrmCall = async (path, token, body, method = 'POST') => {
   try {
     const res = await fetch(`${env.CRM_BASE_URL!.replace(/\/+$/, '')}${path}`, {
-      method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10_000),
+      method, redirect: 'error', signal: AbortSignal.timeout(method === 'PATCH' ? 5_000 : 10_000),
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify(body)
     });
@@ -128,6 +129,36 @@ export async function linkShop(clientId: string): Promise<{ linked: number; outc
     return { linked, outcome: 'RETRY' };
   }
   return { linked, outcome: due.length ? 'DONE' : 'NOTHING' };
+}
+
+/**
+ * A NAME CHANGED AT THE TILL, FOR A CUSTOMER CRM OWNS (19 Nov, CRM: a module's copy only fills blanks once
+ * CRM owns the shop's customers, so a rename made only here would be put back by CRM's next change).
+ *
+ * For a linked customer the new name goes to CRM first (PATCH /api/v1/service/customers/:id, scope
+ * crm:customer:update) and the till saves it only once CRM has it. CRM unreachable: nothing is changed, and
+ * the person is told so in one sentence -- a name that differs here and in CRM would quietly be undone.
+ * A customer not linked yet, a till not linked to Inventory, or a shop without CRM: the till's own as before.
+ * The GSTIN, address, note and credit limit are the till's alone and never go this way.
+ */
+export async function renameAtCrm(clientId: string, customerId: string, name: string | null): Promise<'CRM' | 'HERE'> {
+  if (!canCallCrm()) return 'HERE';
+  const shop = await crmShopOf(clientId);
+  const link = shop ? await prisma.crmCustomerLink.findUnique({ where: { customerId }, select: { crmCustomerId: true } }) : null;
+  if (!shop || !link?.crmCustomerId) return 'HERE';
+  const reply = await call(`/api/v1/service/customers/${encodeURIComponent(link.crmCustomerId)}`, serviceToken(shop, ['crm:customer:update']), { name }, 'PATCH');
+  if (reply && reply.status >= 200 && reply.status < 300) return 'CRM';
+  // CRM is not on for the shop after all: the till's own, as for any shop without CRM.
+  if (reply?.status === 404 && /not switched CRM on/i.test(String(reply.body?.message ?? ''))) return 'HERE';
+  // The till may not change names in CRM yet (the scope is not given): as before, rather than block every edit.
+  if (reply?.status === 401 || reply?.status === 403) {
+    console.error(`[crm] a rename went only to the till: CRM refused the till's key or scope (${reply.status}).`);
+    return 'HERE';
+  }
+  if (reply && (reply.status === 400 || reply.status === 404 || reply.status === 409)) {
+    throw badRequest(String(reply.body?.message ?? 'ScaleEzy CRM did not accept that change.'), { code: 'CRM_REFUSED' });
+  }
+  throw unavailable('Couldn\'t reach ScaleEzy CRM, so nothing was changed. Try again in a minute.', { code: 'CRM_UNREACHABLE' });
 }
 
 /** One pass over every shop linked to Inventory. */

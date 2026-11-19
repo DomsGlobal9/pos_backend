@@ -36,6 +36,8 @@ export const notFound = make(404);
 export const conflict = make(409);
 /** Something on our side. The handler replaces the text; this exists so the status is deliberate. */
 export const serverError = make(500);
+/** Something this service relies on is not answering just now: try again shortly. Its words are shown. */
+export const unavailable = make(503);
 
 export const isHttpError = (e: unknown): e is HttpError =>
   typeof e === 'object' && e !== null && (e as HttpError).safe === true;

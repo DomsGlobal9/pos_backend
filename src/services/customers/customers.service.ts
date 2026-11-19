@@ -9,6 +9,7 @@ import { history as creditHistory, CreditEntry } from '../store-credit';
 import { record } from '../audit';
 import { gstinProblem, normaliseGstin } from '../../utils/gstin';
 import { customerChanged } from '../crm/crm.service';
+import { renameAtCrm } from '../crm/link.service';
 
 /**
  * The customer. POS-CUST-002..010, -014.
@@ -436,6 +437,8 @@ export async function updateDetails(
   if (gstinAfter && !addressAfter) {
     throw badRequest('Add the business address too — a tax invoice to a GST-registered buyer shows their address.', { code: 'ADDRESS_REQUIRED' });
   }
+  // A new name for a customer CRM owns goes to CRM first, and is saved here only once CRM has it (19 Nov).
+  if (patch.name !== undefined && patch.name !== row.name) await renameAtCrm(actor.clientId, row.id, patch.name as string | null);
   // Inventory sees a customer only on a bill; CRM hears of the change from here, in the same transaction (28 Oct).
   const updated = Object.keys(patch).length
     ? await prisma.$transaction(async (tx) => {
