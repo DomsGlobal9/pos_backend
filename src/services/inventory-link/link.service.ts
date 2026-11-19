@@ -7,6 +7,7 @@ import { record } from '../audit';
 import { call } from './client';
 import { STOCK_EVENTS } from './delivery.service';
 import { crmStatus } from '../crm/crm.service';
+import { crmLinkStatus } from '../crm/link.service';
 
 /**
  * Connecting a shop's till to Inventory, and the owner's view of how that link is doing.
@@ -288,6 +289,8 @@ export async function status(actor: Actor) {
     whenDown: link.whenDown,
     // Is the counter's news (customers, consent) reaching ScaleEzy CRM? 28 Oct.
     crm: await crmStatus(actor.clientId),
+    // Customers linked to CRM's one person (19 Nov).
+    crmLink: await crmLinkStatus(actor.clientId),
     waiting,
     settling,
     lastDeliveredAt: link.lastDeliveredAt,

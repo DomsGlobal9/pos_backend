@@ -167,6 +167,23 @@ export async function renameAtCrm(clientId: string, customerId: string, name: st
   throw unavailable('Couldn\'t reach ScaleEzy CRM, so nothing was changed. Try again in a minute.', { code: 'CRM_UNREACHABLE' });
 }
 
+/**
+ * For the owner's Inventory link page (19 Nov): are this till's customers linked to CRM? So the switch-on
+ * can be seen working from the till itself, without anyone reading a database.
+ */
+export async function crmLinkStatus(clientId: string) {
+  if (!canCallCrm() || !(await crmShopOf(clientId))) return { on: false as const };
+  const [linked, waiting, problem, lastLinked, events] = await Promise.all([
+    prisma.crmCustomerLink.count({ where: { clientId, crmCustomerId: { not: null } } }),
+    prisma.crmCustomerLink.count({ where: { clientId, crmCustomerId: null } }),
+    prisma.crmCustomerLink.findFirst({ where: { clientId, crmCustomerId: null, lastProblem: { not: null } }, orderBy: { nextTryAt: 'desc' }, select: { lastProblem: true } }),
+    prisma.crmCustomerLink.findFirst({ where: { clientId, linkedAt: { not: null } }, orderBy: { linkedAt: 'desc' }, select: { linkedAt: true } }),
+    // CRM's events for this shop: the newest one tells the owner CRM's changes are arriving.
+    crmShopOf(clientId).then(shop => shop ? prisma.crmInboundEvent.findFirst({ where: { clientId: shop }, orderBy: { receivedAt: 'desc' }, select: { receivedAt: true } }) : null)
+  ]);
+  return { on: true as const, linked, waiting, problem: problem?.lastProblem ?? null, lastLinkedAt: lastLinked?.linkedAt ?? null, lastEventAt: events?.receivedAt ?? null, eventsOn: Boolean(env.CRM_WEBHOOK_SECRET) };
+}
+
 /** One pass over every shop linked to Inventory. */
 export async function runLinkOnce() {
   if (!canCallCrm()) return;
