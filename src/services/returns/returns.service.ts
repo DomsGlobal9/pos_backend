@@ -8,6 +8,7 @@ import { rupees } from '../money';
 import { nextNumber } from '../invoice-series';
 import { owedPaise, pretty } from '../payments';
 import { grant } from '../approvals';
+import { currentCustomerId } from '../customers/customers.service';
 import { record, AuditEntry } from '../audit';
 import { addCredit } from '../store-credit';
 import { writeSale, getSale } from '../sale/sale.service';
@@ -739,6 +740,9 @@ async function run(actor: Actor, saleId: string, mode: Mode) {
  * customer given now.
  */
 async function resolveCustomer(tx: Tx, actor: Actor, bill: Bill, given?: string) {
+  // A customer since joined into another by a CRM merge (19 Nov) is that other one: a screen opened, or a
+  // return queued offline, before the merge still lands on the kept customer and never on the empty copy.
+  if (given) given = await currentCustomerId(tx, actor.clientId, given);
   if (bill.customerId) {
     if (given && given !== bill.customerId) {
       throw badRequest('This bill already belongs to a customer, and any credit goes to them.', {
