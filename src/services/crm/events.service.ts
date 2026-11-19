@@ -65,8 +65,21 @@ export async function applyCrmView(tx: Tx, clientId: string, customerId: string,
     let phone: string | null = null;
     try { phone = normalisePhone(view.phone).e164; } catch { phone = null; }
     if (phone && phone !== c.phone) {
-      const taken = await tx.customer.findFirst({ where: { clientId, phone, id: { not: c.id } }, select: { id: true } });
-      if (taken) changed.push('phone-kept:taken-here');
+      const taken = await tx.customer.findFirst({ where: { clientId, phone, id: { not: c.id } }, select: { id: true, mergedIntoId: true } });
+      if (taken && taken.mergedIntoId === c.id) {
+        /*
+         * The number is a merged-away copy's: the owner kept that one in CRM. Swap the two numbers, so
+         * receipts go to the number CRM keeps and both numbers still find this customer at the counter.
+         * Noted on the merge, so an undo gives each their own number back. A placeholder clears the way,
+         * since a number is one customer's in a shop.
+         */
+        await tx.customer.update({ where: { id: taken.id }, data: { phone: `swap:${taken.id}` } });
+        await tx.customer.update({ where: { id: c.id }, data: { phone } });
+        await tx.customer.update({ where: { id: taken.id }, data: { phone: c.phone } });
+        const m = await tx.crmCustomerMerge.findFirst({ where: { clientId, droppedCustomerId: taken.id, keptCustomerId: c.id, undoneAt: null }, orderBy: { createdAt: 'desc' } });
+        if (m) await tx.crmCustomerMerge.update({ where: { id: m.id }, data: { moved: { ...(m.moved as any), phoneSwap: { kept: c.phone, dropped: phone } } } });
+        changed.push('phone:from-merged-copy');
+      } else if (taken) changed.push('phone-kept:taken-here');
       else { data.phone = phone; changed.push('phone'); }
     }
   }
@@ -158,6 +171,16 @@ async function unmerge(tx: Tx, clientId: string, restoredCrm: string, fromCrm: s
         if (credit) {
           await tx.storeCreditEntry.create({ data: { clientId, customerId: k, amountPaise: -credit, balanceAfterPaise: kk.storeCreditPaise } });
           await tx.storeCreditEntry.create({ data: { clientId, customerId: d, amountPaise: credit, balanceAfterPaise: dd.storeCreditPaise } });
+        }
+      }
+      // Numbers swapped after the merge (CRM kept the dropped one's number): each gets their own back.
+      const swap = moved.phoneSwap as { kept: string; dropped: string } | undefined;
+      if (swap) {
+        const [kp, dp] = await Promise.all([k, d].map(id => tx.customer.findUnique({ where: { id }, select: { phone: true } })));
+        if (kp?.phone === swap.dropped && dp?.phone === swap.kept) {
+          await tx.customer.update({ where: { id: d }, data: { phone: `swap:${d}` } });
+          await tx.customer.update({ where: { id: k }, data: { phone: swap.kept } });
+          await tx.customer.update({ where: { id: d }, data: { phone: swap.dropped } });
         }
       }
       await tx.customer.update({ where: { id: d }, data: { mergedIntoId: null } });
