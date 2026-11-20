@@ -8,6 +8,7 @@ import { call } from './client';
 import { STOCK_EVENTS } from './delivery.service';
 import { crmStatus } from '../crm/crm.service';
 import { crmLinkStatus } from '../crm/link.service';
+import { boutiqueStatus } from '../module-service/links.service';
 
 /**
  * Connecting a shop's till to Inventory, and the owner's view of how that link is doing.
@@ -299,6 +300,8 @@ export async function status(actor: Actor) {
     crm: await crmStatus(actor.clientId),
     // Customers linked to CRM's one person (19 Nov).
     crmLink: await crmLinkStatus(actor.clientId),
+    // The Boutique app at this shop (20 Nov): whether Inventory links one, and when POS last asked.
+    boutique: await boutiqueStatus(actor.clientId),
     waiting,
     settling,
     lastDeliveredAt: link.lastDeliveredAt,

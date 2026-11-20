@@ -21,8 +21,22 @@ const SOON_MS = 60_000;
 
 export type Learned = 'LINKED' | 'UNCHANGED' | 'UNLINKED' | 'NONE' | 'NOT_CONNECTED' | 'NO_ANSWER';
 
+/*
+ * The last check, per shop (20 Nov): when POS last asked Inventory and what it heard, for the owner's Inventory link
+ * page. Without it nobody could tell "no boutique" from "Inventory never answered". Kept in memory: the first
+ * check runs seconds after a start.
+ */
+const lastChecks = new Map<string, { at: Date; outcome: Learned }>();
+export function boutiqueCheck(clientId: string) { return lastChecks.get(clientId) ?? null; }
+
 /** One shop: what Inventory says, kept here. */
 export async function learnFor(clientId: string): Promise<Learned> {
+  const outcome = await learn(clientId);
+  lastChecks.set(clientId, { at: new Date(), outcome });
+  return outcome;
+}
+
+async function learn(clientId: string): Promise<Learned> {
   const inv = await prisma.inventoryLink.findUnique({ where: { clientId }, select: { connected: true, baseUrl: true, keyCipher: true } });
   if (!inv?.connected) return 'NOT_CONNECTED';
   const reply = await call(inv, 'GET', '/boutique-link');
@@ -112,4 +126,22 @@ export async function changeModuleLink(actor: Actor, input: { scopes?: string[];
   });
   await record(actor, { action: 'module.changed', subject: row.tenant, detail: { module: MODULE, scopes: row.scopes, paused: row.paused } });
   return view(row);
+}
+
+/** For the owner's Inventory link page: the boutique Inventory links to this shop, if any, and the last check. */
+export async function boutiqueStatus(clientId: string) {
+  const link = await prisma.moduleLink.findUnique({ where: { clientId_module: { clientId, module: MODULE } }, select: { tenant: true, active: true, paused: true } });
+  const last = boutiqueCheck(clientId);
+  return {
+    tenant: link?.active ? link.tenant : null,
+    paused: !!link?.paused,
+    lastCheckedAt: last?.at ?? null,
+    // In words for the page: what Inventory last said.
+    lastAnswer: !last ? null
+      : last.outcome === 'NO_ANSWER' ? 'Inventory did not answer; asked again in 15 minutes.'
+      : last.outcome === 'NOT_CONNECTED' ? 'This till is not connected to Inventory.'
+      : last.outcome === 'NONE' ? 'No boutique is linked to this shop.'
+      : last.outcome === 'UNLINKED' ? 'The boutique was turned off in Inventory.'
+      : 'Linked.'
+  };
 }
