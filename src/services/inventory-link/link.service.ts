@@ -217,12 +217,20 @@ export async function leaveOut(actor: Actor, input: { document: string; reason: 
              attempts = 0, next_attempt_at = NULL, last_error = NULL, locked_until = NULL
        WHERE client_id = ${actor.clientId} AND blocked_sequence = ${sequence}`;
     if (moved !== 1) throw conflict('The stop has changed since this screen was opened. Look at it again before leaving anything out.', { code: 'STOP_CHANGED' });
-    await tx.inventorySkip.create({
-      data: {
-        clientId: actor.clientId, sequence, document: event.invoiceNo ?? '', eventType: event.eventType,
-        refusedCode: link.blockedCode, refusedText: link.blockedMessage, reason,
-        skippedById: actor.id, skippedBy: actor.name ?? null
-      }
+    /*
+     * Left out before and refused again (20 Nov): "Send again from" a bill earlier than it sends it once more, by
+     * design (Inventory may take it now). Leaving it out a second time records the new refusal and reason on the
+     * same row -- it crashed on the row already there, and the queue stayed stopped with no way past.
+     */
+    const skip = {
+      document: event.invoiceNo ?? '', eventType: event.eventType,
+      refusedCode: link.blockedCode, refusedText: link.blockedMessage, reason,
+      skippedById: actor.id, skippedBy: actor.name ?? null
+    };
+    await tx.inventorySkip.upsert({
+      where: { clientId_sequence: { clientId: actor.clientId, sequence } },
+      create: { clientId: actor.clientId, sequence, ...skip },
+      update: { ...skip, skippedAt: new Date() }
     });
     // Its ending is known now: left out. Nothing more to ask Inventory about it.
     await tx.inventorySettlement.updateMany({ where: { clientId: actor.clientId, sequence, settledAt: null }, data: { settledAt: new Date(), status: 'REJECTED' } });
