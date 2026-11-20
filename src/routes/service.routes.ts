@@ -69,7 +69,7 @@ const MENU: Call[] = [
   { method: 'POST', path: '/drawer/cash', scope: 'pos:day', what: 'Cash in or out { direction, amountPaise, reason }.' },
   { method: 'POST', path: '/drawer/close', scope: 'pos:day', what: 'Count and close the drawer { countedCashPaise, note? }.' },
   { method: 'GET', path: '/day/:date', scope: 'pos:day', what: 'The shop\'s day: sales, payments, returns (YYYY-MM-DD).' },
-  { method: 'POST', path: '/day/:date/close', scope: 'pos:day', what: 'Close the shop\'s day (a manager).' }
+  { method: 'POST', path: '/day/:date/close', scope: 'pos:day', what: 'Close the shop\'s day (a manager). { again: true } takes in bills made after an earlier close.' }
 ];
 
 router.get('/menu', (_req, res) => {
@@ -270,7 +270,7 @@ router.post('/drawer/close', handle('pos:day', async (req, _res, call) => {
 }));
 router.get('/day/:date', handle('pos:day', req => day((req as any).actor, req.params.date)));
 router.post('/day/:date/close', handle('pos:day', req => {
-  const b = parse(z.object({ acceptOpenShifts: z.boolean().optional(), note: z.string().max(280).optional() }), req.body ?? {});
+  const b = parse(z.object({ acceptOpenShifts: z.boolean().optional(), note: z.string().max(280).optional(), again: z.boolean().optional() }), req.body ?? {});
   return closeDay((req as any).actor, req.params.date, b);
 }));
 
