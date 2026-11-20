@@ -23,6 +23,10 @@ export type QrStatus =
   | { status: 'UNKNOWN'; reason: string };
 
 const QR_ID = /^[A-Za-z0-9_-]{1,64}$/;
+// Inventory has no such QR (20 Nov): said as it is, never as Razorpay being slow, which sent people looking for an outage.
+const NOT_OURS = 'This is not a QR this shop made, or it is too old. Make a new one, or use the shop\'s own UPI QR and type the reference.';
+const notOurs = (reply: { kind: string; status?: number; body?: any }) =>
+  reply.kind === 'ANSWERED' && reply.status === 404 && (reply.body?.data?.answer ?? reply.body?.answer) === 'QR_UNKNOWN';
 const SLOW = 'Razorpay could not be reached just now. Use the shop\'s own UPI QR and type the reference.';
 
 async function liveLink(clientId: string) {
@@ -61,6 +65,7 @@ export async function qrStatus(clientId: string, qrId: string): Promise<QrStatus
   const link = await liveLink(clientId);
   if (!link) return { status: 'UNKNOWN', reason: REASONS.NOT_CONNECTED };
   const reply = await call(link, 'GET', `/upi-qr/${encodeURIComponent(qrId)}`, undefined, 6_000);
+  if (notOurs(reply)) return { status: 'UNKNOWN', reason: NOT_OURS };
   if (reply.kind === 'UNREACHABLE' || reply.status !== 200) return { status: 'UNKNOWN', reason: SLOW };
   return shapeOf(reply.body?.data ?? {});
 }
@@ -71,6 +76,7 @@ export async function closeQr(clientId: string, qrId: string): Promise<QrStatus>
   const link = await liveLink(clientId);
   if (!link) return { status: 'UNKNOWN', reason: REASONS.NOT_CONNECTED };
   const reply = await call(link, 'POST', `/upi-qr/${encodeURIComponent(qrId)}/close`, {}, 6_000);
+  if (notOurs(reply)) return { status: 'UNKNOWN', reason: NOT_OURS };
   if (reply.kind === 'UNREACHABLE' || reply.status >= 500) return { status: 'UNKNOWN', reason: SLOW };
   return shapeOf(reply.body?.data ?? {});
 }
