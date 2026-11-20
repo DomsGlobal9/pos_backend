@@ -156,6 +156,20 @@ export async function deliverNext(clientId: string): Promise<{ outcome: Outcome;
   }
 
   /*
+   * ALREADY CONFIRMED APPLIED BY INVENTORY: not sent again (20 Nov). After a refused bill the queue goes back to
+   * just before it, so everything after it is sent again. Inventory answers most of those ALREADY_APPLIED, but a
+   * return sent again was counted twice ("2 pieces returned against 1 sold") and stopped the queue for nothing.
+   * POS holds Inventory's own verdict for each event; one Inventory said it applied is simply passed.
+   */
+  const confirmed = await prisma.inventorySettlement.findFirst({
+    where: { clientId, sequence: event.sequence, status: 'APPLIED', settledAt: { not: null } }, select: { id: true }
+  });
+  if (confirmed) {
+    await release({ deliveredSequence: event.sequence, lastDeliveredAt: new Date(), attempts: 0, nextAttemptAt: null, lastError: null });
+    return { outcome: 'DELIVERED', sequence: event.sequence };
+  }
+
+  /*
    * Money after the bill goes only once Inventory has APPLIED the bill. Accepted is not enough:
    * Inventory's worker settles a payment for a bill it has not recorded yet as UNKNOWN_ORDER and
    * does not wait (Inventory, 30 Sep). A UPI confirmed seconds after the sale would stop the queue.
