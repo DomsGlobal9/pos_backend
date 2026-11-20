@@ -6,6 +6,7 @@ import * as apiKeys from '../services/api-keys';
 import * as webhooks from '../services/webhooks';
 import { importSheet, templateCsv } from '../services/item-import';
 import { salesCsv, salesXlsx } from '../services/exports';
+import { moduleLinks, changeModuleLink } from '../services/module-service/links.service';
 
 /**
  * The owner's Connections screen. WF-INTEGRATIONS-01.
@@ -26,6 +27,15 @@ const body = <T extends z.ZodTypeAny>(schema: T, raw: unknown): z.infer<T> => {
   if (!parsed.success) throw badRequest(parsed.error.issues[0].message);
   return parsed.data;
 };
+
+// ---- The Boutique app billing at this shop through POS (20 Nov): what it may do, or paused
+router.get('/boutique', async (req, res, next) => { try { ok(res, await moduleLinks(actor(req))); } catch (e) { next(e); } });
+router.patch('/boutique', async (req, res, next) => {
+  try {
+    const b = body(z.object({ scopes: z.array(z.string()).max(10).optional(), active: z.boolean().optional() }), req.body);
+    ok(res, await changeModuleLink(actor(req), b));
+  } catch (e) { next(e); }
+});
 
 // ---- API keys
 router.get('/api-keys', async (req, res, next) => { try { ok(res, await apiKeys.list(actor(req))); } catch (e) { next(e); } });

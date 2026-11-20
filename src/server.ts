@@ -12,6 +12,7 @@ import { startDeliveryLoop, startCatalogueLoop } from './services/inventory-link
 import { startCardSweep } from './services/card-machines';
 import { startCrmLoop } from './services/crm';
 import { startCrmLinkLoop } from './services/crm/link.service';
+import { startModuleLinkLoop } from './services/module-service/links.service';
 import { startErasureLoop } from './services/inventory-link/erasures.service';
 import { startInboundSweep } from './services/inventory-link/inbound.service';
 import { startWebhookLoop } from './services/webhooks';
@@ -101,6 +102,8 @@ const server = app.listen(env.PORT, () => {
     startCrmLoop();
     // Till customers linked to CRM's one person, a moment after they are saved (19 Nov).
     startCrmLinkLoop();
+    // Which Boutique app account each shop is, as Inventory says (20 Nov).
+    startModuleLinkLoop();
     // Customers erased in Inventory are forgotten here too (12 Nov).
     startErasureLoop();
     // Inventory's pushes left unworked by a restart (12 Nov).

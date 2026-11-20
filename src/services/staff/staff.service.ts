@@ -49,14 +49,16 @@ async function roleId(clientId: string, name: string) {
 }
 
 const SELECT = {
-  id: true, name: true, email: true, phone: true, status: true, passwordHash: true, approvalPinHash: true,
+  id: true, name: true, email: true, phone: true, status: true, passwordHash: true, approvalPinHash: true, externalRef: true,
   roles: { select: { role: { select: { name: true } } } }
 } as const;
 
 const view = (u: Prisma.UserGetPayload<{ select: typeof SELECT }>, me: string | null) => ({
   id: u.id, name: u.name, email: u.email, phone: u.phone,
   role: u.roles[0]?.role.name ?? 'CASHIER', roleLabel: LABEL[u.roles[0]?.role.name ?? ''] ?? 'Staff',
-  hasPin: !!u.approvalPinHash, hasPassword: !!u.passwordHash, active: u.status === 'ACTIVE', isYou: u.id === me
+  hasPin: !!u.approvalPinHash, hasPassword: !!u.passwordHash, active: u.status === 'ACTIVE', isYou: u.id === me,
+  // Bills through the Boutique app (20 Nov): named there, never signs in here.
+  fromBoutique: !!u.externalRef?.startsWith('boutique:')
 });
 
 export async function list(actor: Actor) {
@@ -102,6 +104,11 @@ export async function update(actor: Actor, id: string, input: { name?: string; r
   mustManage(actor);
   const user = await prisma.user.findFirst({ where: { id, clientId: actor.clientId, deletedAt: null }, select: SELECT });
   if (!user) throw notFound('That person was not found.');
+  // Someone billing through the Boutique app (20 Nov): their name and role come from that app, and they never
+  // sign in here. The owner may only stop (or restart) them billing at this shop.
+  if (user.externalRef && (input.pin || input.password || input.role !== undefined || input.name !== undefined || input.email !== undefined || input.phone !== undefined)) {
+    throw badRequest('This person bills through the Boutique app. Change them there; here you can only stop them billing.', { code: 'FROM_ANOTHER_APP' });
+  }
   const current = user.roles[0]?.role.name;
   const data: Prisma.UserUpdateInput = {};
   const changed: string[] = [];

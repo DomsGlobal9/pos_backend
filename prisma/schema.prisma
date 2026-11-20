@@ -66,6 +66,11 @@ model User {
   /// Null for anyone who cannot approve anything, which is most people.
   approvalPinHash String? @map("approval_pin_hash")
 
+  /// A PERSON FROM ANOTHER SCALEEZY MODULE (20 Nov): "boutique:<their id>" for a Boutique app staff member
+  /// billing through POS's service. Named on every bill they make; never signs in to the till (no password,
+  /// no PIN, and none can be given).
+  externalRef String? @map("external_ref")
+
   roles              UserRole[]
   shifts             Shift[]
   sales              Sale[]
@@ -80,6 +85,7 @@ model User {
   deletedAt DateTime? @map("deleted_at")
 
   @@unique([clientId, email])
+  @@unique([clientId, externalRef])
   @@index([clientId])
   @@map("users")
 }
@@ -210,6 +216,7 @@ model Counter {
   heldBills HeldBill[]
   devices   Device[]
   shifts    Shift[]
+  moduleLinks ModuleLink[]
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -1717,4 +1724,28 @@ model CrmCustomerMerge {
 
   @@index([clientId, fromCrmId])
   @@map("crm_customer_merges")
+}
+
+/// ANOTHER SCALEEZY MODULE BILLING AT THIS SHOP THROUGH POS (20 Nov): the Boutique app's retail counter.
+/// One row per shop and module: which of that module's accounts it is (tenant, as the module's signed pass
+/// names it), what it may do here (scopes), and its own counter, so its cash is its own drawer.
+model ModuleLink {
+  id        String   @id @default(uuid())
+  clientId  String   @map("client_id")
+  module    String
+  tenant    String
+  scopes    String[]
+  counterId String   @map("counter_id")
+  counter   Counter  @relation(fields: [counterId], references: [id])
+  active    Boolean  @default(true)
+  /// The owner paused it (Inventory's refresh never undoes that).
+  paused    Boolean  @default(false)
+  createdBy String?  @map("created_by")
+  lastCallAt DateTime? @map("last_call_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([clientId, module])
+  @@unique([module, tenant])
+  @@map("module_links")
 }

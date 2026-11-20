@@ -106,6 +106,10 @@ const envSchema = z.object({
   POS_SERVICE_PRIVATE_KEY_PATH: optionalStr(z.string().min(1)),
   POS_SERVICE_KID: optionalStr(z.string().min(1).max(100)),
   POS_SERVICE_ISS: z.string().trim().min(1).default('scaleezy-pos'),
+  // The Boutique app (CRM-B) billing retail through POS (20 Nov): the public half of its key for passes to POS,
+  // and that key's id. Unset: POS's /api/v1/service answers that it is not switched on.
+  BOUTIQUE_PUBLIC_KEY_PATH: optionalStr(z.string().min(1)),
+  BOUTIQUE_KID: optionalStr(z.string().min(1).max(100)),
   /** The secret CRM signs its events to this till with (CRM's CRM_EVENT_SUBSCRIBERS entry). Absent: the door is shut (503). */
   CRM_WEBHOOK_SECRET: optionalStr(z.string().min(16, 'CRM_WEBHOOK_SECRET must be at least 16 characters')),
 

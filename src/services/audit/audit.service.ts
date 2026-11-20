@@ -62,6 +62,8 @@ export type AuditAction =
   | 'customer.erased'
   | 'customer.merged'
   | 'customer.unmerged'
+  | 'module.linked'
+  | 'module.changed'
   | 'day.reclosed'
   | 'device.updated'
   | 'api_key.created'
