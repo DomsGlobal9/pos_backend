@@ -181,6 +181,13 @@ export async function crmLinkStatus(clientId: string) {
     // CRM's events for this shop: the newest one tells the owner CRM's changes are arriving.
     crmShopOf(clientId).then(shop => shop ? prisma.crmInboundEvent.findFirst({ where: { clientId: shop }, orderBy: { receivedAt: 'desc' }, select: { receivedAt: true } }) : null)
   ]);
+  /*
+   * Shown only for a shop that USES ScaleEzy CRM (the owner, 20 Nov: a module's screens appear only when it is
+   * connected). Proof is a customer CRM linked, or a change CRM sent; and never while CRM's latest answer is
+   * "not switched on for this shop".
+   */
+  const usesCrm = problem?.lastProblem !== NOT_ON && (linked > 0 || !!events);
+  if (!usesCrm) return { on: false as const };
   return { on: true as const, linked, waiting, problem: problem?.lastProblem ?? null, lastLinkedAt: lastLinked?.linkedAt ?? null, lastEventAt: events?.receivedAt ?? null, eventsOn: Boolean(env.CRM_WEBHOOK_SECRET) };
 }
 
