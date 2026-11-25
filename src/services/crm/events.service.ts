@@ -197,7 +197,31 @@ export type CrmEvent = { id: string; kind: string; clientId: string; subjectId?:
 
 /** Apply one event to every till shop behind CRM's shop. Returns the outcome, recorded with the event id. */
 export async function applyCrmEvent(e: CrmEvent): Promise<{ applied: boolean; outcome: string }> {
-  if (await prisma.crmInboundEvent.findUnique({ where: { id: e.id }, select: { id: true } })) return { applied: false, outcome: 'already applied' };
+  /*
+   * CLAIM THE EVENT FIRST (25 Nov, local test with the CRM session): CRM's quick send and its
+   * 10-second job delivered one rename at the same instant. "Have we seen this id?" then "apply" let
+   * both copies through -- harmless for a rename, not for a merge moving bills twice. Now the id is
+   * written first and only the copy that wrote it does the work. A claim left by a crash part-way
+   * (still WORKING after two minutes) is taken over, so a retry is never wrongly turned away.
+   */
+  // skipDuplicates: the copy that loses gets 0 back quietly, not a logged database error.
+  const claimed = (await prisma.crmInboundEvent.createMany({ data: [{ id: e.id, clientId: e.clientId, kind: e.kind, outcome: WORKING }], skipDuplicates: true })).count === 1;
+  if (!claimed) {
+    const stale = await prisma.crmInboundEvent.updateMany({ where: { id: e.id, outcome: WORKING, receivedAt: { lt: new Date(Date.now() - 120_000) } }, data: { receivedAt: new Date() } });
+    if (stale.count !== 1) return { applied: false, outcome: 'already applied' };
+  }
+  try {
+    return await applyClaimed(e);
+  } catch (error) {
+    // Nothing (or not all) was applied: let CRM's retry do it again.
+    await prisma.crmInboundEvent.deleteMany({ where: { id: e.id, outcome: WORKING } }).catch(() => {});
+    throw error;
+  }
+}
+
+const WORKING = 'working';
+
+async function applyClaimed(e: CrmEvent): Promise<{ applied: boolean; outcome: string }> {
   const shops = await tillShopsOf(e.clientId);
   const outcomes: string[] = [];
   for (const clientId of shops) {
@@ -241,6 +265,6 @@ export async function applyCrmEvent(e: CrmEvent): Promise<{ applied: boolean; ou
     if (outcome !== 'ignored' && !/^not /.test(outcome)) notify(clientId, 'customers', 'sales');
   }
   const outcome = outcomes.join(' | ') || 'no till for this shop';
-  await prisma.crmInboundEvent.create({ data: { id: e.id, clientId: e.clientId, kind: e.kind, outcome: outcome.slice(0, 500) } }).catch(() => {});
+  await prisma.crmInboundEvent.update({ where: { id: e.id }, data: { outcome: outcome.slice(0, 500) } }).catch(() => {});
   return { applied: true, outcome };
 }
