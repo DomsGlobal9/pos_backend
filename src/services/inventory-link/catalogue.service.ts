@@ -288,18 +288,58 @@ const lastFull = new Map<string, number>();
 const refreshing = new Set<string>();
 const refreshAgain = new Set<string>();
 
+/*
+ * A PUSH THAT FINDS NOTHING (25 Nov, two-sided test with the Inventory session): Inventory pushed
+ * "products" and "stock" within 1.6 s of a price and a stock change, the till pulled at once -- and
+ * Inventory's "changed since" page left both out (its cursor did not move for them). Only the
+ * half-hourly full refresh caught them, so the till sold at the old price for up to 30 minutes.
+ *
+ * Inventory only pushes when something the till shows changed. So a push whose quick pull brings
+ * nothing means the quick pull missed it: pull everything instead. At most one such full pull per
+ * shop every 15 seconds (a busy shop's sales move stock all day); one asked for inside that gap runs
+ * when it ends, so the last change is never left out. A pull that fails (Inventory restarting) makes
+ * the next one full as well. Once Inventory's cursor covers every change this rarely runs.
+ */
+const PUSH_FULL_GAP_MS = 15_000;
+const lastPushFull = new Map<string, number>();
+const fullDue = new Set<string>();
+const fullLater = new Map<string, NodeJS.Timeout>();
+
 /**
  * Refresh one shop now -- Inventory said its catalogue changed (12 Nov, pushed). Never two at once for
  * a shop; a push that lands mid-refresh runs one more after, so the last change is never missed.
+ * `topics` are the push's ("products", "stock", "offers", "settings").
  */
-export async function refreshShop(clientId: string): Promise<void> {
+export async function refreshShop(clientId: string, topics: string[] = []): Promise<void> {
   if (refreshing.has(clientId)) { refreshAgain.add(clientId); return; }
   refreshing.add(clientId);
   try {
     do {
       refreshAgain.delete(clientId);
-      const r = await syncFor(clientId);
-      if (r.added || r.updated || r.switchedOff) notify(clientId, 'items', 'inventory-link');
+      let full = fullDue.has(clientId);
+      let r;
+      try { r = await syncFor(clientId, { full }); }
+      catch (error) { fullDue.add(clientId); throw error; }
+      if (full) { fullDue.delete(clientId); lastFull.set(clientId, Date.now()); }
+      if (!full && !(r.added || r.updated || r.switchedOff)) {
+        const wait = PUSH_FULL_GAP_MS - (Date.now() - (lastPushFull.get(clientId) ?? 0));
+        if (wait <= 0) {
+          lastPushFull.set(clientId, Date.now());
+          r = await syncFor(clientId, { full: true });
+          lastFull.set(clientId, Date.now());
+          full = true;
+        } else if (!fullLater.has(clientId)) {
+          fullDue.add(clientId);
+          fullLater.set(clientId, setTimeout(() => {
+            fullLater.delete(clientId);
+            lastPushFull.set(clientId, Date.now());
+            refreshShop(clientId, topics).catch(e => console.error(`[inventory-link] full refresh after a push for ${clientId} failed:`, (e as Error).message));
+          }, wait).unref());
+        }
+      }
+      // Settings and offers show on every screen (the header, the basket), not only the item list.
+      const wide = topics.some(t => t === 'settings' || t === 'offers');
+      if (r.added || r.updated || r.switchedOff || (full && wide)) notify(clientId, 'items', 'inventory-link', ...(wide ? ['shop' as const] : []));
     } while (refreshAgain.has(clientId));
   } finally { refreshing.delete(clientId); }
 }
@@ -316,9 +356,12 @@ export function startCatalogueLoop(everyMs = EVERY_MS) {
         try {
           // A FULL refresh every half hour (17 Nov, live on sphl): an unpublished product never showed on the
           // incremental page, so the till went on selling it. A full one takes off what Inventory no longer lists.
-          const full = Date.now() - (lastFull.get(l.clientId) ?? 0) > FULL_EVERY_MS;
-          const r = await syncFor(l.clientId, { full });
-          if (full) lastFull.set(l.clientId, Date.now());
+          // Or sooner, when a pull failed or a push's quick pull came back empty (fullDue, above).
+          const full = fullDue.has(l.clientId) || Date.now() - (lastFull.get(l.clientId) ?? 0) > FULL_EVERY_MS;
+          let r;
+          try { r = await syncFor(l.clientId, { full }); }
+          catch (error) { fullDue.add(l.clientId); throw error; }
+          if (full) { lastFull.set(l.clientId, Date.now()); fullDue.delete(l.clientId); }
           if (r.added || r.updated || r.switchedOff) notify(l.clientId, 'items', 'inventory-link');
         }
         catch (error) { console.error(`[inventory-link] catalogue refresh for ${l.clientId} failed:`, (error as Error).message); }

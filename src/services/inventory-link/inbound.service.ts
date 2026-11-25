@@ -91,7 +91,7 @@ async function workOne(row: { inventoryShop: string; eventId: string; kind: stri
     for (const l of mine) {
       if (refreshed.has(l.clientId)) continue;
       refreshed.add(l.clientId);
-      await refreshShop(l.clientId);
+      await refreshShop(l.clientId, Array.isArray(row.payload?.topics) ? row.payload.topics.map(String) : []);
     }
     return 'REFRESHED';
   }
