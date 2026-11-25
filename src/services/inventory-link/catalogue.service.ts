@@ -105,7 +105,7 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
       throw conflict(`Inventory could not be reached (${reply.reason}). The item list is unchanged; try again shortly.`, { code: 'UNREACHABLE' });
     }
     if (reply.status === 401 || reply.status === 403) {
-      throw conflict('Inventory no longer accepts this till\'s key — it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again.', { code: 'KEY_REFUSED' });
+      throw conflict('Inventory no longer accepts this till\'s key — it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again. A shop run by the Boutique app: Inventory replaces the key by itself within a few hours, or ask your Boutique admin to switch POS on again.', { code: 'KEY_REFUSED' });
     }
     if (reply.status >= 400) {
       throw conflict(`Inventory answered with an error (${reply.status}). The item list is unchanged.`, { code: 'INVENTORY_ERROR' });
@@ -208,8 +208,16 @@ async function syncFor(clientId: string, opts: { full?: boolean } = {}, actor?: 
    * the till had, and no logo there means no logo here. It shows on screen and on the printed bill;
    * the WhatsApp PDF carries a picture only when it is a JPEG.
    */
-  if (logoSaid && inventoryLogo !== (mine?.logoUrl ?? null)) {
-    await prisma.shopSettings.updateMany({ where: { clientId }, data: { logoUrl: inventoryLogo } });
+  //
+  // 25 Nov (owner: nothing may depend on another module): a boutique-run shop has no Inventory login and the
+  // boutique API has no logo, so it could never have one. So when Inventory has NO logo, the shop's own
+  // picture uploaded in POS (kept as data:image/..., never an https address) stays. An https logo here is
+  // Inventory's: replaced when Inventory changes it, cleared when Inventory removes it.
+  const current = mine?.logoUrl ?? null;
+  const ownUpload = typeof current === 'string' && current.startsWith('data:');
+  const nextLogo = inventoryLogo ?? (ownUpload ? current : null);
+  if (logoSaid && nextLogo !== current) {
+    await prisma.shopSettings.updateMany({ where: { clientId }, data: { logoUrl: nextLogo } });
   }
   /*
    * THE REST OF THE BILL'S HEADER COMES FROM INVENTORY TOO (7 Oct): name, address, phone, GSTIN and

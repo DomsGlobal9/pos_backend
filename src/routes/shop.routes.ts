@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { forTill, setUpiId, setLogo, setGstRegistration, setPaymentMethods, setShopDetails, setIdleSignOut } from '../services/shop';
+import { whatsappStatus, linkWhatsApp, unlinkWhatsApp } from '../services/receipt-send';
 import { devActor } from '../middleware/dev-actor.middleware';
 
 const router = Router();
@@ -70,6 +71,39 @@ router.put('/details', async (req, res, next) => {
     const b = req.body ?? {};
     const pick = ['shopName', 'address', 'phone', 'gstin', 'receiptFooter', 'manualDiscountMaxPercent', 'returnWindowDays'];
     res.json({ success: true, data: await setShopDetails((req as any).actor, Object.fromEntries(pick.filter(k => k in b).map(k => [k, b[k]]))) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/*
+ * The shop's own WhatsApp number, linked from POS (25 Nov). Owner or manager. The QR and the code pass
+ * straight through: no-store, never logged (services/receipt-send/whatsapp-link.service.ts).
+ */
+router.use('/whatsapp', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
+/** GET /api/v1/shop/whatsapp[?fresh=1] -- switched on or not, the number (last digits) and its state. */
+router.get('/whatsapp', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await whatsappStatus((req as any).actor, { fresh: req.query.fresh === '1' }) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** POST /api/v1/shop/whatsapp/link -- `{ method: 'qr' }` or `{ method: 'code', phone }`. Answers a QR or a code. */
+router.post('/whatsapp/link', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await linkWhatsApp((req as any).actor, req.body ?? {}) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/** POST /api/v1/shop/whatsapp/unlink -- the shop's number unlinked, for every ScaleEzy app. */
+router.post('/whatsapp/unlink', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await unlinkWhatsApp((req as any).actor) });
   } catch (error) {
     next(error);
   }

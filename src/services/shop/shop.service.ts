@@ -15,7 +15,7 @@ import { whatsappConfig, whatsappAccount, platformClientId } from '../receipt-se
  * the till and being able to scan.
  */
 export async function forTill(actor: Actor) {
-  const [settings, counters, link] = await Promise.all([
+  const [settings, counters, link, boutique] = await Promise.all([
     prisma.shopSettings.findUnique({
       where: { clientId: actor.clientId },
       select: {
@@ -29,7 +29,8 @@ export async function forTill(actor: Actor) {
       orderBy: { name: 'asc' },
       select: { id: true, name: true }
     }),
-    prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { connected: true } })
+    prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { connected: true } }),
+    prisma.moduleLink.findUnique({ where: { clientId_module: { clientId: actor.clientId, module: 'boutique' } }, select: { active: true } })
   ]);
 
   if (!settings) throw notFound('This shop is not set up yet.');
@@ -43,12 +44,15 @@ export async function forTill(actor: Actor) {
      * alone, so a shop that had never connected was told it was (sphl, 1 Oct).
      */
     inventoryConnected: link?.connected === true,
+    // 25 Nov: a shop the Boutique app runs. It has no Inventory login, so the screens point it at its Boutique
+    // admin (or do the job in POS) instead of "in Inventory".
+    boutiqueRun: boutique?.active === true,
     /*
      * Whether this till can send a receipt itself, or whether the cashier sends it from their own
      * WhatsApp instead (Share). Set up AND the shop's number linked (12 Oct: the button used to show
      * for a shop with nothing linked). If the service did not answer, the button stays and a send
-     * comes back with the service's own sentence. Shops without Inventory get Share: the only place to
-     * link a number is Inventory's Settings -> WhatsApp.
+     * comes back with the service's own sentence. The number is linked in POS (Settings -> WhatsApp, 25 Nov)
+     * or in Inventory; until then, Share.
      */
     whatsappReady: whatsappConfig() !== null && (account === null || account.status === 'CONNECTED'),
     // For Settings -> WhatsApp: what this till sends from. Sent by a person, one per press (12 Oct).
@@ -126,7 +130,11 @@ const LOGO_MAX_CHARS = 200_000; // ~150 KB of JPEG, which is far more than a 42 
 export async function setLogo(actor: Actor, raw: string | null) {
   if (!may(actor, PERMISSIONS.SETTINGS)) throw forbidden('Only the owner can change the logo on the bill.');
   const link = await prisma.inventoryLink.findUnique({ where: { clientId: actor.clientId }, select: { connected: true } });
-  if (link?.connected) throw conflict('This shop is connected to Inventory, so its logo is set there: Settings -> Name, logo and bill details. It reaches the till with the next item refresh.', { code: 'SET_IN_INVENTORY' });
+  // Connected: Inventory's logo (an https address) wins. With none there, the shop chooses its own here (25 Nov:
+  // a boutique-run shop has no Inventory login, and the boutique API has no logo).
+  const now = await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { logoUrl: true } });
+  if (link?.connected && /^https:\/\//.test(now?.logoUrl ?? '')) throw conflict('This shop\'s logo comes from Inventory (Settings -> Name, logo and bill details), so it is changed there.', { code: 'SET_IN_INVENTORY' });
+  if (link?.connected && raw !== null && /^https:\/\//.test(String(raw).trim())) throw badRequest('Choose a picture file for the logo.', { code: 'PICTURE_NEEDED' });
   const logoUrl = raw === null ? null : String(raw).trim();
   if (logoUrl !== null) {
     const jpeg = /^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(logoUrl);

@@ -50,6 +50,8 @@ router.use((req, res, next) => {
     res.on('finish', () => {
       const clientId = (req as any).actor?.clientId as string | undefined;
       if (!clientId || res.statusCode >= 400) return;
+      // A QR fetched again every 18 s while linking WhatsApp is not a change anyone else needs to redraw for (25 Nov).
+      if (req.originalUrl.split('?')[0].endsWith('/shop/whatsapp/link')) return;
       notify(clientId, 'sales', 'customers', 'inventory-link', 'items', 'shop');
       sendNow(clientId);
     });

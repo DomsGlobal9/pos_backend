@@ -103,7 +103,7 @@ const NEWER_METHODS = /^\s*"(BANK_TRANSFER|CHEQUE)" is not a way/;
 function refusal(status: number, body: any): { code: string; message: string } | null {
   const { answer: code, detail } = readAnswer(body);
   if (status === 401 || status === 403) {
-    return { code: 'KEY_REFUSED', message: 'Inventory no longer accepts this till\'s key — it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again below.' };
+    return { code: 'KEY_REFUSED', message: 'Inventory no longer accepts this till\'s key — it was replaced or disconnected. Make a new one in Inventory (Settings → Money → POS (billing counter)) and connect again below. A shop run by the Boutique app: Inventory replaces the key by itself within a few hours, or ask your Boutique admin to switch POS on again.' };
   }
   // "Not now, try again" (contract §4, Inventory 27 Sep): a return that overtook its own sale while
   // Inventory is still applying the sale. A race, not a fault -- retried with the normal backoff.

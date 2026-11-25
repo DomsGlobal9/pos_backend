@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { prisma } from '../../lib/prisma';
 import { forgetAccounts } from './receipt-send.service';
+import { notify } from '../live/live.service';
 
 /**
  * THE WHATSAPP SERVICE TELLING US (12 Oct, the service's preferred way): a bill sent, delivered, read
@@ -57,7 +58,15 @@ export async function handleWhatsAppEvent(raw: Buffer, signature: string | undef
     return true;
   });
   if (!fresh) return 204;
-  if (String(event.type ?? '').startsWith('account.')) forgetAccounts();
+  if (String(event.type ?? '').startsWith('account.')) {
+    forgetAccounts();
+    // 25 Nov: every open screen of that shop looks again, so the WhatsApp button turns on (or off) at once.
+    const shop = typeof data.clientId === 'string' ? data.clientId : null;
+    if (shop) {
+      const tills = await prisma.inventoryLink.findMany({ where: { platformClientId: shop }, select: { clientId: true } });
+      for (const id of new Set([shop, ...tills.map(t => t.clientId)])) notify(id, 'shop');
+    }
+  }
 
   // Housekeeping: the service never repeats an event after a few minutes; a week is plenty.
   await prisma.whatsappEventSeen.deleteMany({ where: { seenAt: { lt: new Date(Date.now() - 7 * 86_400_000) } } });

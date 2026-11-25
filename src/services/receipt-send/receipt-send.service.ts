@@ -98,12 +98,13 @@ export interface WhatsAppAccount { status: string; phone: string | null; linkedA
 const accounts = new Map<string, { at: number; value: WhatsAppAccount | null }>();
 /** The service said a number connected or dropped: ask again next time. */
 export const forgetAccounts = () => accounts.clear();
-export async function whatsappAccount(ownClientId: string): Promise<WhatsAppAccount | null> {
+export async function whatsappAccount(ownClientId: string, opts: { fresh?: boolean } = {}): Promise<WhatsAppAccount | null> {
   const config = whatsappConfig();
   if (!config) return null;
   const clientId = await platformClientId(ownClientId);
   const cached = accounts.get(clientId);
-  if (cached && Date.now() - cached.at < 60_000) return cached.value;
+  // fresh: the owner is linking right now and the screen asks every few seconds (25 Nov).
+  if (!opts.fresh && cached && Date.now() - cached.at < 60_000) return cached.value;
   let value: WhatsAppAccount | null = null;
   try {
     const res = await fetch(`${config.url}/v1/accounts/client/${encodeURIComponent(clientId)}`, {

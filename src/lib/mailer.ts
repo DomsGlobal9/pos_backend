@@ -120,12 +120,12 @@ export function sendReset(to: string, p: { name: string; shops: { name: string; 
 export function sendPasswordChanged(to: string, p: { name: string; shop: string }) {
   return send({
     kind: 'password-changed', to, subject: 'Your ScaleEzy POS password was changed',
-    text: `Hello ${p.name},\n\nThe password for ${p.shop} on ScaleEzy POS was just changed. If this was you, there is nothing more to do.\n\nIf it was not you, ask ScaleEzy support at once to send you a new link.`,
+    text: `Hello ${p.name},\n\nThe password for ${p.shop} on ScaleEzy POS was just changed. If this was you, there is nothing more to do.\n\nIf it was not you, ask ScaleEzy support (or your Boutique admin, if the Boutique app set up your POS) at once to send you a new link.`,
     html: layout({
       preview: `The password for ${p.shop} was just changed.`,
       heading: 'Your password was changed', shop: p.shop,
       lines: [`Hello ${esc(p.name)},`, `The password for <strong>${esc(p.shop)}</strong> on ScaleEzy POS was just changed. If this was you, there is nothing more to do.`],
-      note: '<strong>Not you?</strong> Ask ScaleEzy support at once to send you a new link. Your staff and bills are safe.'
+      note: '<strong>Not you?</strong> Ask ScaleEzy support (or your Boutique admin, if the Boutique app set up your POS) at once to send you a new link. Your staff and bills are safe.'
     })
   });
 }

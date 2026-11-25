@@ -83,7 +83,7 @@ async function readReset(token: unknown) {
   const user = await prisma.user.findFirst({ where: { id: c.sub, clientId: c.cid, status: 'ACTIVE', deletedAt: null, externalRef: null }, select: { id: true, name: true, email: true, phone: true, updatedAt: true } });
   if (!user || user.updatedAt.getTime() !== c.rv) throw unauthorized('This link has been used, or a newer one was sent. Use the newest email, or ask for a new link.', { code: 'LINK_REPLACED' });
   const shop = await prisma.shopSettings.findUnique({ where: { clientId: c.cid }, select: { shopName: true, switchedOffAt: true } });
-  if (shop?.switchedOffAt) throw conflict('POS is switched off for this shop. Ask ScaleEzy support.', { code: 'SWITCHED_OFF' });
+  if (shop?.switchedOffAt) throw conflict('POS is switched off for this shop. Ask ScaleEzy support, or your Boutique admin if the Boutique app runs your POS.', { code: 'SWITCHED_OFF' });
   return { clientId: c.cid as string, user, shopName: shop?.shopName ?? 'Your shop' };
 }
 
