@@ -3,7 +3,7 @@ import { Actor, holdsEverything } from '../../types/actor';
 import { call } from '../inventory-link/client';
 import { record } from '../audit';
 import { badRequest, forbidden, notFound } from '../../utils/httpError';
-import { MODULE, SERVICE_SCOPES } from './constants';
+import { MODULE, SERVICE_SCOPES, MADE_BY_ADMIN } from './constants';
 
 /**
  * WHICH BOUTIQUE IS THIS SHOP (20 Nov). Nobody types it: Inventory already knows which Boutique app account
@@ -144,4 +144,10 @@ export async function boutiqueStatus(clientId: string) {
       : last.outcome === 'UNLINKED' ? 'The boutique was turned off in Inventory.'
       : 'Linked.'
   };
+}
+
+/** For opening a till: is this a shop made for a boutique that the Boutique super admin has switched off? */
+export async function switchedOffForBoutique(clientId: string) {
+  const link = await prisma.moduleLink.findUnique({ where: { clientId_module: { clientId, module: MODULE } }, select: { disabledAt: true, createdBy: true } });
+  return !!link?.disabledAt && link.createdBy === MADE_BY_ADMIN;
 }

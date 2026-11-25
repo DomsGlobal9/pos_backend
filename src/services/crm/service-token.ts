@@ -41,5 +41,17 @@ export function serviceToken(crmClientId: string, scope: string[], now = Math.fl
   return `${head}.${sign('RSA-SHA256', Buffer.from(head), key).toString('base64url')}`;
 }
 
+/**
+ * The same signature for another module (25 Nov): Inventory, for the Boutique counter's set-up. Claims are the
+ * call's own; iss, aud and the five minutes are set here.
+ */
+export function signFor(aud: string, claims: Record<string, unknown>, now = Math.floor(Date.now() / 1000)): string {
+  const key = privateKey();
+  if (!key) throw new Error('This POS has no service key (POS_SERVICE_PRIVATE_KEY_PATH, POS_SERVICE_KID).');
+  const head = `${part({ alg: 'RS256', typ: 'JWT', kid: env.POS_SERVICE_KID })}.${part({ ...claims, iss: env.POS_SERVICE_ISS, aud, iat: now, exp: now + 300 })}`;
+  return `${head}.${sign('RSA-SHA256', Buffer.from(head), key).toString('base64url')}`;
+}
+export const hasServiceKey = () => privateKey() !== null;
+
 /** For the test scripts only. */
 export const __forgetKey = () => { cached = undefined; };

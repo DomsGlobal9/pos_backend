@@ -1740,6 +1740,9 @@ model ModuleLink {
   active    Boolean  @default(true)
   /// The owner paused it (Inventory's refresh never undoes that).
   paused    Boolean  @default(false)
+  /// The Boutique super admin switched POS off for this boutique (25 Nov): its tills close and cannot open.
+  /// Kept apart from the owner's pause and from Inventory's link, so neither undoes it.
+  disabledAt DateTime? @map("disabled_at")
   createdBy String?  @map("created_by")
   lastCallAt DateTime? @map("last_call_at")
   createdAt DateTime @default(now()) @map("created_at")

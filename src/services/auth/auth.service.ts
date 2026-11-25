@@ -1,3 +1,4 @@
+import { switchedOffForBoutique } from '../module-service/links.service';
 import crypto from 'crypto';
 import { offlineKeyFor, readMakerStamp, MakerStamp } from './maker-stamp';
 import jwt from 'jsonwebtoken';
@@ -193,6 +194,8 @@ export async function openTill(input: { login?: string; password?: string; shopI
   }
 
   const u = matching[0];
+  // A boutique's POS the Boutique super admin has switched off (25 Nov): no till opens there.
+  if (await switchedOffForBoutique(u.clientId)) throw forbidden("POS is switched off for this boutique. Ask the Boutique app's administrator.", { code: 'SWITCHED_OFF' });
   const actor = toActor(u);
   if (!mayOpen(actor)) {
     throw forbidden('Only an owner or manager opens the till. Ask them to open it, then choose your name.', { code: 'CANNOT_OPEN' });

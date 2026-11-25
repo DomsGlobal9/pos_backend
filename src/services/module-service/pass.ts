@@ -49,7 +49,7 @@ export const serviceOn = () => !!publicKey();
 
 const b64json = (part: string) => JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
 
-export interface Pass { tenant: string; userId: string; name: string; can: string[] }
+export interface Pass { tenant: string; userId: string; name: string; can: string[]; jti: string | null; exp: number }
 
 /** Checks the pass, every claim, and says plainly what is wrong with one that fails. */
 export function readPass(token: string | undefined): Pass {
@@ -79,15 +79,16 @@ export function readPass(token: string | undefined): Pass {
   // Every bill names a person: no pass from "the system" bills anything.
   if (!tenant || !userId || userId === 'system' || !name) throw unauthorized('A pass must name the boutique account and the person billing.', { code: 'NO_PERSON' });
   const can = Array.isArray(who.can) ? who.can.filter((c: unknown): c is string => typeof c === 'string') : [];
-  return { tenant, userId, name, can };
+  const jti = typeof claims.jti === 'string' && claims.jti.length >= 8 && claims.jti.length <= 128 ? claims.jti : null;
+  return { tenant, userId, name, can, jti, exp: claims.exp };
 }
 
 /**
  * The person on the pass, as a POS user of this shop: made on their first call, renamed when their name
  * changes, and given the shop's own Cashier or Manager role (its permissions are the owner's to set).
- * No password and no PIN, so they can never sign in to the till itself.
+ * No password and no PIN: they come in through the Boutique app (its signed pass), never with a till password.
  */
-async function personHere(clientId: string, pass: Pass, role: 'CASHIER' | 'MANAGER') {
+export async function personHere(clientId: string, pass: Pass, role: 'CASHIER' | 'MANAGER' | 'OWNER') {
   const externalRef = `${MODULE}:${pass.userId}`;
   const roleIds = await ensureRoles(clientId);
   const user = await prisma.user.upsert({
@@ -111,9 +112,10 @@ export interface ServiceCall { actor: Actor; link: { id: string; clientId: strin
 export async function serviceCaller(authorization: string | undefined): Promise<ServiceCall> {
   const token = authorization?.toLowerCase().startsWith('bearer ') ? authorization.slice(7).trim() : undefined;
   const pass = readPass(token);
-  const link = await prisma.moduleLink.findUnique({ where: { module_tenant: { module: MODULE, tenant: pass.tenant } }, select: { id: true, clientId: true, counterId: true, scopes: true, active: true, paused: true } });
+  const link = await prisma.moduleLink.findUnique({ where: { module_tenant: { module: MODULE, tenant: pass.tenant } }, select: { id: true, clientId: true, counterId: true, scopes: true, active: true, paused: true, disabledAt: true } });
   if (!link || !link.active) { askSoon(); throw forbidden('This boutique is not linked to a POS shop yet. If it was linked in Inventory just now, try again in a minute.', { code: 'NOT_LINKED' }); }
   if (link.paused) throw forbidden('The shop owner has paused billing from the Boutique app.', { code: 'PAUSED' });
+  if (link.disabledAt) throw forbidden('POS is switched off for this boutique.', { code: 'SWITCHED_OFF' });
   // A manager may do what the shop's managers may; anyone else billing is a cashier. Never more: an owner's
   // rights (settings, staff, keys) are not for another app to hold.
   const role = pass.can.includes('pos:manager') ? 'MANAGER' : pass.can.includes('pos:sell') ? 'CASHIER' : null;

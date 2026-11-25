@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { serviceCaller, mustBeGranted, ServiceCall, ServiceScope, SERVICE_SCOPES } from '../services/module-service/pass';
 import { AUD } from '../services/module-service/constants';
+import { enableForBoutique, disableForBoutique, boutiqueAdminStatus, newOwnerLink } from '../services/module-service/counter.service';
 import { search } from '../services/items';
 import { completeSale, getSale, completeSaleSchema } from '../services/sale';
 import { paymentSchema } from '../services/sale/sale.schema';
@@ -38,6 +39,10 @@ const router = Router();
 type Call = { method: string; path: string; scope: ServiceScope | null; what: string };
 const MENU: Call[] = [
   { method: 'GET', path: '/menu', scope: null, what: 'This list.' },
+  { method: 'POST', path: '/admin/enable', scope: null, what: "Super admin (can: pos:admin): switch POS on for this boutique client: { owner: { name, email?, phone? } }. Answers the POS shop and the owner's one-time welcome link." },
+  { method: 'POST', path: '/admin/disable', scope: null, what: "Super admin: switch POS off for this boutique client. Its tills close; everything is kept." },
+  { method: 'GET', path: '/admin/status', scope: null, what: "Super admin: whether POS is on for this boutique client, its shop and owner." },
+  { method: 'POST', path: '/admin/owner-link', scope: null, what: "Super admin: a new welcome link for the owner ({ reset: true } when they cannot sign in)." },
   { method: 'GET', path: '/me', scope: null, what: 'The shop, its counter, and what this boutique may do there.' },
   { method: 'GET', path: '/items?q=', scope: 'pos:bill:create', what: 'Find items to sell: by name, code or barcode.' },
   { method: 'GET', path: '/customers/by-phone/:phone', scope: 'pos:customer', what: 'Find a customer by number.' },
@@ -75,6 +80,18 @@ const MENU: Call[] = [
 router.get('/menu', (_req, res) => {
   res.json({ success: true, apiVersion: 1, data: { audience: AUD, scopes: SERVICE_SCOPES, calls: MENU } });
 });
+
+/*
+ * THE BOUTIQUE SUPER ADMIN'S SWITCH (25 Nov): POS on or off for one boutique client (the pass's tenant,
+ * can: pos:admin). Before any shop exists, so before the check below.
+ */
+const admin = (run: (req: Request) => Promise<any>, status = (r: any) => 200) => async (req: Request, res: Response, next: NextFunction) => {
+  try { const r = await run(req); res.status(status(r)).json({ success: true, apiVersion: 1, data: r }); } catch (e) { next(e); }
+};
+router.post('/admin/enable', admin(req => enableForBoutique(req.headers.authorization, req.body ?? {}), r => (r.made ? 201 : 200)));
+router.post('/admin/disable', admin(req => disableForBoutique(req.headers.authorization)));
+router.get('/admin/status', admin(req => boutiqueAdminStatus(req.headers.authorization)));
+router.post('/admin/owner-link', admin(req => newOwnerLink(req.headers.authorization, req.body ?? {})));
 
 // Who is calling: the pass, the shop, the person. Everything below runs as that person.
 router.use(async (req: Request, _res: Response, next: NextFunction) => {

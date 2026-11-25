@@ -1,3 +1,4 @@
+import { welcomeInfo, welcomeSet } from '../services/module-service/counter.service';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { openTill, staffOnTill, switchTo, closeTill, closeAllTills, actorFromStaffToken } from '../services/auth';
@@ -25,6 +26,13 @@ const till = (req: any) => req.headers['x-till-token'] as string | undefined;
 
 router.post('/open', async (req, res, next) => {
   try { res.json({ success: true, data: await openTill(req.body ?? {}) }); } catch (e) { next(e); }
+});
+// A boutique owner's one-time welcome link (25 Nov): see who and what, then choose a password and PIN.
+router.post('/welcome/info', async (req, res, next) => {
+  try { res.json({ success: true, data: await welcomeInfo(req.body?.token) }); } catch (e) { next(e); }
+});
+router.post('/welcome', async (req, res, next) => {
+  try { res.json({ success: true, data: await welcomeSet(req.body?.token, req.body ?? {}) }); } catch (e) { next(e); }
 });
 router.get('/staff', async (req, res, next) => {
   try { res.json({ success: true, data: await staffOnTill(till(req)) }); } catch (e) { next(e); }
