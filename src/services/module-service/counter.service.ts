@@ -39,6 +39,8 @@ export { MADE_BY_ADMIN };
  */
 
 const WELCOME_DAYS = 7;
+/** POS's own web address: the first of FRONTEND_URL (a list, for the browsers it lets in), as receipts use it. */
+const posAddress = () => (process.env.PUBLIC_RECEIPT_BASE_URL || env.FRONTEND_URL.split(',')[0]).trim().replace(/\/+$/, '');
 
 
 export type TillKeyAnswer = { clientId: string; shopName: string; tillKey: string; baseUrl?: string };
@@ -95,7 +97,7 @@ const systemFor = (clientId: string): Actor => ({ kind: 'SYSTEM', clientId, id: 
 function welcomeLink(clientId: string, user: { id: string; updatedAt: Date }) {
   const token = jwt.sign({ typ: 'welcome', cid: clientId, sub: user.id, rv: user.updatedAt.getTime() }, env.JWT_SECRET,
     { algorithm: 'HS256', expiresIn: `${WELCOME_DAYS}d`, issuer: 'scaleezy-pos' } as jwt.SignOptions);
-  return `${env.FRONTEND_URL.replace(/\/+$/, '')}/welcome#${token}`;
+  return `${posAddress()}/welcome#${token}`;
 }
 
 async function readWelcome(token: unknown) {
@@ -248,7 +250,7 @@ export async function shopAnswer(clientId: string, extra: Record<string, unknown
     posOn: !shop?.switchedOffAt,
     shop: { id: clientId, name: shop?.shopName ?? 'Shop' },
     boutique: link ? { linked: link.active, on: link.active && !link.disabledAt, counter: link.counter.name, pausedByOwner: link.paused, madeForBoutique: link.createdBy === MADE_BY_ADMIN } : null,
-    posAddress: env.FRONTEND_URL.replace(/\/+$/, ''),
+    posAddress: posAddress(),
     owner: owner ? { name: owner.name, signInWith: owner.email ?? owner.phone, passwordSet: !!owner.passwordHash } : null,
     ownerLink: owner && !owner.passwordHash && !shop?.switchedOffAt ? welcomeLink(clientId, owner) : null,
     ...extra
