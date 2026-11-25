@@ -5,7 +5,7 @@ import { badRequest, conflict, forbidden } from '../../utils/httpError';
 import { record } from '../audit';
 import { dayClosed } from '../events';
 import { openShifts } from '../shifts';
-import { vouchersSold } from '../vouchers';
+import { vouchersSold, vouchersOwed } from '../vouchers';
 
 /**
  * Closing the day. WF-DAY-01. POS-DAY-001..005.
@@ -74,7 +74,9 @@ export interface DayFigures {
     shiftsClosed: number;
   };
   /** GIFT VOUCHERS (16 Oct): money in that is owed in goods -- not sales, not profit. Used: paid part of bills, not money in. */
-  vouchers?: { soldCount: number; soldPaise: number; soldByMethod: Record<string, number>; usedPaise: number };
+  vouchers?: { soldCount: number; soldPaise: number; soldByMethod: Record<string, number>; usedPaise: number;
+    /** Still owed on vouchers, all days, as Inventory said when read (25 Nov). Absent: not connected or no answer. */
+    owed?: { owedPaise: number; openVouchers: number; expiringIn30Days: number } };
   /** Payments made today still waiting to be checked against the bank. */
   paymentsToCheck: number;
   /** POS-DAY-004. Sales saved on devices during an outage and not yet sent, as the devices report it. */
@@ -143,6 +145,7 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
   const refundsPaise = outMap.CASH ?? 0;
   const inPaise = moves.find(m => m.direction === 'IN')?._sum.amountPaise ?? 0;
   const outPaise = moves.find(m => m.direction === 'OUT')?._sum.amountPaise ?? 0;
+  const owed = await vouchersOwed(clientId);   // Inventory, 3 s at most; null and the close goes on
   const voucherCashPaise = sold.byMethod.CASH ?? 0;
 
   return {
@@ -171,7 +174,7 @@ export async function figures(actor: Actor, date: string): Promise<DayFigures> {
       variancePaise: closed._count ? closed._sum.differencePaise ?? 0 : null,
       shiftsClosed: closed._count ?? 0
     },
-    vouchers: { soldCount: sold.count, soldPaise: sold.totalPaise, soldByMethod: sold.byMethod, usedPaise: used._sum.amountPaise ?? 0 },
+    vouchers: { soldCount: sold.count, soldPaise: sold.totalPaise, soldByMethod: sold.byMethod, usedPaise: used._sum.amountPaise ?? 0, ...(owed ? { owed } : {}) },
     paymentsToCheck: toCheck,
     pendingSync: pending._sum.pendingCount ?? 0
   };

@@ -28,6 +28,23 @@ async function link(clientId: string) {
   return l;
 }
 
+/**
+ * WHAT THE SHOP STILL OWES ON GIFT VOUCHERS, all days (25 Nov): Inventory keeps the vouchers, so it is asked
+ * (GET /pos/v1/vouchers-summary). Before, only Inventory's Day Book showed it -- out of reach for a shop the
+ * Boutique app runs. For the day close: null when the shop is not connected or Inventory does not answer in
+ * 3 s, and the close goes on without it.
+ */
+export async function vouchersOwed(clientId: string): Promise<{ owedPaise: number; openVouchers: number; expiringIn30Days: number } | null> {
+  const l = await prisma.inventoryLink.findUnique({ where: { clientId } });
+  if (!l?.connected) return null;
+  try {
+    const r: any = await call(l as any, 'GET', '/vouchers-summary', undefined, 3_000);
+    const d = r?.kind === 'ANSWERED' && r.status === 200 ? (r.body?.data ?? r.data ?? null) : null;
+    if (!d || !Number.isInteger(d.owedPaise)) return null;
+    return { owedPaise: d.owedPaise, openVouchers: Number(d.openVouchers) || 0, expiringIn30Days: Number(d.expiringIn30Days) || 0 };
+  } catch { return null; }
+}
+
 export interface SellVoucherInput {
   onceKey: string;
   amountPaise: number;
