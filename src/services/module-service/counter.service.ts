@@ -4,7 +4,7 @@ import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { Actor, PERMISSIONS } from '../../types/actor';
 import { ensureRoles } from '../shop-setup';
-import { connect, syncCatalogue } from '../inventory-link';
+import { connect, syncCatalogue, shopOfKey } from '../inventory-link';
 import { record } from '../audit';
 import { hashPassword } from '../auth';
 import { cleanPin, cleanEmail, cleanPhone } from '../staff/staff.service';
@@ -40,8 +40,6 @@ export { MADE_BY_ADMIN };
 
 const WELCOME_DAYS = 7;
 
-/** The POS shop id for a boutique's Inventory shop: its own, so it is never confused with a retail shop. */
-const shopIdFor = (inventoryClientId: string) => `btq-${inventoryClientId}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64);
 
 export type TillKeyAnswer = { clientId: string; shopName: string; tillKey: string; baseUrl?: string };
 export type AskInventory = (tenant: string) => Promise<TillKeyAnswer>;
@@ -147,22 +145,117 @@ async function ownerOf(clientId: string) {
   });
 }
 
-async function answer(clientId: string, extra: Record<string, unknown> = {}) {
+/* ---- shared by both doors: the Boutique super admin's switch and Inventory's (25 Nov) ---------------- */
+
+export type OwnerIn = { name: string; email: string | null; phone: string | null };
+
+/** The owner's details from a switch-on body; null when none were sent. */
+export function readOwner(body: { owner?: { name?: unknown; email?: unknown; phone?: unknown } } | undefined): OwnerIn | null {
+  const o = body?.owner;
+  if (!o) return null;
+  const name = typeof o.name === 'string' ? o.name.trim().slice(0, 60) : '';
+  let email: string | null = null, phone: string | null = null;
+  try {
+    email = cleanEmail(typeof o.email === 'string' ? o.email : null);
+    phone = cleanPhone(typeof o.phone === 'string' ? o.phone : null);
+  } catch (e) { throw badRequest(`Owner: ${(e as Error).message}`, { code: 'BAD_OWNER' }); }
+  if (name.length < 2 || (!email && !phone)) throw badRequest('Send the owner\'s name, and their email or phone: they sign in to POS with it.', { code: 'OWNER_NEEDED' });
+  return { name, email, phone };
+}
+
+/**
+ * The POS shop for one Inventory shop: the one already connected to it (a shop on POS before, made by hand
+ * or by an earlier switch-on: joined, never a second, so one invoice series per GSTIN), or a new one.
+ * A new shop gets the owner (needed), is connected with the till key (tried against Inventory first), knows
+ * which Inventory shop it is at once, and has its catalogue and shop details now, not at the next refresh.
+ */
+export async function makeOrJoinShop(input: {
+  inventoryClientId: string; shopName: string; tillKey: string; baseUrl?: string;
+  owner: OwnerIn | null; by: string; idPrefix: string; counterName: string; reconnectExisting: boolean;
+}) {
+  // The key must open the very Inventory shop named: a mix-up on the other side never connects the wrong shop.
+  const base = input.baseUrl ?? (env.INVENTORY_BASE_URL ? `${env.INVENTORY_BASE_URL.replace(/\/+$/, '')}/api/v1/pos/v1` : '');
+  if (!/^https?:\/\/\S+$/.test(base)) throw unavailable('POS has no Inventory address set. Ask ScaleEzy support. Nothing was set up.', { code: 'NO_ADDRESS' });
+  const opens = await shopOfKey(base, input.tillKey);
+  if (opens.clientId && opens.clientId !== input.inventoryClientId) {
+    throw conflict(`That till key opens Inventory shop ${opens.clientId}, not ${input.inventoryClientId}. Nothing was set up.`, { code: 'KEY_FOR_ANOTHER_SHOP' });
+  }
+  const existing = await prisma.inventoryLink.findFirst({ where: { platformClientId: input.inventoryClientId }, orderBy: { connected: 'desc' }, select: { clientId: true, connected: true } });
+  const clientId = existing?.clientId ?? `${input.idPrefix}${input.inventoryClientId}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64);
+  const made = !existing && !(await prisma.shopSettings.findUnique({ where: { clientId }, select: { clientId: true } }));
+  const actor = ownerActor(clientId, input.by);
+
+  // A shop with nobody to sign in (new, or its owner gone) needs the owner's details, before anything is made.
+  if (!input.owner && (made || !(await ownerOf(clientId)))) throw badRequest('Send the owner\'s name, and their email or phone: they sign in to POS with it.', { code: 'OWNER_NEEDED' });
+  if (made) {
+    const roleIds = await ensureRoles(clientId);
+    await prisma.$transaction(async tx => {
+      // A new shop's own settings (as shop-setup makes them); Inventory's shop details then fill name, address and GSTIN.
+      await tx.shopSettings.create({
+        data: {
+          clientId, shopName: input.shopName.slice(0, 80), receiptFooter: 'Thank you for shopping with us.', invoicePrefix: 'INV', creditNotePrefix: 'CN',
+          enabledPaymentMethods: ['CASH', 'UPI', 'CARD'], manualDiscountMaxPercent: 10, returnWindowDays: 7, holdThresholdQty: 3
+        }
+      });
+      await tx.counter.create({ data: { clientId, name: input.counterName } });
+      await tx.user.create({ data: { clientId, name: input.owner!.name, email: input.owner!.email, phone: input.owner!.phone, roles: { create: { roleId: roleIds.OWNER } } } });
+    });
+  } else if (!(await ownerOf(clientId)) && input.owner) {
+    const roleIds = await ensureRoles(clientId);
+    await prisma.user.create({ data: { clientId, name: input.owner.name, email: input.owner.email, phone: input.owner.phone, roles: { create: { roleId: roleIds.OWNER } } } });
+  }
+
+  if (made || !existing?.connected || input.reconnectExisting) {
+    await connect(actor, { key: input.tillKey, ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}) });
+    await prisma.inventoryLink.update({ where: { clientId }, data: { platformClientId: input.inventoryClientId } });
+    await syncCatalogue(actor, { full: true }).catch(e => console.error(`[pos-setup] first catalogue for ${clientId}:`, (e as Error).message));
+  }
+  return { clientId, made };
+}
+
+/** POS switched off (or on) for a whole shop: off closes every till now; sign-in refuses while off. */
+export async function setShopSwitch(clientId: string, off: boolean, by: string) {
+  const now = new Date();
+  await prisma.shopSettings.update({ where: { clientId }, data: off ? { switchedOffAt: now, switchedOffBy: by } : { switchedOffAt: null, switchedOffBy: null } });
+  if (off) await prisma.tillSession.updateMany({ where: { clientId, closedAt: null }, data: { closedAt: now } });
+  await record(systemFor(clientId), { action: 'module.changed', subject: clientId, detail: { pos: off ? 'switched off' : 'switched on', by } });
+}
+
+/** A new welcome link for a shop's owner; { reset } takes their password away first. Ends every earlier link. */
+export async function freshOwnerLink(clientId: string, reset: boolean, by: string) {
+  let owner = await ownerOf(clientId);
+  if (!owner) throw notFound('This POS shop has no owner yet. Switch POS on again with the owner\'s details.', { code: 'NO_OWNER' });
+  if (owner.passwordHash) {
+    if (!reset) throw conflict('The owner has chosen a password already. Send { reset: true } to take it away and send a new link.', { code: 'PASSWORD_SET' });
+    await prisma.user.update({ where: { id: owner.id }, data: { passwordHash: null } });
+    await prisma.tillSession.updateMany({ where: { clientId, openedById: owner.id, closedAt: null }, data: { closedAt: new Date() } });
+    await record(systemFor(clientId), { action: 'staff.changed', subject: owner.name ?? 'Owner', detail: { changed: ['password'], by, reset: true } });
+  } else {
+    await prisma.user.update({ where: { id: owner.id }, data: { updatedAt: new Date() } });
+  }
+  owner = (await ownerOf(clientId))!;
+  return welcomeLink(clientId, owner);
+}
+
+/** What a switch answers: the shop, whether POS is on, the owner, and (when they have no password) their link. */
+export async function shopAnswer(clientId: string, extra: Record<string, unknown> = {}) {
   const [shop, link, owner] = await Promise.all([
-    prisma.shopSettings.findUnique({ where: { clientId }, select: { shopName: true } }),
+    prisma.shopSettings.findUnique({ where: { clientId }, select: { shopName: true, switchedOffAt: true } }),
     prisma.moduleLink.findUnique({ where: { clientId_module: { clientId, module: MODULE } }, select: { active: true, paused: true, disabledAt: true, createdBy: true, counter: { select: { name: true } } } }),
     ownerOf(clientId)
   ]);
   return {
-    enabled: !!link?.active && !link.disabledAt,
-    shop: { id: clientId, name: shop?.shopName ?? 'Boutique', madeForBoutique: link?.createdBy === MADE_BY_ADMIN },
-    counter: link?.counter.name ?? null,
-    pausedByOwner: !!link?.paused,
+    posOn: !shop?.switchedOffAt,
+    shop: { id: clientId, name: shop?.shopName ?? 'Shop' },
+    boutique: link ? { linked: link.active, on: link.active && !link.disabledAt, counter: link.counter.name, pausedByOwner: link.paused, madeForBoutique: link.createdBy === MADE_BY_ADMIN } : null,
     posAddress: env.FRONTEND_URL.replace(/\/+$/, ''),
     owner: owner ? { name: owner.name, signInWith: owner.email ?? owner.phone, passwordSet: !!owner.passwordHash } : null,
+    ownerLink: owner && !owner.passwordHash && !shop?.switchedOffAt ? welcomeLink(clientId, owner) : null,
     ...extra
   };
 }
+
+/* ---- the Boutique super admin's switch --------------------------------------------------------------- */
 
 /**
  * Switch POS on for one boutique client. Safe to send again: what exists is answered, nothing made twice.
@@ -170,73 +263,35 @@ async function answer(clientId: string, extra: Record<string, unknown> = {}) {
  */
 export async function enableForBoutique(authorization: string | undefined, body: { owner?: { name?: unknown; email?: unknown; phone?: unknown } }) {
   const pass = adminPass(authorization);
+  const owner = readOwner(body);
 
   // Switched on before: switched on again, as it was.
-  const known = await prisma.moduleLink.findUnique({ where: { module_tenant: { module: MODULE, tenant: pass.tenant } }, select: { id: true, clientId: true, active: true, disabledAt: true } });
+  const known = await prisma.moduleLink.findUnique({ where: { module_tenant: { module: MODULE, tenant: pass.tenant } }, select: { id: true, clientId: true, active: true, disabledAt: true, createdBy: true } });
   if (known?.active) {
     if (known.disabledAt) {
       await prisma.moduleLink.update({ where: { id: known.id }, data: { disabledAt: null } });
-      await record(systemFor(known.clientId), { action: 'module.changed', subject: pass.tenant, detail: { module: MODULE, by: pass.name, switchedOn: true } });
+      const shop = await prisma.shopSettings.findUnique({ where: { clientId: known.clientId }, select: { switchedOffBy: true } });
+      // A shop made for the boutique and switched off by the Boutique switch comes back on; one Inventory switched off stays off.
+      if (known.createdBy === MADE_BY_ADMIN && shop?.switchedOffBy === BY_BOUTIQUE) await setShopSwitch(known.clientId, false, `${pass.name} (Boutique super admin)`);
     }
-    const owner = await ownerOf(known.clientId);
-    return answer(known.clientId, { made: false, ownerLink: owner && !owner.passwordHash ? welcomeLink(known.clientId, owner) : null });
+    return shopAnswer(known.clientId, { made: false, enabled: true });
   }
 
   const inv = await ask(pass.tenant);
-  // The same Inventory shop already on POS (it sells retail on our till too): the Boutique counter joins it.
-  const existing = await prisma.inventoryLink.findFirst({ where: { platformClientId: inv.clientId, connected: true }, select: { clientId: true } });
-  const clientId = existing?.clientId ?? shopIdFor(inv.clientId);
-  const madeHere = !existing;
-
-  let ownerIn: { name: string; email: string | null; phone: string | null } | null = null;
-  if (madeHere && !(await ownerOf(clientId))) {
-    const name = typeof body?.owner?.name === 'string' ? body.owner.name.trim().slice(0, 60) : '';
-    let email: string | null = null, phone: string | null = null;
-    try {
-      email = cleanEmail(typeof body?.owner?.email === 'string' ? body.owner.email : null);
-      phone = cleanPhone(typeof body?.owner?.phone === 'string' ? body.owner.phone : null);
-    } catch (e) { throw badRequest(`Owner: ${(e as Error).message}`, { code: 'BAD_OWNER' }); }
-    if (name.length < 2 || (!email && !phone)) throw badRequest('Send the owner\'s name, and their email or phone: they sign in to POS with it.', { code: 'OWNER_NEEDED' });
-    // An email or phone already signing in to another POS shop would make that sign-in ask which shop: allowed, as for any owner of two shops.
-    ownerIn = { name, email, phone };
-  }
-
-  if (madeHere && !(await prisma.shopSettings.findUnique({ where: { clientId }, select: { clientId: true } }))) {
-    const roleIds = await ensureRoles(clientId);
-    await prisma.$transaction(async tx => {
-      // A new shop's own settings (as shop-setup makes them); Inventory's shop details then fill name, address and GSTIN.
-      await tx.shopSettings.create({
-        data: {
-          clientId, shopName: inv.shopName.slice(0, 80), receiptFooter: 'Thank you for shopping with us.', invoicePrefix: 'INV', creditNotePrefix: 'CN',
-          enabledPaymentMethods: ['CASH', 'UPI', 'CARD'], manualDiscountMaxPercent: 10, returnWindowDays: 7, holdThresholdQty: 3
-        }
-      });
-      await tx.counter.create({ data: { clientId, name: BOUTIQUE_COUNTER } });
-      if (ownerIn) await tx.user.create({ data: { clientId, name: ownerIn.name, email: ownerIn.email, phone: ownerIn.phone, roles: { create: { roleId: roleIds.OWNER } } } });
-    });
-  } else if (madeHere && ownerIn) {
-    const roleIds = await ensureRoles(clientId);
-    await prisma.user.create({ data: { clientId, name: ownerIn.name, email: ownerIn.email, phone: ownerIn.phone, roles: { create: { roleId: roleIds.OWNER } } } });
-  }
-
-  // A shop made for the boutique is connected as any shop is: the key is tried against Inventory first.
-  if (madeHere) {
-    await connect(ownerActor(clientId, pass.name), { key: inv.tillKey, ...(inv.baseUrl ? { baseUrl: inv.baseUrl } : {}) });
-    // Which Inventory shop it is, at once (the catalogue would say so only on its next refresh): the
-    // "already on POS" check above must find this shop, never make a second one on the same Inventory shop.
-    await prisma.inventoryLink.update({ where: { clientId }, data: { platformClientId: inv.clientId } });
-    // The boutique's items, prices and shop details now, not at the next refresh: the counter can sell at once.
-    await syncCatalogue(ownerActor(clientId, pass.name), { full: true }).catch(e => console.error(`[boutique] first catalogue for ${clientId}:`, (e as Error).message));
-  }
+  const { clientId, made } = await makeOrJoinShop({
+    inventoryClientId: inv.clientId, shopName: inv.shopName, tillKey: inv.tillKey, baseUrl: inv.baseUrl,
+    owner, by: pass.name, idPrefix: 'btq-', counterName: BOUTIQUE_COUNTER, reconnectExisting: false
+  });
   const learned = await learnFor(clientId);
   if (learned !== 'LINKED' && learned !== 'UNCHANGED') {
     throw unavailable('Inventory did not confirm this boutique for the POS shop. Try again in a minute.', { code: 'NOT_CONFIRMED' });
   }
-  await prisma.moduleLink.update({ where: { clientId_module: { clientId, module: MODULE } }, data: { disabledAt: null, ...(madeHere ? { createdBy: MADE_BY_ADMIN } : {}) } });
-  await record(systemFor(clientId), { action: 'module.linked', subject: pass.tenant, detail: { module: MODULE, by: pass.name, madeShop: madeHere } });
-  const owner = await ownerOf(clientId);
-  return answer(clientId, { made: madeHere, ownerLink: owner && !owner.passwordHash ? welcomeLink(clientId, owner) : null });
+  await prisma.moduleLink.update({ where: { clientId_module: { clientId, module: MODULE } }, data: { disabledAt: null, ...(made ? { createdBy: MADE_BY_ADMIN } : {}) } });
+  await record(systemFor(clientId), { action: 'module.linked', subject: pass.tenant, detail: { module: MODULE, by: pass.name, madeShop: made } });
+  return shopAnswer(clientId, { made, enabled: true });
 }
+
+export const BY_BOUTIQUE = 'Boutique super admin';
 
 /**
  * Switch POS off for one boutique client. A shop made for the boutique: every till closes now and none can
@@ -247,45 +302,31 @@ export async function disableForBoutique(authorization: string | undefined) {
   const link = await prisma.moduleLink.findUnique({ where: { module_tenant: { module: MODULE, tenant: pass.tenant } }, select: { id: true, clientId: true, createdBy: true, disabledAt: true } });
   if (!link) throw notFound('POS was never switched on for this boutique.', { code: 'NOT_SET_UP' });
   if (!link.disabledAt) {
-    const now = new Date();
-    await prisma.moduleLink.update({ where: { id: link.id }, data: { disabledAt: now } });
-    if (link.createdBy === MADE_BY_ADMIN) {
-      await prisma.tillSession.updateMany({ where: { clientId: link.clientId, closedAt: null }, data: { closedAt: now } });
-    }
-    await record(systemFor(link.clientId), { action: 'module.changed', subject: pass.tenant, detail: { module: MODULE, by: pass.name, switchedOff: true } });
+    await prisma.moduleLink.update({ where: { id: link.id }, data: { disabledAt: new Date() } });
+    if (link.createdBy === MADE_BY_ADMIN) await setShopSwitch(link.clientId, true, BY_BOUTIQUE);
+    else await record(systemFor(link.clientId), { action: 'module.changed', subject: pass.tenant, detail: { module: MODULE, by: pass.name, switchedOff: true } });
   }
-  return answer(link.clientId, { made: false, ownerLink: null });
+  return shopAnswer(link.clientId, { made: false, enabled: false });
 }
 
 /** Where things stand for one boutique client. */
 export async function boutiqueAdminStatus(authorization: string | undefined) {
   const pass = adminPass(authorization);
-  const link = await prisma.moduleLink.findUnique({ where: { module_tenant: { module: MODULE, tenant: pass.tenant } }, select: { clientId: true } });
+  const link = await prisma.moduleLink.findUnique({ where: { module_tenant: { module: MODULE, tenant: pass.tenant } }, select: { clientId: true, active: true, disabledAt: true } });
   if (!link) return { enabled: false, shop: null, owner: null };
-  return answer(link.clientId);
+  return shopAnswer(link.clientId, { enabled: link.active && !link.disabledAt });
 }
 
 /**
  * A new welcome link for the owner: when theirs ran out, or (reset: true) when they cannot sign in. A reset
- * takes their password away until they choose a new one, and ends every earlier link.
+ * takes their password away until they choose a new one, and ends every earlier link. Only for a shop made
+ * for the boutique: another shop's owner is its own.
  */
 export async function newOwnerLink(authorization: string | undefined, body: { reset?: unknown }) {
   const pass = adminPass(authorization);
   const link = await prisma.moduleLink.findUnique({ where: { module_tenant: { module: MODULE, tenant: pass.tenant } }, select: { clientId: true, createdBy: true } });
   if (!link) throw notFound('POS was never switched on for this boutique.', { code: 'NOT_SET_UP' });
   if (link.createdBy !== MADE_BY_ADMIN) throw forbidden('This shop\'s owner signs in to POS as before; their own staff screen changes passwords.', { code: 'NOT_MADE_HERE' });
-  let owner = await ownerOf(link.clientId);
-  if (!owner) throw notFound('This POS shop has no owner yet. Switch POS on again with the owner\'s details.', { code: 'NO_OWNER' });
-  if (owner.passwordHash) {
-    if (body?.reset !== true) throw conflict('The owner has chosen a password already. Send { reset: true } to take it away and send a new link.', { code: 'PASSWORD_SET' });
-    await prisma.user.update({ where: { id: owner.id }, data: { passwordHash: null } });
-    await prisma.tillSession.updateMany({ where: { clientId: link.clientId, openedById: owner.id, closedAt: null }, data: { closedAt: new Date() } });
-    await record(systemFor(link.clientId), { action: 'staff.changed', subject: owner.name ?? 'Owner', detail: { changed: ['password'], by: `${pass.name} (Boutique super admin)`, reset: true } });
-  } else {
-    // A fresh link: any earlier one stops working.
-    await prisma.user.update({ where: { id: owner.id }, data: { updatedAt: new Date() } });
-  }
-  owner = (await ownerOf(link.clientId))!;
-  return answer(link.clientId, { ownerLink: welcomeLink(link.clientId, owner) });
+  const ownerLink = await freshOwnerLink(link.clientId, body?.reset === true, `${pass.name} (Boutique super admin)`);
+  return shopAnswer(link.clientId, { ownerLink });
 }
-

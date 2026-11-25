@@ -28,6 +28,7 @@ import liveRoutes from './live.routes';
 import inventoryInboundRoutes from './inventory-inbound.routes';
 import crmWebhookRoutes from './crm-webhook.routes';
 import serviceRoutes from './service.routes';
+import fromInventoryRoutes from './from-inventory.routes';
 import { notify, sendNow } from '../services/live';
 
 /**
@@ -63,6 +64,8 @@ router.use('/inventory', inventoryInboundRoutes);
 router.use('/webhooks/crm', crmWebhookRoutes);
 // Other ScaleEzy modules billing through POS, each with its own signed pass (20 Nov): the Boutique app.
 router.use('/service', serviceRoutes);
+// Inventory setting POS up for a client, signed by Inventory's own key (25 Nov).
+router.use('/from-inventory', fromInventoryRoutes);
 router.use('/sales', salesRoutes);
 router.use('/shop', shopRoutes);
 router.use('/home', homeRoutes);

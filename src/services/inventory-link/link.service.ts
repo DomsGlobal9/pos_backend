@@ -32,6 +32,9 @@ function mustManage(actor: Actor) {
 }
 
 /** Ask Inventory whether this key works, in words the owner can act on. */
+/** Which Inventory shop a key opens (25 Nov: the set-up checks it before making anything). */
+export async function shopOfKey(baseUrl: string, key: string) { return tryKey(baseUrl, seal(key)); }
+
 async function tryKey(baseUrl: string, keyCipher: string) {
   const reply = await call({ baseUrl, keyCipher }, 'GET', '/catalogue?limit=1', undefined, 8_000);
   if (reply.kind === 'UNREACHABLE') {

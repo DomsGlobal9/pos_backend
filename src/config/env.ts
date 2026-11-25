@@ -110,6 +110,10 @@ const envSchema = z.object({
   // and that key's id. Unset: POS's /api/v1/service answers that it is not switched on.
   BOUTIQUE_PUBLIC_KEY_PATH: optionalStr(z.string().min(1)),
   BOUTIQUE_KID: optionalStr(z.string().min(1).max(100)),
+  // Inventory setting POS up for a client (25 Nov): the public half of Inventory's own service key, and its id
+  // (the same pair CRM trusts). Unset: POS's /from-inventory door answers that it is not switched on.
+  INVENTORY_PUBLIC_KEY_PATH: optionalStr(z.string().min(1)),
+  INVENTORY_KID: optionalStr(z.string().min(1).max(100)),
   /** The secret CRM signs its events to this till with (CRM's CRM_EVENT_SUBSCRIBERS entry). Absent: the door is shut (503). */
   CRM_WEBHOOK_SECRET: optionalStr(z.string().min(16, 'CRM_WEBHOOK_SECRET must be at least 16 characters')),
 

@@ -154,6 +154,11 @@ model RolePermission {
 model ShopSettings {
   clientId String @id @map("client_id")
 
+  /// POS SWITCHED OFF FOR THIS SHOP by ScaleEzy (25 Nov): Inventory's super admin, or the Boutique super admin
+  /// for a shop made for a boutique. Every till closes and none opens; everything is kept. Null: on.
+  switchedOffAt DateTime? @map("switched_off_at")
+  switchedOffBy String?   @map("switched_off_by")
+
   shopName         String  @map("shop_name")
   gstin            String?
   address          String?
