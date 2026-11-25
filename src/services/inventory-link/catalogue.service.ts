@@ -440,7 +440,7 @@ async function applyProduct(clientId: string, product: any, counts: Record<strin
       continue;
     }
     const exclusive = v.priceIsExclusive === true;
-    if (exclusive) problems.push(`${label} (${code}): priced before GST in Inventory — not sold at the till until it is priced including GST.`);
+    if (exclusive) problems.push(`${label} (${code}): priced before GST in Inventory — not sold at the till until it is priced including GST (in Inventory, or in the Boutique app for a shop it runs).`);
     if (v.taxSlabbed && pricePaise > 250_000 && bps === 500) {
       problems.push(`${label} (${code}): stitched and over Rs 2,500 but set to 5% GST. Check the rate with the accountant.`);
     }

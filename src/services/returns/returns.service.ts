@@ -297,7 +297,7 @@ function compute(bill: Bill, requested: { saleLineId: string; qty: number }[]): 
     // Cut cloth comes back only where the owner allows it (Inventory's tick on the product, 16 Nov): said
     // here, so the return is never written only for Inventory to refuse it and stop the shop's queue.
     if (isMeasured(line.soldBy) && line.item?.cutReturnable === false) {
-      throw conflict(`Cut cloth cannot be returned: ${line.description}. To allow it, tick "Cut cloth can be returned" on the product in Inventory.`, { code: 'NOT_RETURNABLE', saleLineId: line.id });
+      throw conflict(`Cut cloth cannot be returned: ${line.description}. To allow it, tick "Cut cloth can be returned" on the product in Inventory (or in the Boutique app, for a shop it runs).`, { code: 'NOT_RETURNABLE', saleLineId: line.id });
     }
     // Cloth comes back in steps of its cut, or all that is left of it (16 Nov).
     if (r.qty !== remaining) {

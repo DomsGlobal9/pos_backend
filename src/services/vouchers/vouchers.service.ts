@@ -46,7 +46,7 @@ export async function sellVoucher(actor: Actor, input: SellVoucherInput) {
   const settings = await prisma.shopSettings.findUnique({ where: { clientId: actor.clientId }, select: { enabledPaymentMethods: true, giftVouchers: true } });
   // What Inventory's catalogue said (19 Oct): off, or outside the shop's limits, is refused before anything is sent.
   const rules = settings?.giftVouchers as { enabled?: boolean; minPaise?: number | null; maxPaise?: number | null } | null;
-  if (rules && rules.enabled === false) throw conflict('Gift vouchers are switched off for this shop. Switch them on in Inventory → Settings → Gift vouchers.', { code: 'VOUCHERS_OFF' });
+  if (rules && rules.enabled === false) throw conflict('Gift vouchers are switched off for this shop. Switch them on in Inventory → Settings → Gift vouchers (a shop run by the Boutique app: in the Boutique app → Settings → Gift vouchers).', { code: 'VOUCHERS_OFF' });
   if (rules?.minPaise && input.amountPaise < rules.minPaise) throw badRequest(`A voucher here is at least ₹${(rules.minPaise / 100).toLocaleString('en-IN')}.`, { code: 'AMOUNT' });
   if (rules?.maxPaise && input.amountPaise > rules.maxPaise) throw badRequest(`A voucher here is at most ₹${(rules.maxPaise / 100).toLocaleString('en-IN')}.`, { code: 'AMOUNT' });
   // Paid on the shop's card machine (24 Oct): asked of the machine here. A voucher is as good as cash, so
