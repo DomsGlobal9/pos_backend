@@ -260,13 +260,17 @@ export async function emailWelcome(clientId: string, link?: string) {
 
 /** What a switch answers: the shop, whether POS is on, the owner, and (when they have no password) their link. */
 export async function shopAnswer(clientId: string, extra: Record<string, unknown> = {}) {
-  const [shop, link, owner] = await Promise.all([
+  const [shop, link, owner, inv] = await Promise.all([
     prisma.shopSettings.findUnique({ where: { clientId }, select: { shopName: true, switchedOffAt: true } }),
     prisma.moduleLink.findUnique({ where: { clientId_module: { clientId, module: MODULE } }, select: { active: true, paused: true, disabledAt: true, createdBy: true, counter: { select: { name: true } } } }),
-    ownerOf(clientId)
+    ownerOf(clientId),
+    // 25 Nov (Inventory's key doctor): whether the shop's link to Inventory is connected. false = the
+    // owner pressed Disconnect in POS, and an automatic key repair must leave the shop alone.
+    prisma.inventoryLink.findUnique({ where: { clientId }, select: { connected: true } })
   ]);
   return {
     posOn: !shop?.switchedOffAt,
+    inventoryLink: inv ? { connected: inv.connected } : null,
     shop: { id: clientId, name: shop?.shopName ?? 'Shop' },
     boutique: link ? { linked: link.active, on: link.active && !link.disabledAt, counter: link.counter.name, pausedByOwner: link.paused, madeForBoutique: link.createdBy === MADE_BY_ADMIN } : null,
     posAddress: posAddress(),
