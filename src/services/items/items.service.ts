@@ -180,6 +180,17 @@ const withCounts = async (clientId: string, rows: any[]): Promise<FoundItem[]> =
   return rows.map(r => shape(r, r.variantGroup ? counts.get(r.variantGroup) ?? 1 : 1));
 };
 
+/**
+ * THE SCAN LIST (25 Nov, owner: "within milliseconds, like a supermarket scanner"): every sellable item's code and
+ * barcode with what the basket needs, so the till answers a scan from memory with no round trip. Only exact
+ * matches use it; a typed name still asks search() above. The till refetches it the moment items change (the
+ * live 'items' message), and the sale is priced and checked here at payment as always.
+ */
+export async function scanIndex(actor: Actor): Promise<{ items: FoundItem[]; at: string }> {
+  const rows = await prisma.item.findMany({ where: { clientId: actor.clientId, active: true }, select: SELECT });
+  return { items: rows.map(r => shape(r)), at: new Date().toISOString() };
+}
+
 export async function search(actor: Actor, rawQuery: unknown): Promise<SearchResult> {
   const q = typeof rawQuery === 'string' ? rawQuery.trim().slice(0, 80) : '';
   if (!q) return { exact: false, items: [] };

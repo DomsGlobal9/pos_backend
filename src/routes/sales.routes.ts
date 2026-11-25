@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { search, variantsOf } from '../services/items';
+import { search, variantsOf, scanIndex } from '../services/items';
 import { completeSale, getSale, completeSaleSchema } from '../services/sale';
 import { quoteBasket, walletFor, createQr, qrStatus, closeQr } from '../services/inventory-link';
 import { badRequest } from '../utils/httpError';
@@ -37,6 +37,16 @@ router.post('/', async (req, _res, next) => {
 });
 
 router.use(devActor);
+
+/** GET /api/v1/sales/scan-index -- every sellable item by code and barcode, for scans answered on the till (25 Nov). */
+router.get('/scan-index', async (req, res, next) => {
+  try {
+    res.set('Cache-Control', 'private, no-store');
+    res.json({ success: true, data: await scanIndex((req as any).actor) });
+  } catch (error) {
+    next(error);
+  }
+});
 
 /** GET /api/v1/sales/items?q=  -- find something to sell. */
 router.get('/items', async (req, res, next) => {
