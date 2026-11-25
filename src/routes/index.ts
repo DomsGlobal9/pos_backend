@@ -50,7 +50,7 @@ router.use((req, res, next) => {
     res.on('finish', () => {
       const clientId = (req as any).actor?.clientId as string | undefined;
       if (!clientId || res.statusCode >= 400) return;
-      notify(clientId, 'sales', 'customers', 'inventory-link', 'items');
+      notify(clientId, 'sales', 'customers', 'inventory-link', 'items', 'shop');
       sendNow(clientId);
     });
   }

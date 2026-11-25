@@ -18,7 +18,8 @@ import { prisma } from '../../lib/prisma';
 import { drain } from '../inventory-link/delivery.service';
 import { sendCrm } from '../crm/crm.service';
 
-export type Topic = 'sales' | 'inventory-link' | 'items' | 'customers';
+/** 'shop': a person changed something -- every open screen of the shop looks again (25 Nov). */
+export type Topic = 'sales' | 'inventory-link' | 'items' | 'customers' | 'shop';
 type Listener = (topics: Topic[]) => void;
 
 const listeners = new Map<string, Set<Listener>>();
