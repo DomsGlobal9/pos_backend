@@ -1,3 +1,4 @@
+import { requestReset, resetInfo, resetSet } from '../services/auth/reset.service';
 import { welcomeInfo, welcomeSet } from '../services/module-service/counter.service';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
@@ -22,7 +23,24 @@ router.use(['/open', '/switch'], rateLimit({
   message: { success: false, message: 'Too many tries from this device. Wait a minute and try again.' }
 }));
 
+// Asking for a password link (25 Nov): few per address; the per-email limit is in the service.
+router.use(['/forgot', '/reset', '/reset/info', '/welcome', '/welcome/info'], rateLimit({
+  windowMs: 15 * 60_000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false,
+  message: { success: false, message: 'Too many tries from this device. Wait a few minutes and try again.' }
+}));
+
 const till = (req: any) => req.headers['x-till-token'] as string | undefined;
+
+// "Forgot your password?" by email (25 Nov): the same answer whether or not the email has a login.
+router.post('/forgot', async (req, res, next) => {
+  try { res.json({ success: true, data: await requestReset(req.body ?? {}) }); } catch (e) { next(e); }
+});
+router.post('/reset/info', async (req, res, next) => {
+  try { res.json({ success: true, data: await resetInfo(req.body?.token) }); } catch (e) { next(e); }
+});
+router.post('/reset', async (req, res, next) => {
+  try { res.json({ success: true, data: await resetSet(req.body?.token, req.body ?? {}) }); } catch (e) { next(e); }
+});
 
 router.post('/open', async (req, res, next) => {
   try { res.json({ success: true, data: await openTill(req.body ?? {}) }); } catch (e) { next(e); }

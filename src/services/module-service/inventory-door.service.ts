@@ -3,7 +3,7 @@ import { readFileSync } from 'fs';
 import { env } from '../../config/env';
 import { prisma } from '../../lib/prisma';
 import { badRequest, conflict, forbidden, notFound, unauthorized, unavailable } from '../../utils/httpError';
-import { makeOrJoinShop, readOwner, setShopSwitch, shopAnswer, freshOwnerLink } from './counter.service';
+import { makeOrJoinShop, readOwner, setShopSwitch, shopAnswer, freshOwnerLink, emailWelcome } from './counter.service';
 
 /**
  * INVENTORY SETS POS UP FOR A CLIENT (the owner, 25 Nov: "the same flow for our Inventory retailers").
@@ -85,14 +85,14 @@ export async function enableFromInventory(authorization: string | undefined, bod
     throw conflict(`A POS shop called ${pass.clientId} belongs to another Inventory shop. Ask ScaleEzy support.`, { code: 'ID_TAKEN' });
   }
   const base = env.INVENTORY_BASE_URL ? `${env.INVENTORY_BASE_URL.replace(/\/+$/, '')}/api/v1/pos/v1` : undefined;
-  const { clientId, made } = await makeOrJoinShop({
+  const { clientId, made, ownerMade } = await makeOrJoinShop({
     inventoryClientId: pass.clientId, shopName: typeof body?.shopName === 'string' && body.shopName.trim() ? body.shopName.trim() : pass.clientId,
     tillKey, baseUrl: typeof body?.baseUrl === 'string' ? body.baseUrl : base,
     owner, by: pass.by, idPrefix: '', counterName: 'Counter 1', reconnectExisting: true
   });
   const s = await prisma.shopSettings.findUnique({ where: { clientId }, select: { switchedOffAt: true } });
   if (s?.switchedOffAt) await setShopSwitch(clientId, false, pass.by);
-  return shopAnswer(clientId, { made });
+  return shopAnswer(clientId, { made, ownerLinkEmailed: ownerMade ? await emailWelcome(clientId) : false });
 }
 
 /** Switch POS off for one Inventory client: every till closes now and none opens. Everything is kept. */
@@ -117,6 +117,6 @@ export async function ownerLinkFromInventory(authorization: string | undefined, 
   const pass = readInventoryPass(authorization);
   const shop = await posShopOf(pass.clientId);
   if (!shop) throw notFound('This Inventory shop has no POS shop.', { code: 'NOT_SET_UP' });
-  const ownerLink = await freshOwnerLink(shop.clientId, body?.reset === true, `${pass.by} (Inventory)`);
-  return shopAnswer(shop.clientId, { ownerLink });
+  const { link: ownerLink, emailed } = await freshOwnerLink(shop.clientId, body?.reset === true, `${pass.by} (Inventory)`);
+  return shopAnswer(shop.clientId, { ownerLink, ownerLinkEmailed: emailed });
 }

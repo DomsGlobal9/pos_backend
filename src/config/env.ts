@@ -114,6 +114,17 @@ const envSchema = z.object({
   // (the same pair CRM trusts). Unset: POS's /from-inventory door answers that it is not switched on.
   INVENTORY_PUBLIC_KEY_PATH: optionalStr(z.string().min(1)),
   INVENTORY_KID: optionalStr(z.string().min(1).max(100)),
+  // EMAIL (25 Nov): the owner's welcome and password-reset links go by email, so nobody at ScaleEzy has to be online
+  // to hand them over. The same SMTP account and names as Inventory's mailer. Unset: no email; the links are still
+  // answered to the super admin, and the sign-in screen says email is not set up.
+  EMAIL_HOST: optionalStr(z.string().min(1)),
+  EMAIL_PORT: z.preprocess(v => (v === undefined || v === '' ? 587 : parseInt(String(v), 10)), z.number().int().min(1).max(65535).default(587)),
+  EMAIL_HOST_USER: optionalStr(z.string().min(1)),
+  EMAIL_HOST_PASSWORD: optionalStr(z.string().min(1)),
+  // 'Use TLS at all'; the port decides which kind (465 implicit, 587 STARTTLS).
+  EMAIL_USE_TLS: z.preprocess(v => (v === undefined || v === '' ? true : String(v).toLowerCase() === 'true'), z.boolean().default(true)),
+  EMAIL_FROM_NAME: z.string().default('ScaleEzy POS'),
+  EMAIL_FROM_ADDRESS: optionalStr(z.string().email('EMAIL_FROM_ADDRESS must be a valid address')),
   /** The secret CRM signs its events to this till with (CRM's CRM_EVENT_SUBSCRIBERS entry). Absent: the door is shut (503). */
   CRM_WEBHOOK_SECRET: optionalStr(z.string().min(16, 'CRM_WEBHOOK_SECRET must be at least 16 characters')),
 

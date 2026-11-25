@@ -11,6 +11,7 @@ import { cleanPin, cleanEmail, cleanPhone } from '../staff/staff.service';
 import { signFor, hasServiceKey } from '../crm/service-token';
 import { badRequest, conflict, forbidden, notFound, unauthorized, unavailable } from '../../utils/httpError';
 import { readPass, Pass } from './pass';
+import { sendWelcome } from '../../lib/mailer';
 import { learnFor, BOUTIQUE_COUNTER } from './links.service';
 import { MODULE, MADE_BY_ADMIN } from './constants';
 export { MADE_BY_ADMIN };
@@ -186,6 +187,7 @@ export async function makeOrJoinShop(input: {
   const clientId = existing?.clientId ?? `${input.idPrefix}${input.inventoryClientId}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64);
   const made = !existing && !(await prisma.shopSettings.findUnique({ where: { clientId }, select: { clientId: true } }));
   const actor = ownerActor(clientId, input.by);
+  let ownerMade = false;
 
   // A shop with nobody to sign in (new, or its owner gone) needs the owner's details, before anything is made.
   if (!input.owner && (made || !(await ownerOf(clientId)))) throw badRequest('Send the owner\'s name, and their email or phone: they sign in to POS with it.', { code: 'OWNER_NEEDED' });
@@ -203,6 +205,7 @@ export async function makeOrJoinShop(input: {
       await tx.user.create({ data: { clientId, name: input.owner!.name, email: input.owner!.email, phone: input.owner!.phone, roles: { create: { roleId: roleIds.OWNER } } } });
     });
   } else if (!(await ownerOf(clientId)) && input.owner) {
+    ownerMade = true;
     const roleIds = await ensureRoles(clientId);
     await prisma.user.create({ data: { clientId, name: input.owner.name, email: input.owner.email, phone: input.owner.phone, roles: { create: { roleId: roleIds.OWNER } } } });
   }
@@ -212,7 +215,7 @@ export async function makeOrJoinShop(input: {
     await prisma.inventoryLink.update({ where: { clientId }, data: { platformClientId: input.inventoryClientId } });
     await syncCatalogue(actor, { full: true }).catch(e => console.error(`[pos-setup] first catalogue for ${clientId}:`, (e as Error).message));
   }
-  return { clientId, made };
+  return { clientId, made, ownerMade: made || ownerMade };
 }
 
 /** POS switched off (or on) for a whole shop: off closes every till now; sign-in refuses while off. */
@@ -230,13 +233,26 @@ export async function freshOwnerLink(clientId: string, reset: boolean, by: strin
   if (owner.passwordHash) {
     if (!reset) throw conflict('The owner has chosen a password already. Send { reset: true } to take it away and send a new link.', { code: 'PASSWORD_SET' });
     await prisma.user.update({ where: { id: owner.id }, data: { passwordHash: null } });
-    await prisma.tillSession.updateMany({ where: { clientId, openedById: owner.id, closedAt: null }, data: { closedAt: new Date() } });
     await record(systemFor(clientId), { action: 'staff.changed', subject: owner.name ?? 'Owner', detail: { changed: ['password'], by, reset: true } });
   } else {
     await prisma.user.update({ where: { id: owner.id }, data: { updatedAt: new Date() } });
   }
   owner = (await ownerOf(clientId))!;
-  return welcomeLink(clientId, owner);
+  // Staff, PINs and bills are untouched and no till closes: only the owner's password is taken away.
+  const link = welcomeLink(clientId, owner);
+  return { link, emailed: await emailWelcome(clientId, link) };
+}
+
+/**
+ * The welcome link by email, straight to the owner (25 Nov): nobody has to be online to hand it over. False when
+ * the owner has no email or email is not set up; the link is still answered to the super admin.
+ */
+export async function emailWelcome(clientId: string, link?: string) {
+  const owner = await ownerOf(clientId);
+  if (!owner?.email || owner.passwordHash) return false;
+  const shop = await prisma.shopSettings.findUnique({ where: { clientId }, select: { shopName: true } });
+  const r = await sendWelcome(owner.email, { name: owner.name ?? 'there', shop: shop?.shopName ?? 'Your shop', link: link ?? welcomeLink(clientId, owner), days: WELCOME_DAYS });
+  return r.sent;
 }
 
 /** What a switch answers: the shop, whether POS is on, the owner, and (when they have no password) their link. */
@@ -280,7 +296,7 @@ export async function enableForBoutique(authorization: string | undefined, body:
   }
 
   const inv = await ask(pass.tenant);
-  const { clientId, made } = await makeOrJoinShop({
+  const { clientId, made, ownerMade } = await makeOrJoinShop({
     inventoryClientId: inv.clientId, shopName: inv.shopName, tillKey: inv.tillKey, baseUrl: inv.baseUrl,
     owner, by: pass.name, idPrefix: 'btq-', counterName: BOUTIQUE_COUNTER, reconnectExisting: false
   });
@@ -290,7 +306,7 @@ export async function enableForBoutique(authorization: string | undefined, body:
   }
   await prisma.moduleLink.update({ where: { clientId_module: { clientId, module: MODULE } }, data: { disabledAt: null, ...(made ? { createdBy: MADE_BY_ADMIN } : {}) } });
   await record(systemFor(clientId), { action: 'module.linked', subject: pass.tenant, detail: { module: MODULE, by: pass.name, madeShop: made } });
-  return shopAnswer(clientId, { made, enabled: true });
+  return shopAnswer(clientId, { made, enabled: true, ownerLinkEmailed: ownerMade ? await emailWelcome(clientId) : false });
 }
 
 export const BY_BOUTIQUE = 'Boutique super admin';
@@ -329,6 +345,6 @@ export async function newOwnerLink(authorization: string | undefined, body: { re
   const link = await prisma.moduleLink.findUnique({ where: { module_tenant: { module: MODULE, tenant: pass.tenant } }, select: { clientId: true, createdBy: true } });
   if (!link) throw notFound('POS was never switched on for this boutique.', { code: 'NOT_SET_UP' });
   if (link.createdBy !== MADE_BY_ADMIN) throw forbidden('This shop\'s owner signs in to POS as before; their own staff screen changes passwords.', { code: 'NOT_MADE_HERE' });
-  const ownerLink = await freshOwnerLink(link.clientId, body?.reset === true, `${pass.name} (Boutique super admin)`);
-  return shopAnswer(link.clientId, { ownerLink });
+  const { link: ownerLink, emailed } = await freshOwnerLink(link.clientId, body?.reset === true, `${pass.name} (Boutique super admin)`);
+  return shopAnswer(link.clientId, { ownerLink, ownerLinkEmailed: emailed });
 }
