@@ -101,7 +101,7 @@ export async function disableFromInventory(authorization: string | undefined) {
   const shop = await posShopOf(pass.clientId);
   if (!shop) throw notFound('This Inventory shop has no POS shop.', { code: 'NOT_SET_UP' });
   const s = await prisma.shopSettings.findUnique({ where: { clientId: shop.clientId }, select: { switchedOffAt: true } });
-  if (!s?.switchedOffAt) await setShopSwitch(shop.clientId, true, BY_INVENTORY);
+  if (!s?.switchedOffAt) await setShopSwitch(shop.clientId, true, pass.by);
   return shopAnswer(shop.clientId, { made: false });
 }
 
