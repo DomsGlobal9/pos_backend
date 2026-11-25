@@ -105,7 +105,10 @@ async function readWelcome(token: unknown) {
   if (typeof token !== 'string' || !token) throw unauthorized('Open the link you were sent.', { code: 'NO_LINK' });
   let c: any;
   try { c = jwt.verify(token, env.JWT_SECRET, { algorithms: ['HS256'], issuer: 'scaleezy-pos' }); }
-  catch { throw unauthorized('This link has run out. Ask for a new one.', { code: 'LINK_EXPIRED' }); }
+  catch (e) {
+    if (e instanceof jwt.TokenExpiredError) throw unauthorized('This link has run out. Ask for a new one.', { code: 'LINK_EXPIRED' });
+    throw unauthorized('This link is not complete. Open it straight from the message you were sent, or ask for a new one.', { code: 'BAD_LINK' });
+  }
   if (c?.typ !== 'welcome' || !c.cid || !c.sub) throw unauthorized('This is not a POS welcome link.', { code: 'NO_LINK' });
   const user = await prisma.user.findFirst({ where: { id: c.sub, clientId: c.cid, status: 'ACTIVE', deletedAt: null }, select: { id: true, name: true, email: true, phone: true, passwordHash: true, updatedAt: true } });
   if (!user) throw unauthorized('This link is no longer good. Ask for a new one.', { code: 'LINK_REPLACED' });
