@@ -21,7 +21,7 @@ export async function forTill(actor: Actor) {
       select: {
         shopName: true, gstin: true, address: true, logoUrl: true, receiptFooter: true, upiQrEnabled: true, giftVouchers: true,
         enabledPaymentMethods: true, manualDiscountMaxPercent: true, returnWindowDays: true,
-        holdThresholdQty: true, upiId: true, gstRegistration: true, phone: true, idleSignOutMinutes: true
+        holdThresholdQty: true, upiId: true, gstRegistration: true, phone: true, idleSignOutMinutes: true, platformModules: true
       }
     }),
     prisma.counter.findMany({
@@ -46,7 +46,8 @@ export async function forTill(actor: Actor) {
     inventoryConnected: link?.connected === true,
     // 25 Nov: a shop the Boutique app runs. It has no Inventory login, so the screens point it at its Boutique
     // admin (or do the job in POS) instead of "in Inventory".
-    boutiqueRun: boutique?.active === true,
+    // ...or (26 Nov) the platform's module list says Boutique: a boutique switched on through one-switch onboarding.
+    boutiqueRun: boutique?.active === true || (settings.platformModules ?? []).includes('boutique'),
     /*
      * Whether this till can send a receipt itself, or whether the cashier sends it from their own
      * WhatsApp instead (Share). Set up AND the shop's number linked (12 Oct: the button used to show

@@ -310,10 +310,15 @@ export async function emailWelcome(clientId: string, link?: string) {
 
 /** Where this shop's items come from, for the emails' getting-started steps. */
 async function itemsFromOf(clientId: string): Promise<'pos' | 'inventory' | 'boutique'> {
-  const [b, l] = await Promise.all([
+  const [b, l, s] = await Promise.all([
     prisma.moduleLink.findUnique({ where: { clientId_module: { clientId, module: MODULE } }, select: { active: true } }),
-    prisma.inventoryLink.findUnique({ where: { clientId }, select: { connected: true } })
+    prisma.inventoryLink.findUnique({ where: { clientId }, select: { connected: true } }),
+    prisma.shopSettings.findUnique({ where: { clientId }, select: { platformModules: true } })
   ]);
+  // One-switch onboarding (26 Nov): the module list decides. Items come through Inventory; with Boutique on, the
+  // Boutique app is where the shop keeps them. Without Inventory, they are added in POS.
+  const m = s?.platformModules ?? [];
+  if (m.length) return !m.includes('inventory') ? 'pos' : m.includes('boutique') ? 'boutique' : 'inventory';
   return b?.active ? 'boutique' : l?.connected ? 'inventory' : 'pos';
 }
 
