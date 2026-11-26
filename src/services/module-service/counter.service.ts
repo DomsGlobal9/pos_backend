@@ -14,6 +14,7 @@ import { readPass, Pass } from './pass';
 import { sendWelcome, sendAllSet } from '../../lib/mailer';
 import { learnFor, BOUTIQUE_COUNTER } from './links.service';
 import { MODULE, MADE_BY_ADMIN } from './constants';
+import { notify } from '../live/live.service';
 export { MADE_BY_ADMIN };
 
 /**
@@ -269,6 +270,8 @@ export async function setShopSwitch(clientId: string, off: boolean, by: string) 
   await prisma.shopSettings.update({ where: { clientId }, data: off ? { switchedOffAt: now, switchedOffBy: by } : { switchedOffAt: null, switchedOffBy: null } });
   if (off) await prisma.tillSession.updateMany({ where: { clientId, closedAt: null }, data: { closedAt: now } });
   await record(systemFor(clientId), { action: 'module.changed', subject: clientId, detail: { pos: off ? 'switched off' : 'switched on', by } });
+  // Open screens ask again now: a closed till is told so at once, not at its next bill.
+  notify(clientId, 'shop');
 }
 
 /** A new welcome link for a shop's owner; { reset } takes their password away first. Ends every earlier link. */

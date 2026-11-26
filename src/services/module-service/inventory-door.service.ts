@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma';
 import { badRequest, conflict, forbidden, notFound, unauthorized, unavailable } from '../../utils/httpError';
 import { makeOrJoinShop, makeOrJoinPosOnly, ownerActor, readOwner, setShopSwitch, shopAnswer, freshOwnerLink, emailWelcome } from './counter.service';
 import { linkShop } from '../crm/link.service';
+import { notify } from '../live/live.service';
 import { status as linkStatus } from '../inventory-link/link.service';
 import { whatsappAccount, whatsappConfig } from '../receipt-send/receipt-send.service';
 
@@ -110,6 +111,8 @@ async function remember(clientId: string, platformClientId: string, p: Platform)
       platformAt: p.at ?? new Date()
     }
   });
+  // A module on or off changes what open screens show (Boutique-run notes, CRM, Inventory's items).
+  notify(clientId, 'shop');
 }
 function sameClient(body: any, pass: InventoryPass) {
   if (typeof body?.clientId === 'string' && body.clientId.trim() && body.clientId.trim() !== pass.clientId) {

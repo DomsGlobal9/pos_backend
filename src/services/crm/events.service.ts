@@ -103,7 +103,12 @@ async function tillShopsOf(crmClientId: string) {
     prisma.inventoryLink.findMany({ where: { platformClientId: crmClientId, connected: true }, select: { clientId: true } }),
     prisma.shopSettings.findMany({ where: { platformClientId: crmClientId, platformModules: { has: 'crm' }, switchedOffAt: null }, select: { clientId: true } })
   ]);
-  return [...new Set([...links.map(l => l.clientId), ...shops.map(s => s.clientId)])];
+  // The same rule as outbound (crmShopOf): a shop the Console has given modules gets CRM's changes only
+  // while "crm" is one of them, and never while POS is switched off. Shops with no Console list run as before.
+  const viaLink = links.map(l => l.clientId);
+  const said = viaLink.length ? await prisma.shopSettings.findMany({ where: { clientId: { in: viaLink } }, select: { clientId: true, platformModules: true, switchedOffAt: true } }) : [];
+  const refused = new Set(said.filter(s => s.switchedOffAt || (s.platformModules.length && !s.platformModules.includes('crm'))).map(s => s.clientId));
+  return [...new Set([...viaLink.filter(c => !refused.has(c)), ...shops.map(s => s.clientId)])];
 }
 
 type Moved = { sales: string[]; returns: string[]; heldBills: string[]; creditPaise: number; points: number };
