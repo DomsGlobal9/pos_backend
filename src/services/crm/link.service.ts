@@ -31,7 +31,17 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 /** The shop as CRM knows it (Inventory's id for it), or null: a till not linked to Inventory never goes to CRM. */
 export async function crmShopOf(clientId: string, db: Db = prisma): Promise<string | null> {
-  const link = await db.inventoryLink.findUnique({ where: { clientId }, select: { connected: true, platformClientId: true } });
+  const [link, shop] = await Promise.all([
+    db.inventoryLink.findUnique({ where: { clientId }, select: { connected: true, platformClientId: true } }),
+    db.shopSettings.findUnique({ where: { clientId }, select: { platformClientId: true, platformModules: true, switchedOffAt: true } })
+  ]);
+  if (shop?.switchedOffAt) return null;
+  // One-switch onboarding (26 Nov): the Console says which modules the client has. CRM on: its shop is the client's
+  // platform id, Inventory or not. CRM off: nothing goes to CRM.
+  if (shop && shop.platformModules.length) {
+    return shop.platformModules.includes('crm') ? (shop.platformClientId ?? link?.platformClientId ?? null) : null;
+  }
+  // A shop from before the Console: CRM through Inventory's link, as it always was.
   return link?.connected && link.platformClientId ? link.platformClientId : null;
 }
 

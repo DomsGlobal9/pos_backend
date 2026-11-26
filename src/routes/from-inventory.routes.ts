@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
-import { enableFromInventory, disableFromInventory, statusFromInventory, ownerLinkFromInventory } from '../services/module-service/inventory-door.service';
+import { enableFromInventory, disableFromInventory, statusFromInventory, connectionFromInventory, ownerLinkFromInventory } from '../services/module-service/inventory-door.service';
 
 /**
  * INVENTORY SETTING POS UP FOR A CLIENT (25 Nov). Signed by Inventory's own service key; see
@@ -24,8 +24,10 @@ const handle = (run: (req: Request) => Promise<any>, status = (_r: any) => 200) 
 };
 
 router.post('/pos/enable', handle(req => enableFromInventory(req.headers.authorization, req.body ?? {}), r => (r.made ? 201 : 200)));
-router.post('/pos/disable', handle(req => disableFromInventory(req.headers.authorization)));
+router.post('/pos/disable', handle(req => disableFromInventory(req.headers.authorization, req.body ?? {})));
 router.get('/pos/status', handle(req => statusFromInventory(req.headers.authorization)));
+/** GET /from-inventory/pos/connection -- the Console's lines for POS: { lines: [{ key, label, state, says, action? }] } (26 Nov). */
+router.get('/pos/connection', handle(req => connectionFromInventory(req.headers.authorization)));
 router.post('/pos/owner-link', handle(req => ownerLinkFromInventory(req.headers.authorization, req.body ?? {})));
 
 export default router;

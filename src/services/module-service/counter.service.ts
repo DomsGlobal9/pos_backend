@@ -86,7 +86,7 @@ function adminPass(authorization: string | undefined): Pass {
   return pass;
 }
 
-const ownerActor = (clientId: string, name: string): Actor => ({ kind: 'USER', clientId, id: null, name, roles: ['OWNER'], permissions: Object.values(PERMISSIONS) });
+export const ownerActor = (clientId: string, name: string): Actor => ({ kind: 'USER', clientId, id: null, name, roles: ['OWNER'], permissions: Object.values(PERMISSIONS) });
 const systemFor = (clientId: string): Actor => ({ kind: 'SYSTEM', clientId, id: null, name: 'Boutique super admin', roles: [], permissions: [] });
 
 /* ---- the owner's welcome: one link, to choose a password and PIN ------------------------------------- */
@@ -228,6 +228,38 @@ export async function makeOrJoinShop(input: {
     await prisma.inventoryLink.update({ where: { clientId }, data: { platformClientId: input.inventoryClientId } });
     await syncCatalogue(actor, { full: true }).catch(e => console.error(`[pos-setup] first catalogue for ${clientId}:`, (e as Error).message));
   }
+  return { clientId, made, ownerMade: made || ownerMade };
+}
+
+/**
+ * A POS-ONLY shop (26 Nov, one-switch onboarding): the client has POS but not Inventory. Made (or joined) under the
+ * platform's own client id, with the owner, its roles and Counter 1 -- items are added in POS. If it was linked to
+ * Inventory before, that link is closed: Inventory is off for this client now.
+ */
+export async function makeOrJoinPosOnly(input: { clientId: string; shopName: string; owner: OwnerIn | null; by: string }) {
+  const clientId = input.clientId.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64);
+  const made = !(await prisma.shopSettings.findUnique({ where: { clientId }, select: { clientId: true } }));
+  let ownerMade = false;
+  if (!input.owner && (made || !(await ownerOf(clientId)))) throw badRequest('Send the owner\'s name, and their email or phone: they sign in to POS with it.', { code: 'OWNER_NEEDED' });
+  if (made) {
+    const roleIds = await ensureRoles(clientId);
+    await prisma.$transaction(async tx => {
+      await tx.shopSettings.create({
+        data: {
+          clientId, shopName: input.shopName.slice(0, 80), receiptFooter: 'Thank you for shopping with us.', invoicePrefix: 'INV', creditNotePrefix: 'CN',
+          enabledPaymentMethods: ['CASH', 'UPI', 'CARD'], manualDiscountMaxPercent: 10, returnWindowDays: 7, holdThresholdQty: 3
+        }
+      });
+      await tx.counter.create({ data: { clientId, name: 'Counter 1' } });
+      await tx.user.create({ data: { clientId, name: input.owner!.name, email: input.owner!.email, phone: input.owner!.phone, roles: { create: { roleId: roleIds.OWNER } } } });
+    });
+  } else if (!(await ownerOf(clientId)) && input.owner) {
+    ownerMade = true;
+    const roleIds = await ensureRoles(clientId);
+    await prisma.user.create({ data: { clientId, name: input.owner.name, email: input.owner.email, phone: input.owner.phone, roles: { create: { roleId: roleIds.OWNER } } } });
+  }
+  // Inventory is not one of this client's modules (any more): stop sending to it and pulling from it.
+  await prisma.inventoryLink.updateMany({ where: { clientId, connected: true }, data: { connected: false } });
   return { clientId, made, ownerMade: made || ownerMade };
 }
 

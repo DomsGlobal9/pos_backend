@@ -159,6 +159,14 @@ model ShopSettings {
   switchedOffAt DateTime? @map("switched_off_at")
   switchedOffBy String?   @map("switched_off_by")
 
+  /// ONE-SWITCH ONBOARDING (26 Nov): the platform Console's id for the client (also CRM's shop id, so POS reaches
+  /// CRM without Inventory), the modules the client has (empty: a shop from before, run as it always was), and the
+  /// last switch message applied -- one with a version not above it is ignored.
+  platformClientId String?   @map("platform_client_id")
+  platformModules  String[]  @default([]) @map("platform_modules")
+  platformVersion  BigInt?   @map("platform_version")
+  platformAt       DateTime? @map("platform_at")
+
   shopName         String  @map("shop_name")
   gstin            String?
   address          String?

@@ -98,8 +98,12 @@ async function copiesOf(tx: Tx, clientId: string, crmId: string) {
 
 /** The till's shops behind CRM's id for a shop (Inventory's id for it). */
 async function tillShopsOf(crmClientId: string) {
-  const links = await prisma.inventoryLink.findMany({ where: { platformClientId: crmClientId, connected: true }, select: { clientId: true } });
-  return links.map(l => l.clientId);
+  // Through Inventory's link (as before), and (26 Nov) a Console-managed shop with CRM on and no Inventory.
+  const [links, shops] = await Promise.all([
+    prisma.inventoryLink.findMany({ where: { platformClientId: crmClientId, connected: true }, select: { clientId: true } }),
+    prisma.shopSettings.findMany({ where: { platformClientId: crmClientId, platformModules: { has: 'crm' }, switchedOffAt: null }, select: { clientId: true } })
+  ]);
+  return [...new Set([...links.map(l => l.clientId), ...shops.map(s => s.clientId)])];
 }
 
 type Moved = { sales: string[]; returns: string[]; heldBills: string[]; creditPaise: number; points: number };
