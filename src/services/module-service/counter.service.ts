@@ -11,7 +11,7 @@ import { cleanPin, cleanEmail, cleanPhone } from '../staff/staff.service';
 import { signFor, hasServiceKey } from '../crm/service-token';
 import { badRequest, conflict, forbidden, notFound, unauthorized, unavailable } from '../../utils/httpError';
 import { readPass, Pass } from './pass';
-import { sendWelcome } from '../../lib/mailer';
+import { sendWelcome, sendAllSet } from '../../lib/mailer';
 import { learnFor, BOUTIQUE_COUNTER } from './links.service';
 import { MODULE, MADE_BY_ADMIN } from './constants';
 export { MADE_BY_ADMIN };
@@ -132,6 +132,9 @@ export async function welcomeSet(token: unknown, input: { password?: unknown; pi
   if (password.length < 8) throw badRequest('Use a password of at least 8 characters.', { code: 'WEAK_PASSWORD' });
   let pin: string;
   try { pin = cleanPin(typeof input.pin === 'string' ? input.pin : ''); } catch (e) { throw badRequest((e as Error).message, { code: 'BAD_PIN' }); }
+  // Each person's own PIN (as /setup always said): the owner now chooses theirs here, after the staff were made.
+  const others = await prisma.user.findMany({ where: { clientId, id: { not: user.id }, deletedAt: null, approvalPinHash: { not: null } }, select: { approvalPinHash: true } });
+  for (const o of others) if (o.approvalPinHash && await bcrypt.compare(pin, o.approvalPinHash)) throw badRequest('Someone at your shop already uses that PIN. Choose another: a PIN approves as one person.', { code: 'PIN_TAKEN' });
   // Guarded: only while no password is set, so two presses (or two tabs) cannot both set one.
   const done = await prisma.user.updateMany({
     where: { id: user.id, clientId, passwordHash: null },
@@ -139,6 +142,13 @@ export async function welcomeSet(token: unknown, input: { password?: unknown; pi
   });
   if (done.count !== 1) throw conflict('This link has been used: the password is set. Sign in at the POS.', { code: 'LINK_USED' });
   await record({ kind: 'USER', clientId, id: user.id, name: user.name, roles: ['OWNER'], permissions: [] }, { action: 'staff.changed', subject: user.name ?? 'Owner', detail: { changed: ['password', 'pin'], by: 'welcome link' } });
+  // "You're all set" (25 Nov, owner): where to sign in and how to start -- and, for a change nobody asked for, who to tell.
+  if (user.email) {
+    const shop = await prisma.shopSettings.findUnique({ where: { clientId }, select: { shopName: true } });
+    const from = await itemsFromOf(clientId);
+    await sendAllSet(user.email, { name: user.name ?? 'there', shop: shop?.shopName ?? 'Your shop', signInWith: user.email, address: posAddress().replace(/^https?:\/\//, ''), itemsFrom: from, boutique: from === 'boutique' })
+      .catch(() => { /* the password is set either way; the email is a courtesy */ });
+  }
   return { shopId: clientId, signInWith: user.email ?? user.phone };
 }
 
@@ -250,12 +260,29 @@ export async function freshOwnerLink(clientId: string, reset: boolean, by: strin
  * The welcome link by email, straight to the owner (25 Nov): nobody has to be online to hand it over. False when
  * the owner has no email or email is not set up; the link is still answered to the super admin.
  */
+/** The owner's one-time welcome link, emailed when they have an email (25 Nov: /setup uses it too). Null once a password is set. */
+export async function ownerWelcome(clientId: string): Promise<{ link: string; emailed: boolean } | null> {
+  const owner = await ownerOf(clientId);
+  if (!owner || owner.passwordHash) return null;
+  const link = welcomeLink(clientId, owner);
+  return { link, emailed: await emailWelcome(clientId, link) };
+}
+
 export async function emailWelcome(clientId: string, link?: string) {
   const owner = await ownerOf(clientId);
   if (!owner?.email || owner.passwordHash) return false;
   const shop = await prisma.shopSettings.findUnique({ where: { clientId }, select: { shopName: true } });
-  const r = await sendWelcome(owner.email, { name: owner.name ?? 'there', shop: shop?.shopName ?? 'Your shop', link: link ?? welcomeLink(clientId, owner), days: WELCOME_DAYS });
+  const r = await sendWelcome(owner.email, { name: owner.name ?? 'there', shop: shop?.shopName ?? 'Your shop', link: link ?? welcomeLink(clientId, owner), days: WELCOME_DAYS, address: posAddress().replace(/^https?:\/\//, ''), itemsFrom: await itemsFromOf(clientId) });
   return r.sent;
+}
+
+/** Where this shop's items come from, for the emails' getting-started steps. */
+async function itemsFromOf(clientId: string): Promise<'pos' | 'inventory' | 'boutique'> {
+  const [b, l] = await Promise.all([
+    prisma.moduleLink.findUnique({ where: { clientId_module: { clientId, module: MODULE } }, select: { active: true } }),
+    prisma.inventoryLink.findUnique({ where: { clientId }, select: { connected: true } })
+  ]);
+  return b?.active ? 'boutique' : l?.connected ? 'inventory' : 'pos';
 }
 
 /** What a switch answers: the shop, whether POS is on, the owner, and (when they have no password) their link. */

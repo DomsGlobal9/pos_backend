@@ -61,7 +61,7 @@ const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt
  * wrapped so it never runs off a phone, and a footer saying why the email came. A hidden first line is the
  * preview mail apps show in the list.
  */
-function layout(o: { preview: string; heading: string; shop?: string; lines: string[]; button?: { label: string; href: string }; note?: string }) {
+function layout(o: { preview: string; heading: string; shop?: string; lines: string[]; button?: { label: string; href: string }; after?: string[]; note?: string }) {
   const p = (t: string, extra = '') => `<p style="margin:0 0 14px;font-size:15px;line-height:1.55;color:#1b1f1d;${extra}">${t}</p>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>${esc(o.heading)}</title></head>
 <body style="margin:0;padding:0;background:#eef2ef;-webkit-text-size-adjust:100%">
@@ -73,9 +73,10 @@ function layout(o: { preview: string; heading: string; shop?: string; lines: str
   <h1 style="margin:10px 0 16px;font-size:21px;line-height:1.3;color:#14231b">${esc(o.heading)}</h1>
 </td></tr>
 <tr><td style="padding:0 26px 6px">
-  ${o.lines.map(l => p(l)).join('\n  ')}
+  ${o.lines.map(l => (l.startsWith('<ol') ? l : p(l))).join('\n  ')}
   ${o.button ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 18px"><tr><td style="border-radius:12px;background:#1f5a3c"><a href="${esc(o.button.href)}" style="display:inline-block;padding:14px 22px;font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:12px">${esc(o.button.label)}</a></td></tr></table>
   ${p(`Button not working? Copy this address into your browser:<br><span style="color:#1f5a3c;word-break:break-all;overflow-wrap:anywhere">${esc(o.button.href)}</span>`, 'font-size:12.5px;color:#5c6660')}` : ''}
+  ${(o.after ?? []).map(l => (l.startsWith('<ol') ? l : p(l))).join('\n  ')}
   ${o.note ? p(o.note, 'font-size:13.5px;color:#5c6660;padding:12px 14px;background:#f4f7f5;border-radius:10px') : ''}
 </td></tr>
 <tr><td style="padding:14px 26px 22px;border-top:1px solid #e6ece8">
@@ -84,17 +85,57 @@ function layout(o: { preview: string; heading: string; shop?: string; lines: str
 </table></td></tr></table></body></html>`;
 }
 
-/** A new shop's owner: their one-time link to choose a password and PIN. */
-export function sendWelcome(to: string, p: { name: string; shop: string; link: string; days: number }) {
+/**
+ * Where a shop's items come from, for the getting-started steps (25 Nov): typed in POS, from Inventory, or from the
+ * Boutique app.
+ */
+export type ItemsFrom = 'pos' | 'inventory' | 'boutique';
+const itemsStep = (from: ItemsFrom = 'pos') => from === 'inventory'
+  ? 'Your items, prices and stock come from ScaleEzy Inventory by themselves.'
+  : from === 'boutique'
+    ? 'Your items, prices and stock come from the Boutique app by themselves.'
+    : 'Add what you sell under <strong>More &rarr; Items</strong>: a name, a price, the GST rate and the barcode if it has one (or import an Excel sheet).';
+const steps = (address: string, from: ItemsFrom = 'pos') => [
+  `Open <strong>${esc(address)}</strong> on the shop's computer, tablet or phone, and <strong>Open the till</strong> with your email and password.`,
+  'Add your staff under <strong>More &rarr; Staff</strong>: a name, a role and a 4-number PIN each. They sign in with their PIN, never a password.',
+  itemsStep(from),
+  'Put your UPI ID under <strong>More &rarr; Settings</strong>, so customers see a QR with the amount to pay. Link your WhatsApp there too, to send bills.'
+];
+const list = (items: string[]) => `<ol style="margin:0 0 14px;padding-left:20px;font-size:15px;line-height:1.55;color:#1b1f1d">${items.map(i => `<li style="margin:0 0 8px">${i}</li>`).join('')}</ol>`;
+const plain = (html: string) => html.replace(/<[^>]+>/g, '').replace(/&rarr;/g, '->').replace(/&amp;/g, '&');
+
+/** A new shop's owner: their one-time link to choose a password and PIN, and what comes after (25 Nov). */
+export function sendWelcome(to: string, p: { name: string; shop: string; link: string; days: number; address?: string; itemsFrom?: ItemsFrom }) {
+  const address = p.address ?? 'pos.scaleezy.com';
+  const next = steps(address, p.itemsFrom);
   return send({
     kind: 'welcome', to, subject: `${p.shop} is ready on ScaleEzy POS`,
-    text: `Hello ${p.name},\n\n${p.shop} is ready on ScaleEzy POS. Open this link to choose your password and PIN (it works once, for ${p.days} days):\n\n${p.link}\n\nYou sign in with this email. ScaleEzy never asks for your password or PIN by email or phone.`,
+    text: `Hello ${p.name},\n\n${p.shop} is ready on ScaleEzy POS. Open this link to choose your password and PIN (it works once, for ${p.days} days):\n\n${p.link}\n\nThen:\n${next.map((s, i) => `${i + 1}. ${plain(s)}`).join('\n')}\n\nYou sign in with this email. ScaleEzy never asks for your password or PIN by email or phone.`,
     html: layout({
       preview: `Choose your password and PIN to open the till at ${p.shop}.`,
       heading: 'Your shop is ready', shop: p.shop,
-      lines: [`Hello ${esc(p.name)},`, `<strong>${esc(p.shop)}</strong> is ready on ScaleEzy POS. Choose your password and a 4-number PIN, and the till opens.`],
+      lines: [`Hello ${esc(p.name)},`, `<strong>${esc(p.shop)}</strong> is ready on ScaleEzy POS. First, choose your password and a 4-number PIN:`],
       button: { label: 'Choose my password', href: p.link },
+      after: [`<strong>Then, to start selling:</strong>`, list(next)],
       note: `The link works once, for ${p.days} days. You sign in with this email.`
+    })
+  });
+}
+
+/** The owner has chosen their password and PIN (25 Nov): they are in, here is how to start, and who to tell if it was not them. */
+export function sendAllSet(to: string, p: { name: string; shop: string; signInWith: string; address?: string; itemsFrom?: ItemsFrom; boutique?: boolean }) {
+  const address = p.address ?? 'pos.scaleezy.com';
+  const next = steps(address, p.itemsFrom);
+  const who = p.boutique ? 'your Boutique admin or ScaleEzy support' : 'ScaleEzy support';
+  return send({
+    kind: 'all-set', to, subject: `You're all set on ScaleEzy POS`,
+    text: `Hello ${p.name},\n\nYour password and PIN for ${p.shop} are set. Sign in at ${address} with ${p.signInWith}.\n\nTo start selling:\n${next.map((s, i) => `${i + 1}. ${plain(s)}`).join('\n')}\n\nNot you? Tell ${who} at once.`,
+    html: layout({
+      preview: `Sign in at ${address} with ${p.signInWith}.`,
+      heading: "You're all set", shop: p.shop,
+      lines: [`Hello ${esc(p.name)},`, `Your password and PIN for <strong>${esc(p.shop)}</strong> are set. You sign in at <strong>${esc(address)}</strong> with <strong>${esc(p.signInWith)}</strong>.`, `<strong>To start selling:</strong>`, list(next)],
+      button: { label: 'Open the till', href: `https://${address.replace(/^https?:\/\//, '')}` },
+      note: `Forgot your password later? On the sign-in page, press <strong>Forgot your password?</strong> and a link comes to this email. <strong>Not you?</strong> Tell ${esc(who)} at once.`
     })
   });
 }

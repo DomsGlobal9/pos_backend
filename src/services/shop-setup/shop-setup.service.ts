@@ -55,7 +55,11 @@ export interface NewShop {
   gstin?: string | null;
   address?: string | null;
   counterName?: string;
-  owner: { name: string; email?: string | null; phone?: string | null; password: string; pin: string };
+  /**
+   * 25 Nov (owner): no password or PIN here any more -- the owner gets a one-time welcome link (emailed when
+   * there is an email) and chooses both. A caller that still sends a password and PIN gets the old behaviour.
+   */
+  owner: { name: string; email?: string | null; phone?: string | null; password?: string | null; pin?: string | null };
   /** Managers and cashiers, added in the same go (optional). The owner can add more later on Staff. */
   staff?: NewPerson[];
 }
@@ -81,10 +85,14 @@ function checkPeople(owner: NewShop['owner'], staff: NewPerson[]) {
     const name = (p.name ?? '').trim();
     if (name.length < 2) throw badRequest(`${i === 0 ? 'The owner' : `Person ${i}`} needs a name.`);
     if (!STAFF_ROLES.includes(p.role)) throw badRequest(`${p.who}: choose Owner, Manager or Cashier.`);
-    let pin: string;
-    try { pin = cleanPin(p.pin ?? ''); } catch (e) { throw badRequest(`${p.who}: ${(e as Error).message}`); }
-    if (pins.has(pin)) throw badRequest(`${p.who} and ${pins.get(pin)} have the same PIN. Each person needs their own — a PIN approves as one person.`);
-    pins.set(pin, p.who);
+    // The owner with no password: chooses a PIN too, from the welcome link.
+    const welcome = i === 0 && !p.password && !p.pin;
+    let pin: string | null = null;
+    if (!welcome) {
+      try { pin = cleanPin(p.pin ?? ''); } catch (e) { throw badRequest(`${p.who}: ${(e as Error).message}`); }
+      if (pins.has(pin)) throw badRequest(`${p.who} and ${pins.get(pin)} have the same PIN. Each person needs their own — a PIN approves as one person.`);
+      pins.set(pin, p.who);
+    }
     let email: string | null; let phone: string | null;
     try { email = cleanEmail(p.email); phone = cleanPhone(p.phone); } catch (e) { throw badRequest(`${p.who}: ${(e as Error).message}`); }
     for (const login of [email, phone].filter(Boolean) as string[]) {
@@ -92,7 +100,7 @@ function checkPeople(owner: NewShop['owner'], staff: NewPerson[]) {
       logins.set(login, p.who);
     }
     if (i === 0 && !email && !phone) throw badRequest('The owner needs an email or a 10-digit phone to open the till with.');
-    if (i === 0 && !p.password) throw badRequest('The owner needs a password to open the till with.');
+    if (i === 0 && !p.password && p.pin) throw badRequest('The owner needs a password with that PIN -- or leave both out and they choose them from the welcome link.');
     if (p.password && !email && !phone) throw badRequest(`${p.who}: a password needs an email or phone to sign in with.`);
     if (p.password && p.password.length < 8) throw badRequest(`${p.who}: use a password of at least 8 characters.`);
     return { name: name.slice(0, 60), role: p.role, pin, email, phone, password: p.password || null };
@@ -111,7 +119,7 @@ export async function createShop(input: NewShop) {
   const hashed = await Promise.all(people.map(async p => ({
     ...p,
     passwordHash: p.password ? await hashPassword(p.password) : null,
-    pinHash: await bcrypt.hash(p.pin, 10)
+    pinHash: p.pin ? await bcrypt.hash(p.pin, 10) : null
   })));
 
   if (await prisma.shopSettings.findUnique({ where: { clientId }, select: { clientId: true } })) {
@@ -141,9 +149,13 @@ export async function createShop(input: NewShop) {
     return { counter, made };
   });
   const [owner] = hashed;
+  // No password given: the owner's one-time link, emailed when they have an email; shown to ScaleEzy staff once.
+  const welcome = owner.passwordHash ? null : await (await import('../module-service/counter.service')).ownerWelcome(clientId);
   return {
     clientId, shopName, counter: result.counter.name, owner: result.made[0].name, signInWith: owner.email ?? owner.phone,
+    ownerLink: welcome?.link ?? null, ownerLinkEmailed: welcome?.emailed ?? false,
     /** Everyone made, and how each gets in. Never a PIN or a password. */
-    people: hashed.map(p => ({ name: p.name, role: p.role, opensTillWith: p.passwordHash ? (p.email ?? p.phone) : null }))
+    // The owner opens the till with their login once they choose a password from the link.
+    people: hashed.map(p => ({ name: p.name, role: p.role, opensTillWith: p.passwordHash || p.role === 'OWNER' ? (p.email ?? p.phone) : null }))
   };
 }
